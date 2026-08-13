@@ -147,9 +147,15 @@ class SuboptimalRule:
             ):
                 # A local constant: assigned a byte literal once and never
                 # reassigned, so the lanes are as certain as an inline literal.
-                # The single-definition test matters because def-use here is
-                # line-ordered and does not model branches — a variable written
-                # in more than one place is not pinned by line order alone.
+                #
+                # The count spans the whole function on purpose, including
+                # writes that appear after this use. Def-use here is
+                # line-ordered and models no control flow, so a later line is
+                # not a later execution: inside a loop, a write below the use
+                # reaches it on the next iteration. Narrowing this to prior
+                # definitions would grade such a mask A on the strength of a
+                # value it no longer holds. Grading B instead under-claims,
+                # which is the direction this tool errs in by design.
                 if _lanes_are_safe(definition.value.lanes):
                     return (
                         Evidence.A,

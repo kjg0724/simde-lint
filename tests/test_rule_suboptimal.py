@@ -3,7 +3,8 @@ from simde_lint.rules.suboptimal import SuboptimalRule
 
 
 def _graded(run_rule):
-    return sorted(run_rule(SuboptimalRule(), "suboptimal_positive.c"), key=lambda f: f.line)
+    findings = run_rule(SuboptimalRule(), "suboptimal_positive.c")
+    return sorted((f for f in findings if f.function == "kernel"), key=lambda f: f.line)
 
 
 def test_reports_one_finding_per_shuffle_call_site(run_rule):
@@ -47,3 +48,16 @@ def test_grades_unresolvable_mask_c(run_rule):
 
 def test_reports_nothing_for_shuffle_epi32(run_rule):
     assert run_rule(SuboptimalRule(), "suboptimal_negative.c") == []
+
+
+def test_a_mask_reassigned_later_in_the_function_is_not_graded_a(run_rule):
+    # Line order is not execution order: in a loop, the write below the use
+    # reaches it on the next iteration. Since no control flow is modelled, a
+    # second assignment anywhere in the function costs the A grade. Pinned so
+    # nobody narrows the count to prior definitions as an optimization.
+    findings = [
+        f for f in run_rule(SuboptimalRule(), "suboptimal_positive.c")
+        if f.function == "reassigned_after_use"
+    ]
+    assert len(findings) == 1
+    assert findings[0].evidence is Evidence.B
