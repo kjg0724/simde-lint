@@ -1,0 +1,96 @@
+"""Type F: a multiply whose result is added separately instead of fused.
+
+SIMDe translates one intrinsic at a time, so a multiply followed by an add
+stays two instructions. NEON fuses them: smlal accumulates a widening product
+in a single instruction.
+"""
+
+from __future__ import annotations
+
+from typing import Iterator
+
+from ..finding import Evidence, Finding, Impact
+from ..ir import FunctionUnit, IntrinsicCall, ValueKind
+from .base import Context
+
+_MULTIPLIES = {
+    "_mm_mullo_epi32",
+    "_mm_mullo_epi16",
+    "_mm_madd_epi16",
+    "_mm_mul_epi32",
+    "_mm256_mullo_epi32",
+    "_mm256_madd_epi16",
+    "_mm256_mul_epi32",
+}
+_ADDS = {"_mm_add_epi32", "_mm_add_epi64", "_mm256_add_epi32", "_mm256_add_epi64"}
+_WIDENING = {
+    "_mm_cvtepi32_epi64",
+    "_mm_cvtepi16_epi32",
+    "_mm256_cvtepi32_epi64",
+    "_mm256_cvtepi16_epi32",
+}
+
+
+class FusionRule:
+    type = "F"
+    rule_id = "F.mul_add_no_fuse"
+    mechanism = "multiply-add not fused"
+
+    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+        cost = ctx.knowledge.cost(self.rule_id)
+        adds = [c for c in unit.calls if c.name in _ADDS]
+        for mul in unit.calls:
+            if mul.name not in _MULTIPLIES or not mul.result_var:
+                continue
+            for add in adds:
+                if add.line <= mul.line:
+                    continue
+                path = self._path(unit, mul, add)
+                if path is None:
+                    continue
+                evidence, via = path
+                yield Finding(
+                    type=self.type,
+                    rule=self.rule_id,
+                    rule_mechanism=self.mechanism,
+                    evidence=evidence,
+                    impact=Impact.CONFIRMED,
+                    file=unit.file,
+                    line=mul.line,
+                    function=unit.name,
+                    intrinsic=mul.name,
+                    rationale=(
+                        f"{mul.name} at line {mul.line} reaches {add.name} at line "
+                        f"{add.line}{via}; NEON fuses this into a single "
+                        f"multiply-accumulate ({cost.source})"
+                    ),
+                    simde_insns=cost.simde_insns,
+                    native_insns=cost.native_insns,
+                    suggestion=cost.suggestion,
+                )
+                break
+
+    def _path(
+        self, unit: FunctionUnit, mul: IntrinsicCall, add: IntrinsicCall
+    ) -> tuple[Evidence, str] | None:
+        """Direct identity grades A; one widening hop grades B."""
+        operands = {arg.text for arg in add.args if arg.kind is ValueKind.VARIABLE}
+
+        if mul.result_var in operands:
+            if unit.redefined_between(mul.result_var, mul.line, add.line):
+                return None
+            return Evidence.A, ""
+
+        for name in operands:
+            definition = unit.definition_before(name, add.line)
+            if definition is None or definition.value.call_id is None:
+                continue
+            intermediate = unit.call_by_id(definition.value.call_id)
+            if intermediate is None or intermediate.name not in _WIDENING:
+                continue
+            if mul.result_var not in {a.text for a in intermediate.args}:
+                continue
+            if unit.redefined_between(mul.result_var, mul.line, intermediate.line):
+                continue
+            return Evidence.B, f" through {intermediate.name} at line {intermediate.line}"
+        return None

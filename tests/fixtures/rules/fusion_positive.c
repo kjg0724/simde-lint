@@ -1,0 +1,14 @@
+void kernel(const int *a, const int *b, __m128i acc, __m256i acc256) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_mullo_epi32(va, vb);
+    __m128i sum = _mm_add_epi32(acc, prod);
+
+    __m128i pair = _mm_madd_epi16(va, vb);
+    __m128i wide = _mm_cvtepi32_epi64(pair);
+    __m128i sum64 = _mm_add_epi64(acc, wide);
+
+    __m256i big = _mm256_madd_epi16(acc256, acc256);
+    __m256i sum256 = _mm256_add_epi32(acc256, big);
+    (void)sum; (void)sum64; (void)sum256;
+}
