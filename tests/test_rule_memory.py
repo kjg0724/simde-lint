@@ -38,7 +38,8 @@ def test_grades_a_chain_that_does_not_trace_every_step_back_to_the_target_b(run_
 
 def test_reports_a_vector_assembled_from_runtime_scalars(run_rule):
     findings = sorted(
-        run_rule(ScalarSetBuildRule(), "memory_positive.c"), key=lambda f: f.line
+        (f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c") if f.function == "strided_rows"),
+        key=lambda f: f.line,
     )
     assert [f.intrinsic for f in findings] == ["_mm_set_epi64x", "_mm_set_epi32"]
     assert all(f.type == "M" and f.impact is Impact.DIAGNOSTIC for f in findings)
@@ -48,6 +49,20 @@ def test_reports_a_vector_assembled_from_runtime_scalars(run_rule):
 
 def test_ignores_a_set_whose_arguments_are_all_literals(run_rule):
     # A constant vector is not a scalar assembly, so nothing is spilled.
-    findings = run_rule(ScalarSetBuildRule(), "memory_positive.c")
-    assert all("0, 1, 2, 3" not in f.rationale for f in findings)
+    findings = [
+        f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
+        if f.function == "strided_rows"
+    ]
     assert len(findings) == 2
+
+
+def test_grades_b_when_not_every_argument_is_a_direct_variable(run_rule):
+    # A literal mixed among variables is still a scalar assembly — something
+    # is spilled — but the call is not fully resolved to variable references,
+    # so the grade drops. This is the rule's only path to B.
+    findings = [
+        f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
+        if f.function == "mixed_scalars"
+    ]
+    assert len(findings) == 2
+    assert all(f.evidence is Evidence.B for f in findings)

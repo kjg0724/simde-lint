@@ -36,3 +36,9 @@ void strided_rows(long long m2, long long m5, int a, int b, int c, int d) {
     __m128i konst = _mm_set_epi32(0, 1, 2, 3);
     (void)org; (void)idx; (void)konst;
 }
+
+void mixed_scalars(long long m5, int a) {
+    __m128i pair = _mm_set_epi64x(0, m5);
+    __m128i quad = _mm_set_epi32(a, 0, a, 0);
+    (void)pair; (void)quad;
+}

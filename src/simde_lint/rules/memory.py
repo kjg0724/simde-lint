@@ -1,9 +1,14 @@
-"""Type M: a vector assembled from separate scalar inserts.
+"""Type M: a vector assembled from scalars instead of a structured load.
 
+Two mechanisms live here. `MemoryRule` catches a chain of scalar inserts:
 SIMDe has no counterpart for ARM's structured and lane-wise loads, so strided
 reads become a chain of scalar inserts, each needing the value in a
-general-purpose register first. A NEON lane load reads straight into the
-vector register.
+general-purpose register first, where a NEON lane load reads straight into
+the vector register. `ScalarSetBuildRule` catches a vector built in one call
+from runtime scalars (`_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`):
+SIMDe's NEON path spills each scalar to a stack array and reloads the whole
+vector, the same store-to-load round trip a lane insert or structured load
+avoids.
 
 This rule has the highest false-positive risk of the six; the chain length
 threshold is configurable through `ctx.config["memory_chain_threshold"]`.
