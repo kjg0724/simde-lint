@@ -30,3 +30,26 @@ def test_parses_hex_lane_values():
 
 def test_ignores_unregistered_wrapper_macros():
     assert _index().lookup("hidden_mask") is None
+
+
+def test_excludes_a_table_holding_any_non_integer_element():
+    # Discriminates full exclusion from the weaker "drop the bad element"
+    # behaviour: under that variant this would resolve to (0, 1, 3).
+    assert _index().lookup("mixed_mask") is None
+
+
+def test_stops_resolving_a_name_two_files_define_differently():
+    # static const tables have internal linkage, so this is legal C. A flat
+    # index cannot say which one a use site meant, so it must resolve neither.
+    knowledge = load_knowledge()
+    first = b"static const unsigned char m[4] = {0, 1, 2, 3};"
+    second = b"static const unsigned char m[4] = {4, 5, 6, 7};"
+    index = build_symbol_index([("a.c", first), ("b.c", second)], knowledge)
+    assert index.lookup("m") is None
+
+
+def test_repeated_identical_definitions_are_not_a_collision():
+    knowledge = load_knowledge()
+    same = b"static const unsigned char m[4] = {0, 1, 2, 3};"
+    index = build_symbol_index([("a.c", same), ("b.c", same)], knowledge)
+    assert index.lookup("m").rows == ((0, 1, 2, 3),)

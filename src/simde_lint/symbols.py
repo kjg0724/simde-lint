@@ -29,11 +29,29 @@ class ConstantArray:
 @dataclass
 class SymbolIndex:
     _arrays: dict[str, ConstantArray] = field(default_factory=dict)
+    _ambiguous: set[str] = field(default_factory=set)
 
     def add(self, array: ConstantArray) -> None:
-        self._arrays.setdefault(array.name, array)
+        """Record a definition, refusing to resolve a contested name.
+
+        Names collide legitimately: `static const` tables have internal
+        linkage, so two unrelated files may define different tables under one
+        name. This index is flat and file-unaware, so it cannot tell a rule
+        which definition applies at a given use site. Handing back the wrong
+        file's table would be the same false-confidence failure as recording a
+        partially-known one, so a collision with different contents marks the
+        name ambiguous and `lookup` stops resolving it. Identical repeat
+        definitions are not a collision — the answer is the same either way.
+        """
+        existing = self._arrays.get(array.name)
+        if existing is None:
+            self._arrays[array.name] = array
+        elif existing.rows != array.rows:
+            self._ambiguous.add(array.name)
 
     def lookup(self, name: str) -> ConstantArray | None:
+        if name in self._ambiguous:
+            return None
         return self._arrays.get(name)
 
     def __len__(self) -> int:
