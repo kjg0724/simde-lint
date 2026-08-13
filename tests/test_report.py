@@ -42,7 +42,10 @@ def test_json_is_parseable_and_carries_the_mechanism():
     data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
     assert data["simde_version"] == "0.8.4"
     assert len(data["findings"]) == 2
-    assert data["findings"][0]["rule_mechanism"] == "pshufb->tbl guard only"
+    # Findings are sorted by (file, line, type, rule), not input order, so
+    # look the entry up by rule id rather than assuming a fixed index.
+    pshufb_entry = next(f for f in data["findings"] if f["rule"] == "S.pshufb_guard")
+    assert pshufb_entry["rule_mechanism"] == "pshufb->tbl guard only"
 
 
 def test_json_summary_counts_by_rule_with_its_mechanism():
@@ -85,3 +88,24 @@ def test_summaries_keep_two_mechanisms_of_one_type_apart():
 def test_empty_input_renders_without_error():
     assert "0 findings" in render_text([])
     assert json.loads(render_json([], simde_version="0.8.4"))["findings"] == []
+
+
+def test_both_renderers_order_a_tie_at_one_location_identically():
+    # Two Type M mechanisms on one statement share file, line and type, so
+    # only the rule id separates them. Order must not depend on how the caller
+    # assembled the list.
+    def m(rule, mechanism):
+        return Finding(
+            type="M", rule=rule, rule_mechanism=mechanism,
+            evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=9,
+            function="kernel", intrinsic="_mm_set_epi64x", rationale="r",
+            simde_insns=2, native_insns=2, suggestion="vsetq_lane_s64",
+        )
+
+    chain = m("M.scalar_insert_chain", "scalar insert chain")
+    build = m("M.scalar_set_build", "vector built from runtime scalars")
+
+    forward = json.loads(render_json([chain, build], simde_version="0.8.4"))["findings"]
+    reverse = json.loads(render_json([build, chain], simde_version="0.8.4"))["findings"]
+    assert [f["rule"] for f in forward] == [f["rule"] for f in reverse]
+    assert render_text([chain, build]) == render_text([build, chain])

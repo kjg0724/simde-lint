@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..finding import Finding
+from ..finding import Finding, sort_key
 
 
 def _label(finding: Finding) -> str:
@@ -19,7 +19,7 @@ def _label(finding: Finding) -> str:
 
 def render_text(findings: list[Finding]) -> str:
     lines: list[str] = []
-    for finding in sorted(findings, key=lambda f: (f.file, f.line, f.type)):
+    for finding in sorted(findings, key=sort_key):
         lines.append(
             f"{finding.file}:{finding.line}  {_label(finding)}  "
             f"evidence={finding.evidence.value}  impact={finding.impact.value}"

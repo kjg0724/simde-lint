@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from ..finding import Finding
+from ..finding import Finding, sort_key
 
 
 def render_json(findings: list[Finding], simde_version: str) -> str:
@@ -16,7 +16,7 @@ def render_json(findings: list[Finding], simde_version: str) -> str:
     by_rule = Counter(f.rule for f in findings)
     document = {
         "simde_version": simde_version,
-        "findings": [f.to_dict() for f in findings],
+        "findings": [f.to_dict() for f in sorted(findings, key=sort_key)],
         "summary": {
             "total": len(findings),
             "by_type": dict(sorted(Counter(f.type for f in findings).items())),

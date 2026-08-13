@@ -54,3 +54,15 @@ class Finding:
         if self.mask_source is not None:
             data["mask_source"] = self.mask_source
         return data
+
+
+def sort_key(finding: "Finding") -> tuple[str, int, str, str]:
+    """Total display order for findings.
+
+    Includes the rule id because one location can legitimately carry findings
+    from several rules — two Type M mechanisms can fire on the same statement.
+    Without it the order of such a pair would depend on the order the caller
+    happened to assemble them, and two runs over the same input could differ.
+    Both reporters use this so their outputs stay comparable.
+    """
+    return (finding.file, finding.line, finding.type, finding.rule)
