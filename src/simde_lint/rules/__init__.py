@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .base import Context, Rule
 from .fusion import FusionRule
-from .memory import MemoryRule
+from .memory import MemoryRule, ScalarSetBuildRule
 from .redundant import RedundantRule
 from .suboptimal import SuboptimalRule
 from .widening import WideningRule
@@ -19,6 +19,7 @@ ALL_RULES: list[Rule] = [
     WideningRule(),
     FusionRule(),
     MemoryRule(),
+    ScalarSetBuildRule(),
 ]
 
 __all__ = ["ALL_RULES", "Context", "Rule"]

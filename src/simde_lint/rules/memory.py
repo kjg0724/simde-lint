@@ -15,10 +15,16 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit, IntrinsicCall, ValueKind
+from ..symbols import parse_int_literal
 from .base import Context
 
 _INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
 _DEFAULT_THRESHOLD = 3
+_SCALAR_SETS = {"_mm_set_epi64x", "_mm_set_epi32", "_mm_set_epi16"}
+
+
+def _is_integer_literal(text: str) -> bool:
+    return parse_int_literal(text) is not None
 
 
 class MemoryRule:
@@ -93,3 +99,48 @@ class MemoryRule:
             native_insns=cost.native_insns * len(calls),
             suggestion=cost.suggestion,
         )
+
+
+class ScalarSetBuildRule:
+    """Type M, second mechanism: a vector assembled from runtime scalars.
+
+    On NEON, SIMDe's set constructors write each scalar into a stack array and
+    reload the whole vector, so values already in general-purpose registers
+    make a round trip through memory. VVenC's LoopFilter reads strided pixel
+    rows this way, which is where the paper's LoopFilter Type M instances come
+    from.
+    """
+
+    type = "M"
+    rule_id = "M.scalar_set_build"
+    mechanism = "vector built from runtime scalars"
+
+    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+        cost = ctx.knowledge.cost(self.rule_id)
+        for call in unit.calls:
+            if call.name not in _SCALAR_SETS or not call.args:
+                continue
+            if all(_is_integer_literal(arg.text) for arg in call.args):
+                # A constant vector, not a scalar assembly.
+                continue
+            direct = all(arg.kind is ValueKind.VARIABLE for arg in call.args)
+            yield Finding(
+                type=self.type,
+                rule=self.rule_id,
+                rule_mechanism=self.mechanism,
+                evidence=Evidence.A if direct else Evidence.B,
+                impact=Impact.DIAGNOSTIC,
+                file=unit.file,
+                line=call.line,
+                function=unit.name,
+                intrinsic=call.name,
+                rationale=(
+                    f"{call.name} assembles {len(call.args)} runtime scalars into a "
+                    f"vector; SIMDe spills them to a stack array and reloads it, a "
+                    f"round trip a lane insert or structured load avoids "
+                    f"({cost.source})"
+                ),
+                simde_insns=cost.simde_insns * len(call.args),
+                native_insns=cost.native_insns * len(call.args),
+                suggestion=cost.suggestion,
+            )

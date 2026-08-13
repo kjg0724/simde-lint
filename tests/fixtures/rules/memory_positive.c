@@ -29,3 +29,10 @@ void through_temp(const short *src) {
     t = _mm_insert_epi16(t, src[2], 2);
     (void)t;
 }
+
+void strided_rows(long long m2, long long m5, int a, int b, int c, int d) {
+    __m128i org = _mm_set_epi64x(m2, m5);
+    __m128i idx = _mm_set_epi32(a, b, c, d);
+    __m128i konst = _mm_set_epi32(0, 1, 2, 3);
+    (void)org; (void)idx; (void)konst;
+}

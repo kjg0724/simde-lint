@@ -33,6 +33,7 @@ def test_every_rule_that_reports_costs_has_a_pattern_entry():
         "W.mul16_widen_roundtrip",
         "F.mul_add_no_fuse",
         "M.scalar_insert_chain",
+        "M.scalar_set_build",
         "P.cmp_immediate_use",
     }
 
