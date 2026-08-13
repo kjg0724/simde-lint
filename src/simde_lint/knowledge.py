@@ -73,7 +73,13 @@ def load_knowledge(directory: Path | None = None) -> Knowledge:
     aliases_doc = _read(base, "aliases.yaml")
     macros_doc = _read(base, "wrapper_macros.yaml")
 
-    versions = {redundant_doc["simde_version"], patterns_doc["simde_version"]}
+    # wrapper_macros.yaml is exempt: its entries describe consumer-project
+    # declaration macros, not SIMDe expansions, so it declares no version.
+    versions = {
+        redundant_doc["simde_version"],
+        patterns_doc["simde_version"],
+        aliases_doc["simde_version"],
+    }
     if len(versions) != 1:
         raise ValueError(f"knowledge tables disagree on simde_version: {sorted(versions)}")
 
