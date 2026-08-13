@@ -37,6 +37,24 @@ def test_records_a_variable_argument_and_its_definition():
     assert call.args[1].kind == ValueKind.VARIABLE
     assert call.args[1].text == "shuf"
     definition = unit.definition_before("shuf", call.line)
+    assert definition is not None
+
+
+def test_a_variable_assigned_a_byte_literal_constructor_is_a_literal_vector():
+    # `shuf = _mm_setr_epi8(...)` is a local constant: its lanes are as
+    # knowable as the same literal written inline, so its definition should
+    # carry them rather than an opaque call result.
+    unit = _unit()
+    definition = unit.definition_before("shuf", unit.end_line)
+    assert definition.value.kind == ValueKind.LITERAL_VECTOR
+    assert definition.value.lanes == (0, 0, 1, 1, 2, 2, 3, 3, 255, 255, 255, 255, 255, 255, 255, 255)
+
+
+def test_a_variable_assigned_a_non_literal_call_stays_a_call_result():
+    # `cmp = _mm_cmpgt_epi64(...)` has no literal lanes to record, so its
+    # definition still names the producing call for one-hop tracing.
+    unit = _unit()
+    definition = unit.definition_before("cmp", unit.end_line)
     assert definition.value.kind == ValueKind.CALL_RESULT
 
 
