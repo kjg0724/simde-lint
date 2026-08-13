@@ -12,4 +12,15 @@ def test_reports_a_compare_consumed_by_the_next_call(run_rule):
 
 
 def test_reports_nothing_when_an_independent_call_separates_them(run_rule):
-    assert run_rule(PipelineRule(), "pipeline_negative.c") == []
+    findings = [f for f in run_rule(PipelineRule(), "pipeline_negative.c") if f.function == "kernel"]
+    assert findings == []
+
+
+def test_reports_nothing_when_the_compare_result_was_overwritten(run_rule):
+    # A plain reassignment is not a call, so call adjacency alone still sees
+    # these two as neighbours; only a redefinition check rejects it.
+    findings = [
+        f for f in run_rule(PipelineRule(), "pipeline_negative.c")
+        if f.function == "overwritten"
+    ]
+    assert findings == []

@@ -43,6 +43,11 @@ class PipelineRule:
             )
             if not consumed:
                 continue
+            if unit.redefined_between(current.result_var, current.line, following.line):
+                # The name still matches but the value does not: something
+                # overwrote it in between, so the compare's result never
+                # reaches this call and there is no back-to-back use.
+                continue
             yield Finding(
                 type=self.type,
                 rule=self.rule_id,

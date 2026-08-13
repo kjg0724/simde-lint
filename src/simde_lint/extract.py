@@ -194,5 +194,42 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Functi
                     call_id=call.id,
                 )
                 unit.add_definition(Definition(result_var, call.line, value))
+        _record_plain_assignments(definition, source, unit)
         units.append(unit)
     return units
+
+
+def _record_plain_assignments(scope: Node, source: bytes, unit: FunctionUnit) -> None:
+    """Record assignments whose right side is not an intrinsic call.
+
+    Recording only call results would leave `mask = other;` invisible, and a
+    rule asking `redefined_between` would then believe a value survived when it
+    had been overwritten. The replacement value is unknown to us, which is
+    exactly what callers need to know.
+    """
+    for node in iter_nodes(scope, "assignment_expression"):
+        right = node.child_by_field_name("right")
+        if right is None or right.type == "call_expression":
+            continue
+        name = _first_identifier(node_text(node.child_by_field_name("left"), source))
+        if name:
+            unit.add_definition(
+                Definition(
+                    name,
+                    node.start_point[0] + 1,
+                    ValueRef(ValueKind.UNKNOWN, node_text(right, source).strip()),
+                )
+            )
+    for node in iter_nodes(scope, "init_declarator"):
+        value = node.child_by_field_name("value")
+        if value is None or value.type in ("call_expression", "initializer_list"):
+            continue
+        name = _first_identifier(node_text(node.child_by_field_name("declarator"), source))
+        if name:
+            unit.add_definition(
+                Definition(
+                    name,
+                    node.start_point[0] + 1,
+                    ValueRef(ValueKind.UNKNOWN, node_text(value, source).strip()),
+                )
+            )
