@@ -38,17 +38,24 @@ class FusionRule:
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
         cost = ctx.knowledge.cost(self.rule_id)
-        adds = [c for c in unit.calls if c.name in _ADDS]
-        for mul in unit.calls:
+        adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.line)
+        # An add is one fusion opportunity, so the first multiply reaching it
+        # claims it. Without this, `sum = _mm_add_epi32(p1, p2)` over two
+        # products reports twice — and since each finding is anchored at its
+        # own multiply's line, no repeated-line check would reveal it.
+        claimed_adds: set[int] = set()
+
+        for mul in sorted(unit.calls, key=lambda c: c.line):
             if mul.name not in _MULTIPLIES or not mul.result_var:
                 continue
             for add in adds:
-                if add.line <= mul.line:
+                if add.id in claimed_adds or add.line <= mul.line:
                     continue
                 path = self._path(unit, mul, add)
                 if path is None:
                     continue
                 evidence, via = path
+                claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,
                     rule=self.rule_id,
@@ -87,6 +94,13 @@ class FusionRule:
                 continue
             intermediate = unit.call_by_id(definition.value.call_id)
             if intermediate is None or intermediate.name not in _WIDENING:
+                continue
+            if intermediate.line <= mul.line:
+                # The intermediate ran before this multiply, so it cannot be
+                # carrying this multiply's product. Without this test the
+                # interval handed to redefined_between inverts, which makes the
+                # redefinition guard pass vacuously and attributes the product
+                # to a multiply that had not executed yet.
                 continue
             if mul.result_var not in {a.text for a in intermediate.args}:
                 continue

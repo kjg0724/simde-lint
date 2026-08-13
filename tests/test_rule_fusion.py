@@ -3,13 +3,19 @@ from simde_lint.rules.fusion import FusionRule
 
 
 def test_grades_a_direct_mul_to_add_path_a(run_rule):
-    findings = sorted(run_rule(FusionRule(), "fusion_positive.c"), key=lambda f: f.line)
+    findings = sorted(
+        (f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "kernel"),
+        key=lambda f: f.line,
+    )
     assert findings[0].intrinsic == "_mm_mullo_epi32"
     assert findings[0].evidence is Evidence.A
 
 
 def test_grades_a_path_through_a_widening_conversion_b(run_rule):
-    findings = sorted(run_rule(FusionRule(), "fusion_positive.c"), key=lambda f: f.line)
+    findings = sorted(
+        (f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "kernel"),
+        key=lambda f: f.line,
+    )
     assert findings[1].intrinsic == "_mm_madd_epi16"
     assert findings[1].evidence is Evidence.B
 
@@ -21,3 +27,25 @@ def test_covers_the_256_bit_form(run_rule):
 
 def test_reports_nothing_when_the_product_is_redefined_before_the_add(run_rule):
     assert run_rule(FusionRule(), "fusion_negative.c") == []
+
+
+def test_one_add_is_one_fusion_opportunity(run_rule):
+    # Two products reach the same add. Reporting both would double-count one
+    # opportunity, and because each finding sits at its own multiply's line no
+    # repeated-line check would show it.
+    findings = [
+        f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "two_products"
+    ]
+    assert len(findings) == 1
+
+
+def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
+    # The widening conversion runs before the second multiply, so only the
+    # first can own it. Attributing it to the second would invert the interval
+    # handed to redefined_between and pass the guard vacuously.
+    findings = [
+        f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "reused_name"
+    ]
+    assert len(findings) == 1
+    assert findings[0].evidence is Evidence.B
+    assert "_mm_cvtepi32_epi64" in findings[0].rationale
