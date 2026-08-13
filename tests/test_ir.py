@@ -23,3 +23,19 @@ def test_redefined_between_detects_intervening_definition():
     unit = _unit()
     assert unit.redefined_between("m", 3, 12) is True
     assert unit.redefined_between("m", 3, 8) is False
+
+
+def test_definition_before_excludes_a_definition_on_the_query_line():
+    # The only assertions that distinguish `<` from `<=`. Rules ask whether a
+    # value survived from one call to another, so a definition on the query
+    # line itself must not count as reaching it.
+    unit = _unit()
+    assert unit.definition_before("m", 3) is None
+    assert unit.definition_before("m", 9).line == 3
+
+
+def test_redefined_between_excludes_definitions_on_either_boundary():
+    # Definitions at exactly 3 and 9 sit on the boundaries and must not count.
+    unit = _unit()
+    assert unit.redefined_between("m", 3, 9) is False
+    assert unit.redefined_between("m", 2, 10) is True
