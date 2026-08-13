@@ -184,10 +184,14 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Functi
                 # opaque call result: `const __m128i m = _mm_setr_epi8(...)`
                 # is as knowable as the same literal written inline.
                 lanes = _literal_lanes(node, source) if resolved.startswith(_SET_PREFIXES) else None
-                value = (
-                    ValueRef(ValueKind.LITERAL_VECTOR, raw_name, lanes=lanes)
-                    if lanes is not None
-                    else ValueRef(ValueKind.CALL_RESULT, raw_name, call_id=call.id)
+                # `call_id` is carried either way. Rules F, W and M reach a
+                # definition's producing call through it, and knowing the lanes
+                # must not cost them that link.
+                value = ValueRef(
+                    ValueKind.LITERAL_VECTOR if lanes is not None else ValueKind.CALL_RESULT,
+                    raw_name,
+                    lanes=lanes,
+                    call_id=call.id,
                 )
                 unit.add_definition(Definition(result_var, call.line, value))
         units.append(unit)

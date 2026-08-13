@@ -36,8 +36,13 @@ def test_records_a_variable_argument_and_its_definition():
     call = next(c for c in unit.calls if c.name == "_mm_shuffle_epi8")
     assert call.args[1].kind == ValueKind.VARIABLE
     assert call.args[1].text == "shuf"
+    # `shuf` is assigned a byte literal constructor, so the definition carries
+    # the lanes AND still names the call that produced them — rules F, W and M
+    # reach a producing call through `call_id`.
     definition = unit.definition_before("shuf", call.line)
-    assert definition is not None
+    assert definition.value.kind == ValueKind.LITERAL_VECTOR
+    assert definition.value.lanes is not None
+    assert unit.call_by_id(definition.value.call_id).name == "_mm_setr_epi8"
 
 
 def test_a_variable_assigned_a_byte_literal_constructor_is_a_literal_vector():
