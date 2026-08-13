@@ -1,0 +1,49 @@
+# Per-pattern costs for the five rules that match a sequence rather than a
+# single registered intrinsic. Line numbers were read from the reference
+# SIMDe checkout; counts move with the SIMDe version, which is why it is
+# recorded here.
+simde_version: "0.8.4"
+patterns:
+  S.pshufb_guard:
+    simde_insns: 3
+    native_insns: 1
+    suggestion: vqtbl1q_u8
+    source: x86/ssse3.h:346
+    note: >-
+      vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F))) — the table lookup plus a
+      dup of the guard constant and the and that applies it
+  W.mul16_widen_roundtrip:
+    simde_insns: 5
+    native_insns: 1
+    suggestion: vmull_s16
+    source: x86/sse2.h:5188
+    note: >-
+      mulhi_epi16 alone expands to a widening multiply pair plus an unzip;
+      the x86 source adds mullo_epi16 (x86/sse2.h:5278) and an unpack, all of
+      which a single widening multiply replaces
+  F.mul_add_no_fuse:
+    simde_insns: 3
+    native_insns: 1
+    suggestion: vmlal_s32
+    source: x86/sse2.h:4463
+    note: >-
+      madd_epi16 expands to vmull_s16 plus a pairwise add; a separate
+      accumulate follows because SIMDe translates one intrinsic at a time
+  M.scalar_insert_chain:
+    simde_insns: 2
+    native_insns: 1
+    suggestion: vld1q_lane_s16
+    source: x86/sse2.h:4005
+    note: >-
+      Counts are per chain element. insert_epi16 maps to vsetq_lane_s16, which
+      needs the value in a general-purpose register first; a lane load reads
+      straight into the vector register
+  P.cmp_immediate_use:
+    simde_insns: 2
+    native_insns: 2
+    suggestion: reorder independent work between the compare and its use
+    source: x86/sse4.2.h:326
+    note: >-
+      vcgtq_s64 followed immediately by its consumer. No instruction is saved;
+      the cost is the use-to-use latency, which is why the impact class is
+      diagnostic

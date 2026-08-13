@@ -1,0 +1,22 @@
+# Intrinsics whose SIMDe AArch64 expansion begins with a zero-initialization
+# that a native NEON load does not need.
+simde_version: "0.8.4"
+intrinsics:
+  _mm_loadu_si32:
+    simde_insns: 2
+    native_insns: 1
+    suggestion: vld1q_lane_s32
+    source: x86/sse2.h:5760
+    note: vsetq_lane_s32(*ptr, vdupq_n_s32(0), 0) zeroes the vector before a lane load
+  _mm_cvtsi32_si128:
+    simde_insns: 2
+    native_insns: 1
+    suggestion: vsetq_lane_s32
+    source: x86/sse2.h:3587
+    note: vsetq_lane_s32(a, vdupq_n_s32(0), 0) builds a zero vector before inserting lane 0
+  _mm_cvtsi64_si128:
+    simde_insns: 2
+    native_insns: 1
+    suggestion: vsetq_lane_s64
+    source: x86/sse2.h:3652
+    note: vsetq_lane_s64(a, vdupq_n_s64(0), 0) builds a zero vector before inserting lane 0

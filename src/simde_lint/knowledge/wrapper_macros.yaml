@@ -1,0 +1,12 @@
+# Macros that wrap a declaration. The tool reinterprets a call to one of these
+# as a declaration ONLY for the names listed here, using declarator_arg as the
+# zero-based index of the argument holding the declarator. The tool never
+# infers this for unlisted macros: that would amount to reimplementing the
+# preprocessor.
+macros:
+  DECLARE_ALIGNED:
+    declarator_arg: 2
+    note: "DECLARE_ALIGNED(align, type, name[dims]) in SVT-AV1"
+  DECLARE_ALIGNED_16:
+    declarator_arg: 1
+    note: "DECLARE_ALIGNED_16(type, name[dims])"
