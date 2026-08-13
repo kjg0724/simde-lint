@@ -43,3 +43,28 @@ def test_records_a_variable_argument_and_its_definition():
 def test_records_the_result_variable_of_a_call():
     call = next(c for c in _unit().calls if c.name == "_mm_loadu_si32")
     assert call.result_var == "data"
+
+
+def test_a_nested_call_binds_no_result_variable():
+    # `out = _mm_shuffle_epi8(data, _mm_setr_epi8(...))` binds only the
+    # shuffle. Attributing `out` to the nested literal as well would put two
+    # definitions on one line and make definition_before name the wrong
+    # producing call.
+    unit = _unit()
+    nested = [c for c in unit.calls if c.name == "_mm_setr_epi8"][-1]
+    assert nested.result_var is None
+    assert len([d for d in unit.definitions["out"] if d.line == nested.line]) == 1
+
+
+def test_literal_lanes_are_recorded_only_for_byte_constructors():
+    # Rule S reads lanes to judge a byte shuffle mask. A wider constructor
+    # recorded under a byte mask would report truncated values, so it stays
+    # opaque instead.
+    units = extract_units(
+        "t.c",
+        b"void f(void) { __m128i x = _mm_cmpeq_epi32(a, _mm_set_epi32(0x01020304, 0, 0, -1)); }",
+        load_knowledge(),
+    )
+    outer = next(c for c in units[0].calls if c.name == "_mm_cmpeq_epi32")
+    assert outer.args[1].kind == ValueKind.CALL_RESULT
+    assert outer.args[1].lanes is None

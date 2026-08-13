@@ -46,7 +46,16 @@ def _first_identifier(text: str) -> str | None:
     return match.group(0) if match else None
 
 
-_SET_PREFIXES = ("_mm_setr_", "_mm_set_", "_mm256_setr_", "_mm256_set_")
+# Byte constructors only. Rule S is the sole consumer of `lanes`, and it reads
+# a byte shuffle mask. Wider constructors would need per-width handling that no
+# rule needs, and recording them under a byte mask would truncate their values,
+# so they stay opaque instead.
+_SET_PREFIXES = (
+    "_mm_setr_epi8",
+    "_mm_set_epi8",
+    "_mm256_setr_epi8",
+    "_mm256_set_epi8",
+)
 
 
 def _symbol_name(node: Node, source: bytes) -> str | None:
@@ -103,13 +112,26 @@ def _literal_lanes(call: Node, source: bytes) -> tuple[int, ...] | None:
 
 
 def _enclosing_result_var(call: Node, source: bytes) -> str | None:
+    """Variable this call's result is bound to, when the binding is direct.
+
+    A call nested in another call's argument list binds nothing of its own:
+    its value flows into the enclosing call, not into that statement's target.
+    Walking past an intervening call_expression would attribute the outer
+    assignment to the inner call and record a second, wrong definition on the
+    same line — and `definition_before` would then name the inner call as the
+    producer.
+    """
     parent = call.parent
-    while parent is not None and parent.type not in ("init_declarator", "assignment_expression", "function_definition"):
+    while parent is not None:
+        if parent.type == "call_expression":
+            return None
+        if parent.type in ("init_declarator", "assignment_expression"):
+            field = "declarator" if parent.type == "init_declarator" else "left"
+            return _first_identifier(node_text(parent.child_by_field_name(field), source))
+        if parent.type == "function_definition":
+            return None
         parent = parent.parent
-    if parent is None or parent.type == "function_definition":
-        return None
-    field = "declarator" if parent.type == "init_declarator" else "left"
-    return _first_identifier(node_text(parent.child_by_field_name(field), source))
+    return None
 
 
 def _iter_function_definitions(root: Node) -> Iterator[Node]:
