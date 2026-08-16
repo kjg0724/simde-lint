@@ -41,3 +41,23 @@ def test_warns_and_continues_on_a_path_that_does_not_exist(tmp_path, capsys):
     found = discover_files([tmp_path / "nope", tmp_path], exclude=[])
     assert {p.name for p in found} == {"a.c"}
     assert "no such path" in capsys.readouterr().err
+
+
+def test_a_directory_name_above_the_root_does_not_exclude_the_tree(tmp_path):
+    # `--exclude 'src/*'` under a root such as ~/dev/src/project must not match
+    # every file just because an ancestor directory is called `src`.
+    root = tmp_path / "src" / "project"
+    (root / "lib").mkdir(parents=True)
+    (root / "lib" / "a.c").write_text("")
+    (root / "src").mkdir()
+    (root / "src" / "b.c").write_text("")
+    names = {p.name for p in discover_files([root.resolve()], exclude=["src/*"])}
+    assert names == {"a.c"}
+
+
+def test_nested_directory_patterns_still_match(tmp_path):
+    (tmp_path / "sub" / "build").mkdir(parents=True)
+    (tmp_path / "sub" / "build" / "gen.c").write_text("")
+    (tmp_path / "keep.c").write_text("")
+    names = {p.name for p in discover_files([tmp_path.resolve()], exclude=["build/*"])}
+    assert names == {"keep.c"}
