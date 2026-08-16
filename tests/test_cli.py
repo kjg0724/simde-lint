@@ -1,4 +1,5 @@
 import json
+import os
 
 from simde_lint.cli import main
 
@@ -49,3 +50,18 @@ def test_text_output_is_the_default(tmp_path, capsys):
 
 def test_exit_code_is_zero_even_with_findings(tmp_path):
     assert main([_write(tmp_path)]) == 0
+
+
+def test_dump_symbols_survives_an_unreadable_file(tmp_path):
+    # --dump-symbols must not crash a whole sweep over one file it cannot
+    # read, exactly like the analysis path already survives one.
+    readable = tmp_path / "ok.c"
+    readable.write_text("static const unsigned char m[1] = {0};")
+    blocked = tmp_path / "blocked.c"
+    blocked.write_text("static const unsigned char n[1] = {1};")
+    os.chmod(blocked, 0o000)
+    try:
+        code = main([str(tmp_path), "--dump-symbols"])
+    finally:
+        os.chmod(blocked, 0o644)
+    assert code == 0

@@ -8,8 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .analyze import analyze
-from .discover import discover_files
+from .analyze import analyze, read_sources
 from .finding import Evidence, Impact
 from .knowledge import load_knowledge
 from .report import render_json, render_text
@@ -41,8 +40,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.dump_symbols:
         knowledge = load_knowledge()
-        sources = [(str(p), p.read_bytes()) for p in discover_files(args.paths, args.exclude)]
-        index = build_symbol_index(sources, knowledge)
+        # read_sources, not a bare read_bytes loop: this path must survive an
+        # unreadable file exactly like the analysis path does.
+        index = build_symbol_index(read_sources(args.paths, args.exclude), knowledge)
         for name in index.names():
             array = index.lookup(name)
             print(f"{array.name}\t{array.defined_at}\t{len(array.rows)} row(s)")

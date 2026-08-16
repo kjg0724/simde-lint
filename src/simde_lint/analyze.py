@@ -26,6 +26,22 @@ def _read(path: Path) -> bytes | None:
         return None
 
 
+def read_sources(
+    paths: Sequence[Path | str], exclude: Sequence[str] = ()
+) -> list[tuple[str, bytes]]:
+    """Discover and read every scannable file, skipping the unreadable.
+
+    Shared by the analysis pipeline and by --dump-symbols so both survive a
+    file that cannot be read; one bad file must never abort a sweep.
+    """
+    sources: list[tuple[str, bytes]] = []
+    for path in discover_files(paths, exclude):
+        content = _read(path)
+        if content is not None:
+            sources.append((str(path), content))
+    return sources
+
+
 def analyze(
     paths: Sequence[Path | str],
     *,
@@ -36,13 +52,7 @@ def analyze(
     config: dict[str, Any] | None = None,
 ) -> tuple[list[Finding], Knowledge]:
     knowledge = load_knowledge()
-    files = discover_files(paths, exclude)
-
-    sources: list[tuple[str, bytes]] = []
-    for path in files:
-        content = _read(path)
-        if content is not None:
-            sources.append((str(path), content))
+    sources = read_sources(paths, exclude)
 
     ctx = Context(
         symbols=build_symbol_index(sources, knowledge),
