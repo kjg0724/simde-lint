@@ -54,6 +54,17 @@ class SymbolIndex:
             return None
         return self._arrays.get(name)
 
+    def names(self) -> list[str]:
+        """Names that resolve through lookup(), for tools that list them.
+
+        An ambiguous name still occupies a slot in `_arrays` (the first
+        definition seen, kept only so a later identical one is recognised as
+        a repeat rather than a fresh collision), but `lookup` refuses to
+        return it. Including it here would hand a caller a name it cannot
+        then look up.
+        """
+        return sorted(name for name in self._arrays if name not in self._ambiguous)
+
     def __len__(self) -> int:
         return len(self._arrays)
 

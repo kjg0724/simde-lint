@@ -53,3 +53,19 @@ def test_repeated_identical_definitions_are_not_a_collision():
     same = b"static const unsigned char m[4] = {0, 1, 2, 3};"
     index = build_symbol_index([("a.c", same), ("b.c", same)], knowledge)
     assert index.lookup("m").rows == ((0, 1, 2, 3),)
+
+
+def test_names_excludes_an_ambiguous_entry():
+    # A caller enumerating names() and looking each one up must never get
+    # None back: names() promises what lookup() can deliver.
+    knowledge = load_knowledge()
+    first = b"static const unsigned char m[4] = {0, 1, 2, 3};"
+    second = b"static const unsigned char m[4] = {4, 5, 6, 7};"
+    index = build_symbol_index([("a.c", first), ("b.c", second)], knowledge)
+    assert "m" not in index.names()
+
+
+def test_names_lists_every_resolvable_array():
+    # hidden_mask (unregistered macro) and mixed_mask (non-integer element)
+    # never enter the index at all, so they are absent here too.
+    assert _index().names() == ["even_odd_mask_x", "plain_mask", "sentinel_mask"]
