@@ -1,6 +1,8 @@
 import json
 import os
 
+import pytest
+
 from simde_lint.cli import main
 
 SOURCE = """
@@ -28,6 +30,9 @@ def test_reports_findings_as_json(tmp_path, capsys):
 def test_min_evidence_a_drops_lower_grades(tmp_path, capsys):
     main([_write(tmp_path), "--format", "json", "--min-evidence", "A"])
     data = json.loads(capsys.readouterr().out)
+    # An empty findings list would satisfy all(...) trivially and hide a
+    # filter that dropped everything, so require it to have kept something.
+    assert data["findings"]
     assert all(f["evidence"] == "A" for f in data["findings"])
 
 
@@ -37,9 +42,26 @@ def test_type_filter_restricts_output(tmp_path, capsys):
     assert {f["type"] for f in data["findings"]} == {"R"}
 
 
+def test_an_unknown_type_letter_is_rejected(tmp_path, capsys):
+    # "Z" isn't one of the six taxonomy types; silently matching nothing
+    # would look identical to a typo-free filter that happens to find
+    # nothing, so this must fail loudly instead.
+    with pytest.raises(SystemExit) as excinfo:
+        main([_write(tmp_path), "--type", "Z"])
+    assert excinfo.value.code == 2
+    assert "unknown taxonomy type" in capsys.readouterr().err
+
+
+def test_a_known_type_mixed_with_an_unknown_one_is_still_rejected(tmp_path):
+    with pytest.raises(SystemExit):
+        main([_write(tmp_path), "--type", "R,Z"])
+
+
 def test_impact_confirmed_drops_diagnostic_findings(tmp_path, capsys):
     main([_write(tmp_path), "--format", "json", "--impact", "confirmed"])
     data = json.loads(capsys.readouterr().out)
+    # Same trap as above: all(...) over an empty list is vacuously true.
+    assert data["findings"]
     assert all(f["impact"] == "confirmed" for f in data["findings"])
 
 

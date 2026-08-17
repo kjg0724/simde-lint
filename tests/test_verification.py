@@ -96,3 +96,7 @@ def test_loopfilter_reports_no_type_s_as_the_spec_declares():
 def test_full_sweep_of_both_codebases_does_not_crash():
     findings, _ = analyze([VVENC_X86])
     assert isinstance(findings, list)
+    # isinstance(findings, list) alone would pass for a sweep that silently
+    # crashed every file and returned []; docs/verification.md records 412
+    # findings over this directory, so require it to have found something.
+    assert findings

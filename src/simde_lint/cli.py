@@ -14,6 +14,8 @@ from .knowledge import load_knowledge
 from .report import render_json, render_text
 from .symbols import build_symbol_index
 
+_TYPES = ("R", "S", "W", "F", "M", "P")
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -32,7 +34,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    types = [t.strip() for t in args.type.split(",") if t.strip()] or None
+    if types is not None:
+        unknown = sorted(set(types) - set(_TYPES))
+        if unknown:
+            parser.error(
+                f"--type: unknown taxonomy type(s) {', '.join(unknown)}; "
+                f"choose from {','.join(_TYPES)}"
+            )
 
     config = {}
     if args.config:
@@ -51,7 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     findings, knowledge = analyze(
         args.paths,
         exclude=args.exclude,
-        types=[t.strip() for t in args.type.split(",") if t.strip()] or None,
+        types=types,
         min_evidence=Evidence(args.min_evidence),
         impact=Impact.CONFIRMED if args.impact == "confirmed" else None,
         config=config,
