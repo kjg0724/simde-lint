@@ -39,6 +39,38 @@ def test_one_add_is_one_fusion_opportunity(run_rule):
     assert len(findings) == 1
 
 
+def test_madd_epi16_names_no_fused_instruction(run_rule):
+    # AArch64 has no pairwise 16-to-32 multiply-accumulate for madd_epi16;
+    # naming smlal here would be wrong for the dominant, non-reduction case
+    # (I2). Cost data backs this: native_insns is unknown for this intrinsic.
+    findings = [
+        f for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "kernel" and f.intrinsic == "_mm_madd_epi16"
+    ]
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.suggestion is None
+    assert finding.native_insns is None
+    assert finding.simde_insns == 4
+    assert "smlal" not in finding.rationale
+    assert "vmlal" not in finding.rationale
+    assert "no fused multiply-accumulate form is established" in finding.rationale
+    assert "emitted as separate instructions" in finding.rationale
+
+
+def test_mullo_epi32_names_its_fused_instruction(run_rule):
+    # A non-widening multiply-accumulate exists for mullo_epi32 (mla), so the
+    # rationale may name it when the native cost is established (I2).
+    findings = sorted(
+        (f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "kernel"),
+        key=lambda f: f.line,
+    )
+    finding = findings[0]
+    assert finding.intrinsic == "_mm_mullo_epi32"
+    assert finding.suggestion is not None
+    assert finding.native_insns is not None
+
+
 def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     # The widening conversion runs before the second multiply, so only the
     # first can own it. Attributing it to the second would invert the interval

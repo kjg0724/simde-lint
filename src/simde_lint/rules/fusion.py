@@ -68,14 +68,32 @@ class FusionRule:
                     intrinsic=mul.name,
                     rationale=(
                         f"{mul.name} at line {mul.line} reaches {add.name} at line "
-                        f"{add.line}{via}; NEON fuses this into a single "
-                        f"multiply-accumulate ({cost.source})"
+                        f"{add.line}{via}; {self._fusion_claim(cost)} ({cost.source})"
                     ),
                     simde_insns=cost.simde_insns,
                     native_insns=cost.native_insns,
                     suggestion=cost.suggestion,
                 )
                 break
+
+    @staticmethod
+    def _fusion_claim(cost) -> str:
+        """What the rule can honestly claim about fusion for this intrinsic.
+
+        The multiply and the add are always observed as separate SIMDe
+        translations — that much is structural. Whether NEON has a fused
+        multiply-accumulate that reaches them is a separate question the
+        rule can only answer when the per-intrinsic native cost is known; when
+        it is not (madd_epi16's pairwise reduction has no direct AArch64
+        fused form), the rationale must not name an instruction that may not
+        exist for this call site.
+        """
+        observed = "the multiply and the accumulate are emitted as separate instructions"
+        if cost.native_insns is None or cost.suggestion is None:
+            return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"
+        return (
+            f"{observed}; NEON fuses this into {cost.suggestion} for some accumulator shapes"
+        )
 
     def _path(
         self, unit: FunctionUnit, mul: IntrinsicCall, add: IntrinsicCall
