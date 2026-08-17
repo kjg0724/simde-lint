@@ -12,9 +12,9 @@ results, with an established cause for each — not smoothed over and not
 treated as failures.
 
 Every command in this document was re-run against `feature/v1` on the day
-this file was written. Reference checkouts:
-`~/Solario/Solido/open-source/svt-av1` and
-`~/Solario/Solido/open-source/vvenc`.
+this file was written. Reference checkouts are given through the
+`SIMDE_LINT_SVT_AV1` and `SIMDE_LINT_VVENC` environment variables (see
+CONTRIBUTING.md), which fall back to a local checkout path when unset.
 
 ## 1. SVT-AV1: the primary acceptance gate
 
@@ -23,12 +23,12 @@ Rule S must report exactly as many `_mm_shuffle_epi8` call sites as a plain
 bar — not "close", equal.
 
 ```
-$ grep -r -o _mm_shuffle_epi8 ~/Solario/Solido/open-source/svt-av1/Source | wc -l
+$ grep -r -o _mm_shuffle_epi8 "$SIMDE_LINT_SVT_AV1/Source" | wc -l
 204
 ```
 
 ```
-$ uv run simde-lint ~/Solario/Solido/open-source/svt-av1/Source --type S --format json \
+$ uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --type S --format json \
     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['summary'])"
 {'total': 341, 'by_type': {'S': 341}, 'by_rule': {'S.pshufb_guard':
 {'type': 'S', 'count': 341, 'mechanism': 'pshufb->tbl guard only'}},
@@ -72,11 +72,12 @@ inline or local-constant literal:
 
 ```
 $ uv run python3 - <<'EOF'
+import os
 from pathlib import Path
 from simde_lint.analyze import analyze
 from simde_lint.finding import Evidence
 
-findings, _ = analyze([Path.home() / "Solario/Solido/open-source/svt-av1/Source"], types=["S"])
+findings, _ = analyze([Path(os.environ["SIMDE_LINT_SVT_AV1"]) / "Source"], types=["S"])
 for f in findings:
     if f.evidence is Evidence.A and f.mask_source:
         print(f.file, f.line, f.mask_source)
@@ -96,7 +97,7 @@ the runtime index selects. Verified by
 ### Full sweep
 
 ```
-$ time uv run simde-lint ~/Solario/Solido/open-source/svt-av1/Source --format json > out.json
+$ time uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --format json > out.json
 uv run simde-lint ... 13.83s user 0.15s system 97% cpu 14.390 total
 $ echo $?
 0
@@ -270,12 +271,17 @@ availability and run in the default `uv run pytest` invocation.
 
 ## Reproducing this document
 
+Export `SIMDE_LINT_SVT_AV1` and `SIMDE_LINT_VVENC` to point at your own
+checkouts before running any of the commands in this document (see
+CONTRIBUTING.md); without them the tests fall back to a local checkout path
+and the commands below need the paths substituted by hand.
+
 ```
 uv run pytest tests/test_verification.py -v
-grep -r -o _mm_shuffle_epi8 ~/Solario/Solido/open-source/svt-av1/Source | wc -l
-uv run simde-lint ~/Solario/Solido/open-source/svt-av1/Source --type S --format json \
+grep -r -o _mm_shuffle_epi8 "$SIMDE_LINT_SVT_AV1/Source" | wc -l
+uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --type S --format json \
   | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['summary'])"
-uv run simde-lint ~/Solario/Solido/open-source/vvenc/source/Lib/CommonLib/x86/DepQuantX86.h --format json \
+uv run simde-lint "$SIMDE_LINT_VVENC/source/Lib/CommonLib/x86/DepQuantX86.h" --format json \
   | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['summary'])"
 ```
 

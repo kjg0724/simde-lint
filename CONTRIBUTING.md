@@ -9,9 +9,8 @@ uv run pytest -v
 This runs the full suite, including fixture-based unit tests for every rule.
 A subset of tests (`tests/test_verification.py`) additionally checks
 detection against two external reference checkouts: SVT-AV1 and VVenC. Their
-locations default to `~/Solario/Solido/open-source/svt-av1` and
-`~/Solario/Solido/open-source/vvenc`, but are read from the environment
-first:
+locations are read from the environment first, falling back to a local
+checkout path when unset:
 
 - `SIMDE_LINT_SVT_AV1` — path to an SVT-AV1 checkout root (the tests look
   for `<root>/Source`)
