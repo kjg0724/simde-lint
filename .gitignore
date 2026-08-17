@@ -5,3 +5,9 @@ dist/
 build/
 *.egg-info/
 .pytest_cache/
+
+# Local agent tooling state and session instructions -- not part of the
+# published project, and .omc/ holds agent replay logs.
+.omc/
+.serena/
+CLAUDE.md
