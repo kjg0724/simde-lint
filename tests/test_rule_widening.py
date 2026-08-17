@@ -22,3 +22,15 @@ def test_reports_one_finding_per_round_trip_not_per_matching_pair(run_rule):
     findings = [f for f in run_rule(WideningRule(), "widening_positive.c") if f.function == "repeated"]
     assert len(findings) == 2
     assert len({f.line for f in findings}) == 2
+
+
+def test_reports_nothing_when_the_mullo_result_is_overwritten_before_the_unpack(run_rule):
+    # I6: `lo` is reassigned to an unrelated load between the multiply and the
+    # unpack that names it. The unpack still names `lo`, but the value it
+    # reads is no longer the multiply's product, so this is not a round trip
+    # and must not be reported.
+    findings = [
+        f for f in run_rule(WideningRule(), "widening_positive.c")
+        if f.function == "overwritten"
+    ]
+    assert findings == []

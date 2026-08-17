@@ -53,6 +53,16 @@ class WideningRule:
             )
             if consumer is None:
                 continue
+            if unit.redefined_between(
+                lo.result_var, lo.line, consumer.line
+            ) or unit.redefined_between(hi.result_var, hi.line, consumer.line):
+                # The unpack still names lo.result_var/hi.result_var, but one
+                # of them was overwritten before the unpack runs, so the value
+                # it consumes is not this multiply's product. Every other rule
+                # that links a producer to a consumer by variable name already
+                # guards against this; W is not exempt just because its
+                # producer is a pair rather than a single call.
+                continue
             claimed_his.add(hi.id)
             claimed_unpacks.add(consumer.id)
             direct = _all_direct_variables(lo) and _all_direct_variables(hi)
@@ -97,7 +107,17 @@ class WideningRule:
         hi_var: str,
         after_line: int,
     ) -> IntrinsicCall | None:
-        """First unclaimed unpack at or after the multiplies taking both results."""
+        """First unclaimed unpack at or after the multiplies taking both results.
+
+        This only matches by variable name and position, the same as the
+        other rules' first pass over their candidate consumer. It does not
+        itself verify that `lo_var`/`hi_var` still hold the multiplies'
+        results at `consumer.line` — `match` does that afterward with
+        `redefined_between`, exactly where `F` and `P` place the equivalent
+        check. Folding it in here would mix "which unpack is the candidate"
+        with "does the candidate actually see this value", the same
+        separation the other rules keep.
+        """
         for unpack in unpacks:
             if unpack.id in claimed or unpack.line < after_line:
                 continue
