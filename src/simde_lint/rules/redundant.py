@@ -32,7 +32,9 @@ class RedundantRule:
                 rationale=(
                     f"SIMDe {ctx.knowledge.simde_version} expands {call.name} to "
                     f"{info.note or 'a zero-initialized vector plus a partial load'} "
-                    f"({info.source})"
+                    f"({info.source}); removing the zero-init is safe only if the "
+                    "vector's unused lanes are dead in the code that consumes the "
+                    "result, which this rule does not establish"
                 ),
                 simde_insns=info.simde_insns,
                 native_insns=info.native_insns,

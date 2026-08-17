@@ -49,6 +49,13 @@ class SuboptimalRule:
                 continue
             cost = ctx.knowledge.cost(self.rule_id, call.name)
             evidence, rationale, mask_source = self._grade(call.args[1], unit, call.line, ctx)
+            # Only grade A confirms every mask lane lies in a range tbl and
+            # pshufb agree on. B leaves the lane values unpinned and C is
+            # either unresolvable or a confirmed unsafe lane — neither
+            # supports claiming the guard is dead work, so the suggestion and
+            # the instruction counts are withheld rather than printed next to
+            # a rationale that says the opposite.
+            supported = evidence is Evidence.A
             yield Finding(
                 type=self.type,
                 rule=self.rule_id,
@@ -60,9 +67,9 @@ class SuboptimalRule:
                 function=unit.name,
                 intrinsic=call.name,
                 rationale=f"{rationale} ({cost.source})",
-                simde_insns=cost.simde_insns,
-                native_insns=cost.native_insns,
-                suggestion=cost.suggestion,
+                simde_insns=cost.simde_insns if supported else None,
+                native_insns=cost.native_insns if supported else None,
+                suggestion=cost.suggestion if supported else None,
                 mask_source=mask_source,
             )
 

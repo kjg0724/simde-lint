@@ -50,6 +50,26 @@ def test_reports_nothing_for_shuffle_epi32(run_rule):
     assert run_rule(SuboptimalRule(), "suboptimal_negative.c") == []
 
 
+def test_grade_a_carries_the_suggestion_and_instruction_counts(run_rule):
+    finding = _graded(run_rule)[0]
+    assert finding.evidence is Evidence.A
+    assert finding.suggestion == "vqtbl1q_u8"
+    assert (finding.simde_insns, finding.native_insns) == (3, 1)
+
+
+def test_grades_below_a_withhold_the_suggestion_and_instruction_counts(run_rule):
+    # Neither B (lane values not pinned) nor C (unresolvable, or a confirmed
+    # unsafe lane) establishes that the guard is dead work. Printing a
+    # suggestion or a savings figure next to either would claim confidence
+    # the rule does not have.
+    for finding in _graded(run_rule):
+        if finding.evidence is Evidence.A:
+            continue
+        assert finding.suggestion is None
+        assert finding.simde_insns is None
+        assert finding.native_insns is None
+
+
 def test_a_mask_reassigned_later_in_the_function_is_not_graded_a(run_rule):
     # Line order is not execution order: in a loop, the write below the use
     # reaches it on the next iteration. Since no control flow is modelled, a
