@@ -1,9 +1,9 @@
 """Verification against the two reference codebases the taxonomy was built from.
 
 These tests document measured behaviour; they are not exploratory. Every
-assertion here pins a number the controller and the implementer independently
-re-ran against the current build (see docs/verification.md for the full
-comparison and the established cause of every divergence from the paper).
+assertion here pins a number that was independently re-run against the
+current build (see docs/verification.md for the full comparison and the
+established cause of every divergence from the paper).
 
 Tests that need a reference checkout skip cleanly when it is absent, so the
 suite stays runnable for an outside contributor who has neither clone.
@@ -11,6 +11,7 @@ suite stays runnable for an outside contributor who has neither clone.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -20,8 +21,17 @@ import pytest
 from simde_lint.analyze import analyze
 from simde_lint.finding import Evidence
 
-SVT_AV1 = Path.home() / "Solario/Solido/open-source/svt-av1/Source"
-VVENC_X86 = Path.home() / "Solario/Solido/open-source/vvenc/source/Lib/CommonLib/x86"
+# Reference checkout roots, overridable so an outside contributor can point
+# these at their own clones without editing this file. See CONTRIBUTING.md
+# for the SIMDE_LINT_SVT_AV1 / SIMDE_LINT_VVENC variables.
+_SVT_AV1_ROOT = Path(
+    os.environ.get("SIMDE_LINT_SVT_AV1", str(Path.home() / "Solario/Solido/open-source/svt-av1"))
+)
+_VVENC_ROOT = Path(
+    os.environ.get("SIMDE_LINT_VVENC", str(Path.home() / "Solario/Solido/open-source/vvenc"))
+)
+SVT_AV1 = _SVT_AV1_ROOT / "Source"
+VVENC_X86 = _VVENC_ROOT / "source/Lib/CommonLib/x86"
 
 requires_svt = pytest.mark.skipif(not SVT_AV1.exists(), reason="SVT-AV1 checkout not present")
 requires_vvenc = pytest.mark.skipif(not VVENC_X86.exists(), reason="VVenC checkout not present")

@@ -8,11 +8,25 @@ uv run pytest -v
 
 This runs the full suite, including fixture-based unit tests for every rule.
 A subset of tests (`tests/test_verification.py`) additionally checks
-detection against two external reference checkouts
-(`~/Solario/Solido/open-source/svt-av1`, `~/Solario/Solido/open-source/vvenc`
-by default path). Those tests skip cleanly — not fail — when the checkout
-isn't present, so the rest of the suite stays runnable without either clone.
-Run a single test file the same way:
+detection against two external reference checkouts: SVT-AV1 and VVenC. Their
+locations default to `~/Solario/Solido/open-source/svt-av1` and
+`~/Solario/Solido/open-source/vvenc`, but are read from the environment
+first:
+
+- `SIMDE_LINT_SVT_AV1` — path to an SVT-AV1 checkout root (the tests look
+  for `<root>/Source`)
+- `SIMDE_LINT_VVENC` — path to a VVenC checkout root (the tests look for
+  `<root>/source/Lib/CommonLib/x86`)
+
+```bash
+SIMDE_LINT_SVT_AV1=/path/to/svt-av1 SIMDE_LINT_VVENC=/path/to/vvenc \
+  uv run pytest tests/test_verification.py -v
+```
+
+Those tests skip cleanly — not fail — when the checkout isn't present (via
+either the environment variable or the default path), so the rest of the
+suite stays runnable without either clone. Run a single test file the same
+way:
 
 ```bash
 uv run pytest tests/test_rule_suboptimal.py -v
@@ -116,6 +130,29 @@ Type S, for example).
    | F | {A, B} |
    | M (either mechanism) | {A, B} |
    | P | {A} |
+
+   `tests/test_evidence_conformance.py` enforces this table: it runs every
+   rule over every fixture in `tests/fixtures/rules/` and asserts each
+   rule's emitted grade set is a subset of the row above. If your rule
+   grows a grade beyond its declared set, that test fails — update the
+   table (and the rule's own docstring) deliberately, don't just let the
+   rule drift.
+
+   **Grade C carries a structured `reason`, not free prose.** Any rule that
+   can emit C must set `Finding.reason` to one of two `Reason` values:
+   - `Reason.UNRESOLVED` — the rule could not see far enough to judge at
+     all (a runtime-loaded value, a call result with unknown lanes, a
+     symbol not defined in the scanned inputs).
+   - `Reason.GUARD_REQUIRED` — the rule saw everything relevant and
+     confirmed the guard it's examining is load-bearing (rule S: a mask
+     whose lanes are fully known but include one outside the safe range).
+
+   Both share grade C because v1 acts on them identically: do not
+   transform without human confirmation. `reason` is `None` for grades A
+   and B — see `Reason`'s docstring in `finding.py` for the full rationale,
+   including why a fourth grade isn't warranted today. `S.pshufb_guard` is
+   the only rule that currently emits C; see `SuboptimalRule._grade` for
+   the pattern to follow if a future rule needs it too.
 
    A rule with no source of uncertainty (structural or purely syntactic
    matching) should emit only A — don't invent a B or C case to look more

@@ -47,7 +47,23 @@ Every finding carries two independent axes:
     direct identity link.
   - **B** — derived from a literal or a link, but through an intermediate
     operation, so the final value isn't pinned.
-  - **C** — unresolvable (runtime data).
+  - **C** — the rule cannot confirm the transform is safe from source alone.
+    Grade C covers two different situations, distinguished on the finding
+    by a structured `reason` field (`unresolved` or `guard_required`, not
+    free prose):
+    - **C-unresolved** — the rule could not see far enough to judge at all
+      (a runtime-loaded value, a call result with unknown lanes, a symbol
+      not defined in the scanned inputs). `reason: "unresolved"`.
+    - **C-guard-required** — the rule saw everything relevant and confirmed
+      the guard it's examining is load-bearing (rule S: a mask whose lanes
+      are fully known but include one outside the safe range).
+      `reason: "guard_required"`.
+
+    Both share grade C because v1's action is identical either way: do not
+    transform without human confirmation. A fourth grade would only be
+    warranted if the two ever needed different `--min-evidence` filtering
+    or other CLI/automation behaviour, which they do not today. `reason`
+    is `null`/absent for grades A and B.
 
   Rules that have no source of uncertainty (R, P) always emit A; they still
   carry the field for JSON schema uniformity and consistent
@@ -114,27 +130,39 @@ tests/fixtures/rules/suboptimal_positive.c:7  S (pshufb->tbl guard only)  eviden
 tests/fixtures/rules/suboptimal_positive.c:15  S (pshufb->tbl guard only)  evidence=B  impact=confirmed
     _mm_shuffle_epi8 in kernel
     SIMDe 0.8.4 guards the tbl index on every call; mask derives from a literal through _mm_blendv_epi8, so the final lane values are not pinned (x86/ssse3.h:346)
-    suggestion: vqtbl1q_u8 (3 -> 1 instructions)
+    no suggestion offered (instruction count unknown)
 
-tests/fixtures/rules/suboptimal_positive.c:18  S (pshufb->tbl guard only)  evidence=C  impact=confirmed
+tests/fixtures/rules/suboptimal_positive.c:18  S (pshufb->tbl guard only)  evidence=C (unresolved)  impact=confirmed
     _mm_shuffle_epi8 in kernel
     SIMDe 0.8.4 guards the tbl index on every call; mask is produced by a call with unknown lanes (x86/ssse3.h:346)
-    suggestion: vqtbl1q_u8 (3 -> 1 instructions)
+    no suggestion offered (instruction count unknown)
 
-Summary: 7 findings
-  S (pshufb->tbl guard only) [S.pshufb_guard]: 7
+tests/fixtures/rules/suboptimal_positive.c:25  S (pshufb->tbl guard only)  evidence=C (guard_required)  impact=confirmed
+    _mm_shuffle_epi8 in unsafe_but_known
+    SIMDe 0.8.4 guards the tbl index on every call; inline mask has a lane in the unsafe [16,127] middle range (x86/ssse3.h:346)
+    no suggestion offered (instruction count unknown)
+
+Summary: 8 findings
+  S (pshufb->tbl guard only) [S.pshufb_guard]: 8
   evidence A: 3
   evidence B: 3
-  evidence C: 1
+  evidence C: 2
 ```
 
-(Four of the seven findings — the other local-constant, derived, and
+(Four of the eight findings — the other local-constant, derived, and
 table-indexed mask forms in the same fixture — are omitted above for length;
-run the command yourself for all seven.) The mechanism annotation
+run the command yourself for all eight.) The mechanism annotation
 `(pshufb->tbl guard only)` is mandatory on every line, in both text and JSON
 output — a reader who saw only "Type S: 0" for a file with a different S
 mechanism would wrongly conclude the tool fails to detect it, when only the
 implemented mechanism is absent there.
+
+The two grade-C lines above show why `reason` exists: line 18's mask is a
+call result the rule cannot see the lanes of at all (`C (unresolved)`), and
+line 25's mask is a fully-known inline literal with one lane the rule
+confirmed sits outside the safe range (`C (guard_required)`) — a
+categorically different kind of "cannot confirm safe" that plain `evidence=C`
+would flatten into one.
 
 `--format json` produces one object per finding plus a summary. This is a
 real finding from an SVT-AV1 scan (paths shortened for display):
@@ -145,6 +173,7 @@ real finding from an SVT-AV1 scan (paths shortened for display):
   "rule": "S.pshufb_guard",
   "rule_mechanism": "pshufb->tbl guard only",
   "evidence": "A",
+  "reason": null,
   "impact": "confirmed",
   "file": "Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c",
   "line": 617,
@@ -162,8 +191,15 @@ real finding from an SVT-AV1 scan (paths shortened for display):
 }
 ```
 
+`evidence` grade A never carries a `reason`, so it renders `null` here — see
+"Evidence grade and impact class" above for what `reason` holds on grade C.
+
 The `mask_source` field is present only for rule S findings graded through
 `SymbolIndex`; it is omitted entirely (not `null`) on every other finding.
+`raw_name` is likewise present only when a call's original spelling differs
+from the resolved `intrinsic` name (a macro-aliased call site, e.g. VVenC's
+`_my_cmpgt_epi64` resolving to `_mm_cmpgt_epi64`) — omitted, not `null`,
+everywhere else.
 
 **One location may produce multiple findings.** A code region can exhibit
 several taxonomy types at once, and the paper says so explicitly. The six
@@ -207,6 +243,14 @@ Cross-cutting limits that apply to every rule, not just one:
   sites in whatever files it's pointed at — it does not know whether a given
   file is actually compiled for the ARM/SIMDe path, an x86-native path, or
   dead code. Point it at the files you know are ARM-relevant.
+- **A finding's grade depends on what was scanned in the same run, not just
+  on the call site itself.** `SymbolIndex` — the table that lets rule S grade
+  a runtime-indexed mask A when every row is safe (Section 6) — only covers
+  the files given to that invocation. The same call site can grade A when the
+  file defining its mask table is included in the scan and grade C (mask
+  symbol not defined in the scanned inputs) when it's scanned alone. Scan a
+  whole tree, or at least every file a mask symbol might be defined in, for
+  grades that reflect what the source actually establishes.
 
 ## Verification
 

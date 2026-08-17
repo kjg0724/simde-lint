@@ -106,17 +106,16 @@ $ echo $?
 2152 total findings: `F 1010, R 716, S 341, M 53, P 31, W 1`. Evidence
 `A 1797, B 49, C 306`.
 
-> A controller measurement taken earlier during this plan recorded 557
-> files and 22s wall clock on the same tree. Re-running today counts 561 —
-> the SVT-AV1 checkout is a live working tree shared with a separate,
-> concurrently active session (`~/Solario/Solido/open-source/svt-av1`) that
-> had added one untracked ARM-NEON source file and modified two others
-> between the two measurements. None of the changed or added files contain
-> an x86 intrinsic any rule matches — the finding totals above (2152, and
-> every per-type and per-evidence count) are bit-for-bit identical to the
-> earlier measurement. Wall clock varies with machine load and is not a
-> pinned figure. The file-count drift is an artifact of measuring twice
-> against a tree someone else is actively editing, not a tool defect.
+> An earlier run of the same command against this tree recorded 557 files
+> and 22s wall clock. The run recorded above counts 561 — the SVT-AV1
+> checkout is a live working tree, and one untracked ARM-NEON source file
+> was added and two others were modified between the two runs. None of the
+> changed or added files contain an x86 intrinsic any rule matches: the
+> finding totals above (2152, and every per-type and per-evidence count)
+> are bit-for-bit identical between the two runs. Wall clock varies with
+> machine load and is not a pinned figure. The file-count difference is an
+> artifact of running the same command twice against a tree that changed
+> in between, not a tool defect.
 
 ## 2. VVenC: per-module comparison against Table III
 
@@ -161,8 +160,9 @@ Counter(f.type for f in findings)
 | FGAX86.h | M | 3 | 0 |
 | FGAX86.h | P | 0 | 0 |
 
-Re-run confirms every cell against the controller's recorded figures with no
-changes. `test_depquant_reports_the_types_its_source_can_carry` in
+Re-running the `analyze()` calls above against the current checkout
+reproduces every cell in this table with no changes.
+`test_depquant_reports_the_types_its_source_can_carry` in
 `tests/test_verification.py` pins DepQuant's row directly: R 26, S 22, P 3,
 W/F/M 0.
 
@@ -192,9 +192,9 @@ invoked from more than one place produces several source-level findings that
 | LoopFilterX86.h | M | 5 | 14 | 2.8x |
 
 No rule was tuned toward any of these ratios — spec Section 3 states plainly
-that the tool does not target the paper's 84-instance total, and the plan's
-implementer notes record the same discipline being held rule by rule (e.g.
-Task 5/6: "Never tune a rule to reproduce the paper's 84 instances").
+that the tool does not target the paper's 84-instance total, and every rule
+module (see `src/simde_lint/rules/`) matches on the mechanism its docstring
+describes, not on a count.
 
 LoopFilter's M ratio has an added wrinkle beyond the source-call-site
 argument: `M.scalar_set_build` is a mechanism added mid-plan, after
