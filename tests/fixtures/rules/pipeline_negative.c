@@ -11,3 +11,10 @@ void overwritten(__m128i a, __m128i b, __m128i mask2) {
     __m128i sel = _mm_and_si128(mask2, mask);
     (void)sel;
 }
+
+void overwritten_by_call(__m128i a, __m128i b, __m128i c) {
+    __m128i mask = _mm_cmpgt_epi64(a, b);
+    mask = helper_load(c);
+    __m128i sel = _mm_and_si128(c, mask);
+    (void)sel;
+}

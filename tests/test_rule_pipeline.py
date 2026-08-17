@@ -24,3 +24,15 @@ def test_reports_nothing_when_the_compare_result_was_overwritten(run_rule):
         if f.function == "overwritten"
     ]
     assert findings == []
+
+
+def test_reports_nothing_when_the_compare_result_was_overwritten_by_a_call(run_rule):
+    # I1: the overwrite is `mask = helper_load(c)`, a call to something that
+    # isn't a recognized intrinsic. Extraction must still record it as a
+    # definition so this redefinition is visible here, exactly as the plain
+    # variable-to-variable overwrite above already is.
+    findings = [
+        f for f in run_rule(PipelineRule(), "pipeline_negative.c")
+        if f.function == "overwritten_by_call"
+    ]
+    assert findings == []

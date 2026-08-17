@@ -91,3 +91,53 @@ def test_literal_lanes_are_recorded_only_for_byte_constructors():
     outer = next(c for c in units[0].calls if c.name == "_mm_cmpeq_epi32")
     assert outer.args[1].kind == ValueKind.CALL_RESULT
     assert outer.args[1].lanes is None
+
+
+def test_an_overwrite_by_a_non_intrinsic_call_is_recorded():
+    # `mask = helper_load(c)` is invisible to both extraction paths today: the
+    # intrinsic-call loop skips it because helper_load isn't an intrinsic, and
+    # `_record_plain_assignments` skips every call_expression outright. A rule
+    # asking `redefined_between("mask", ...)` then believes the compare's
+    # result survived to line 5 when it did not.
+    source = b"""
+void f(__m128i a, __m128i b, __m128i c) {
+    __m128i mask = _mm_cmpgt_epi64(a, b);
+    mask = helper_load(c);
+    __m128i sel = _mm_and_si128(c, mask);
+}
+"""
+    unit = extract_units("t.c", source, load_knowledge())[0]
+    assert unit.redefined_between("mask", 3, 5) is True
+    overwrite = unit.definition_before("mask", 5)
+    assert overwrite.line == 4
+    assert overwrite.value.kind == ValueKind.UNKNOWN
+
+
+def test_a_cast_wrapped_intrinsic_initializer_records_exactly_one_definition():
+    # `(__m128i)_mm_setr_epi8(...)` is not a call_expression at the top level,
+    # so the old plain-assignment skip (`right.type == "call_expression"`)
+    # missed it and recorded a second, UNKNOWN definition alongside the one
+    # the intrinsic-call loop already added with lanes.
+    source = b"""
+void f(void) {
+    __m128i m = (__m128i)_mm_setr_epi8(0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7);
+}
+"""
+    unit = extract_units("t.c", source, load_knowledge())[0]
+    assert len(unit.definitions["m"]) == 1
+    definition = unit.definitions["m"][0]
+    assert definition.value.kind == ValueKind.LITERAL_VECTOR
+    assert definition.value.lanes == (0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7)
+
+
+def test_a_cast_wrapped_non_intrinsic_call_is_still_recorded_as_unknown():
+    # The same cast-unwrap must not swallow a genuinely unrecognized call: it
+    # should fall through to being recorded, just like the uncast case above.
+    source = b"""
+void f(__m128i c) {
+    __m128i mask = (__m128i)helper_load(c);
+}
+"""
+    unit = extract_units("t.c", source, load_knowledge())[0]
+    assert len(unit.definitions["mask"]) == 1
+    assert unit.definitions["mask"][0].value.kind == ValueKind.UNKNOWN

@@ -138,6 +138,30 @@ def _iter_function_definitions(root: Node) -> Iterator[Node]:
     yield from iter_nodes(root, "function_definition")
 
 
+def _unwrap_cast(node: Node) -> Node:
+    """Strip a leading cast so its inner expression can be classified.
+
+    `(__m128i)_mm_setr_epi8(...)` is a `cast_expression` at the top level, not
+    a `call_expression`; without unwrapping it, `_record_plain_assignments`
+    fails to recognize the call underneath and treats the whole cast as an
+    opaque right-hand side.
+    """
+    while node is not None and node.type == "cast_expression":
+        value = node.child_by_field_name("value")
+        if value is None:
+            break
+        node = value
+    return node
+
+
+def _call_is_recognized_intrinsic(
+    node: Node, source: bytes, aliases: dict[str, str], knowledge: Knowledge
+) -> bool:
+    raw_name = node_text(node.child_by_field_name("function"), source)
+    resolved = knowledge.normalize(aliases.get(raw_name, raw_name))
+    return _is_intrinsic(resolved)
+
+
 def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[FunctionUnit]:
     root = parse_source(source).root_node
     aliases = _file_macro_aliases(root, source)
@@ -194,22 +218,38 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Functi
                     call_id=call.id,
                 )
                 unit.add_definition(Definition(result_var, call.line, value))
-        _record_plain_assignments(definition, source, unit)
+        _record_plain_assignments(definition, source, unit, aliases, knowledge)
         units.append(unit)
     return units
 
 
-def _record_plain_assignments(scope: Node, source: bytes, unit: FunctionUnit) -> None:
-    """Record assignments whose right side is not an intrinsic call.
+def _record_plain_assignments(
+    scope: Node, source: bytes, unit: FunctionUnit, aliases: dict[str, str], knowledge: Knowledge
+) -> None:
+    """Record assignments whose right side is not a recognized intrinsic call.
 
     Recording only call results would leave `mask = other;` invisible, and a
     rule asking `redefined_between` would then believe a value survived when it
     had been overwritten. The replacement value is unknown to us, which is
     exactly what callers need to know.
+
+    A right-hand side that *is* a recognized intrinsic call (optionally
+    wrapped in a cast) is skipped here: the intrinsic-call loop above already
+    recorded it, with its actual kind (literal vector or call result) rather
+    than UNKNOWN. Recording it again here would double-count the definition.
+    A call to something that is not a recognized intrinsic — `helper_load(c)`,
+    cast-wrapped or not — falls through and is recorded as UNKNOWN, because
+    today's only alternative is to not record it at all, which is the bug
+    this function exists to avoid for non-call right-hand sides.
     """
     for node in iter_nodes(scope, "assignment_expression"):
         right = node.child_by_field_name("right")
-        if right is None or right.type == "call_expression":
+        if right is None:
+            continue
+        unwrapped = _unwrap_cast(right)
+        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
+            unwrapped, source, aliases, knowledge
+        ):
             continue
         name = _first_identifier(node_text(node.child_by_field_name("left"), source))
         if name:
@@ -222,7 +262,12 @@ def _record_plain_assignments(scope: Node, source: bytes, unit: FunctionUnit) ->
             )
     for node in iter_nodes(scope, "init_declarator"):
         value = node.child_by_field_name("value")
-        if value is None or value.type in ("call_expression", "initializer_list"):
+        if value is None or value.type == "initializer_list":
+            continue
+        unwrapped = _unwrap_cast(value)
+        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
+            unwrapped, source, aliases, knowledge
+        ):
             continue
         name = _first_identifier(node_text(node.child_by_field_name("declarator"), source))
         if name:
