@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 
 _DEFAULT_DIR = Path(__file__).parent / "knowledge"
+_UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -20,12 +21,16 @@ class CostInfo:
     """A SIMDe expansion cost with the source line it was read from.
 
     Every number and suggestion the report prints comes from one of these.
+    `simde_insns`, `native_insns` and `suggestion` are `None` when the cost or
+    the transform could not be established from the SIMDe source — this is an
+    honest answer, not a placeholder to fill in later, and the report layer
+    must render it as such rather than guessing.
     """
 
     key: str
-    simde_insns: int
-    native_insns: int
-    suggestion: str
+    simde_insns: int | None
+    native_insns: int | None
+    suggestion: str | None
     source: str
     note: str = ""
 
@@ -34,7 +39,12 @@ class CostInfo:
 class Knowledge:
     simde_version: str
     redundant: dict[str, CostInfo]
-    patterns: dict[str, CostInfo]
+    # rule_id -> intrinsic -> CostInfo, for the rules that match a set of
+    # registered intrinsics (S, F, both M rules, P).
+    patterns: dict[str, dict[str, CostInfo]]
+    # rule_id -> CostInfo, for the one rule that matches a sequence rather
+    # than a registered intrinsic (W).
+    rule_costs: dict[str, CostInfo]
     aliases: dict[str, str]
     wrapper_macros: dict[str, int]
 
@@ -42,9 +52,22 @@ class Knowledge:
         """Map an alias spelling onto its canonical x86 intrinsic name."""
         return self.aliases.get(name, name)
 
-    def cost(self, rule_id: str) -> CostInfo:
-        """Cost entry for a rule that matches a sequence, by rule id."""
-        return self.patterns[rule_id]
+    def cost(self, rule_id: str, intrinsic: str | None = None) -> CostInfo:
+        """Cost entry for a rule.
+
+        Rule W matches a fixed three-call sequence rather than a registered
+        intrinsic, so it is looked up by rule id alone. Every other rule
+        matches a set of intrinsics across two register widths, whose costs
+        differ, so `intrinsic` selects the entry the rule actually matched.
+        """
+        if rule_id in self.rule_costs:
+            return self.rule_costs[rule_id]
+        table = self.patterns[rule_id]
+        if intrinsic is None:
+            raise KeyError(f"{rule_id} requires an intrinsic name to look up its cost")
+        if intrinsic not in table:
+            raise KeyError(f"no cost entry for {intrinsic!r} under {rule_id}")
+        return table[intrinsic]
 
 
 def _read(directory: Path, filename: str) -> dict:
@@ -52,18 +75,40 @@ def _read(directory: Path, filename: str) -> dict:
         return yaml.safe_load(handle)
 
 
+def _unknown_to_none(value):
+    return None if value == _UNKNOWN else value
+
+
+def _cost_entry(key: str, entry: dict) -> CostInfo:
+    return CostInfo(
+        key=key,
+        simde_insns=_unknown_to_none(entry["simde_insns"]),
+        native_insns=_unknown_to_none(entry["native_insns"]),
+        suggestion=_unknown_to_none(entry.get("suggestion")) or None,
+        source=entry["source"],
+        note=entry.get("note", ""),
+    )
+
+
 def _costs(entries: dict) -> dict[str, CostInfo]:
-    return {
-        key: CostInfo(
-            key=key,
-            simde_insns=entry["simde_insns"],
-            native_insns=entry["native_insns"],
-            suggestion=entry["suggestion"],
-            source=entry["source"],
-            note=entry.get("note", ""),
-        )
-        for key, entry in entries.items()
-    }
+    return {key: _cost_entry(key, entry) for key, entry in entries.items()}
+
+
+def _split_patterns(patterns_doc: dict) -> tuple[dict[str, dict[str, CostInfo]], dict[str, CostInfo]]:
+    """Split patterns.yaml into per-intrinsic tables and rule-level costs.
+
+    An entry is rule-level (like W, which matches a fixed call sequence, not
+    a registered intrinsic) when it carries `simde_insns` directly; otherwise
+    its value is itself a mapping of intrinsic name to cost entry.
+    """
+    per_intrinsic: dict[str, dict[str, CostInfo]] = {}
+    rule_level: dict[str, CostInfo] = {}
+    for rule_id, entry in patterns_doc["patterns"].items():
+        if "simde_insns" in entry:
+            rule_level[rule_id] = _cost_entry(rule_id, entry)
+        else:
+            per_intrinsic[rule_id] = _costs(entry)
+    return per_intrinsic, rule_level
 
 
 def load_knowledge(directory: Path | None = None) -> Knowledge:
@@ -86,10 +131,12 @@ def load_knowledge(directory: Path | None = None) -> Knowledge:
     wrapper_macros = {
         name: entry["declarator_arg"] for name, entry in macros_doc["macros"].items()
     }
+    patterns, rule_costs = _split_patterns(patterns_doc)
     return Knowledge(
         simde_version=redundant_doc["simde_version"],
         redundant=_costs(redundant_doc["intrinsics"]),
-        patterns=_costs(patterns_doc["patterns"]),
+        patterns=patterns,
+        rule_costs=rule_costs,
         aliases=aliases_doc["aliases"],
         wrapper_macros=wrapper_macros,
     )

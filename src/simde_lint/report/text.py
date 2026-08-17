@@ -17,6 +17,22 @@ def _label(finding: Finding) -> str:
     return f"{finding.type} ({finding.rule_mechanism})"
 
 
+def _counts(finding: Finding) -> str:
+    if finding.simde_insns is None or finding.native_insns is None:
+        return "instruction count unknown"
+    return f"{finding.simde_insns} -> {finding.native_insns} instructions"
+
+
+def _suggestion_line(finding: Finding) -> str:
+    counts = _counts(finding)
+    if finding.suggestion is None:
+        # Plainly visible rather than silently dropped: the rationale above
+        # already states why (unresolved evidence or no known fused/native
+        # form), this line just confirms nothing is being recommended.
+        return f"    no suggestion offered ({counts})"
+    return f"    suggestion: {finding.suggestion} ({counts})"
+
+
 def render_text(findings: list[Finding]) -> str:
     lines: list[str] = []
     for finding in sorted(findings, key=sort_key):
@@ -26,10 +42,7 @@ def render_text(findings: list[Finding]) -> str:
         )
         lines.append(f"    {finding.intrinsic} in {finding.function}")
         lines.append(f"    {finding.rationale}")
-        lines.append(
-            f"    suggestion: {finding.suggestion} "
-            f"({finding.simde_insns} -> {finding.native_insns} instructions)"
-        )
+        lines.append(_suggestion_line(finding))
         lines.append("")
 
     lines.append(f"Summary: {len(findings)} findings")

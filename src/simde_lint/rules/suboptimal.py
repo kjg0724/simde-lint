@@ -44,10 +44,10 @@ class SuboptimalRule:
     mechanism = "pshufb->tbl guard only"
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
-        cost = ctx.knowledge.cost(self.rule_id)
         for call in unit.calls:
             if call.name not in _TARGETS or len(call.args) < 2:
                 continue
+            cost = ctx.knowledge.cost(self.rule_id, call.name)
             evidence, rationale, mask_source = self._grade(call.args[1], unit, call.line, ctx)
             yield Finding(
                 type=self.type,

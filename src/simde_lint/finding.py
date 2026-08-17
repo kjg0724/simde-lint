@@ -30,9 +30,14 @@ class Finding:
     function: str
     intrinsic: str
     rationale: str
-    simde_insns: int
-    native_insns: int
-    suggestion: str
+    # None means the cost, or the suggested transform, could not be
+    # established — either the SIMDe expansion cost is unknown at the data
+    # layer, or the rule's own evidence does not support the transform at
+    # this call site. Both reporters render the pair as "unknown" rather
+    # than guessing, and to_dict() emits null rather than a number.
+    simde_insns: int | None
+    native_insns: int | None
+    suggestion: str | None
     mask_source: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:

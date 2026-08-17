@@ -37,7 +37,6 @@ class FusionRule:
     mechanism = "multiply-add not fused"
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
-        cost = ctx.knowledge.cost(self.rule_id)
         adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.line)
         # An add is one fusion opportunity, so the first multiply reaching it
         # claims it. Without this, `sum = _mm_add_epi32(p1, p2)` over two
@@ -48,6 +47,7 @@ class FusionRule:
         for mul in sorted(unit.calls, key=lambda c: c.line):
             if mul.name not in _MULTIPLIES or not mul.result_var:
                 continue
+            cost = ctx.knowledge.cost(self.rule_id, mul.name)
             for add in adds:
                 if add.id in claimed_adds or add.line <= mul.line:
                     continue

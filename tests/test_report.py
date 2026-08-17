@@ -90,6 +90,30 @@ def test_empty_input_renders_without_error():
     assert json.loads(render_json([], simde_version="0.8.4"))["findings"] == []
 
 
+UNKNOWN_COST_FINDING = Finding(
+    type="F", rule="F.mul_add_no_fuse", rule_mechanism="multiply-add not fused",
+    evidence=Evidence.A, impact=Impact.CONFIRMED, file="a.c", line=3,
+    function="kernel", intrinsic="_mm_madd_epi16",
+    rationale="no fused multiply-accumulate form is established for this intrinsic",
+    simde_insns=4, native_insns=None, suggestion=None,
+)
+
+
+def test_text_renders_an_unknown_cost_as_unknown_not_as_a_number():
+    output = render_text([UNKNOWN_COST_FINDING])
+    assert "None" not in output
+    assert "instruction count unknown" in output
+    assert "no suggestion offered" in output
+
+
+def test_json_emits_null_for_an_unknown_cost():
+    data = json.loads(render_json([UNKNOWN_COST_FINDING], simde_version="0.8.4"))
+    finding = data["findings"][0]
+    assert finding["native_insns"] is None
+    assert finding["suggestion"] is None
+    assert finding["simde_insns"] == 4
+
+
 def test_both_renderers_order_a_tie_at_one_location_identically():
     # Two Type M mechanisms on one statement share file, line and type, so
     # only the rule id separates them. Order must not depend on how the caller

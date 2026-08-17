@@ -1,18 +1,40 @@
-# Per-pattern costs for the five rules that match a sequence rather than a
-# single registered intrinsic. Line numbers were read from the reference
-# SIMDe checkout; counts move with the SIMDe version, which is why it is
-# recorded here.
+# Per-intrinsic costs for the rules that match a set of registered intrinsics
+# across two register widths, keyed by rule id and then by the specific
+# intrinsic matched — a finding must cite the cost of the intrinsic actually
+# seen at the call site, not the rule's 128-bit case regardless of what fired.
+# Rule W is the one exception: it matches a fixed three-call sequence rather
+# than a registered intrinsic, so its entry stays flat, keyed by rule id
+# alone (see the note under W below).
+#
+# `unknown` marks a cost, or a suggested fused/replacement instruction, that
+# could not be established from the SIMDe source. It is the honest answer,
+# not a placeholder to fill in later.
+#
+# Line numbers were read from the reference SIMDe checkout (0.8.4); counts
+# move with the SIMDe version, which is why it is recorded here.
 simde_version: "0.8.4"
 patterns:
   S.pshufb_guard:
-    simde_insns: 3
-    native_insns: 1
-    suggestion: vqtbl1q_u8
-    source: x86/ssse3.h:346
-    note: >-
-      vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F))) — the table lookup plus a
-      dup of the guard constant and the and that applies it
+    _mm_shuffle_epi8:
+      simde_insns: 3
+      native_insns: 1
+      suggestion: vqtbl1q_u8
+      source: x86/ssse3.h:346
+      note: >-
+        vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F))) — the table lookup plus a
+        dup of the guard constant and the and that applies it
+    _mm256_shuffle_epi8:
+      simde_insns: 6
+      native_insns: 2
+      suggestion: vqtbl1q_u8
+      source: x86/avx2.h:4483
+      note: >-
+        r_.m128i[0] = simde_mm_shuffle_epi8(...); r_.m128i[1] = ... — the
+        128-bit expansion applied twice, once per 128-bit half
   W.mul16_widen_roundtrip:
+    # This rule matches a three-call sequence, not one registered intrinsic,
+    # and only in its 128-bit form, so one rule-level entry describes it
+    # exactly; there is no second width to key by.
     simde_insns: 5
     native_insns: 1
     suggestion: vmull_s16
@@ -22,39 +44,162 @@ patterns:
       the x86 source adds mullo_epi16 (x86/sse2.h:5278) and an unpack, all of
       which a single widening multiply replaces
   F.mul_add_no_fuse:
-    simde_insns: 3
-    native_insns: 1
-    suggestion: vmlal_s32
-    source: x86/sse2.h:4463
-    note: >-
-      madd_epi16 expands to vmull_s16 plus a pairwise add; a separate
-      accumulate follows because SIMDe translates one intrinsic at a time
+    _mm_mullo_epi16:
+      simde_insns: 2
+      native_insns: 1
+      suggestion: vmlaq_s16
+      source: x86/sse2.h:5278
+      note: >-
+        expands to vmulq_s16 alone; mullo_epi16 does not widen, so a
+        non-widening multiply-accumulate exists for i16 lanes
+    _mm_mullo_epi32:
+      simde_insns: 2
+      native_insns: 1
+      suggestion: vmlaq_s32
+      source: x86/sse4.1.h:2077
+      note: >-
+        expands to vmulq_s32 alone; mullo_epi32 does not widen, so a
+        non-widening multiply-accumulate exists for i32 lanes
+    _mm_mul_epi32:
+      simde_insns: 4
+      native_insns: 3
+      suggestion: vmlal_s32
+      source: x86/sse4.1.h:2041
+      note: >-
+        expands to vmovn_s64, vmovn_s64, vmull_s32 — smlal_s32 absorbs the
+        add, but the two narrowings that feed the widening multiply remain
+    _mm256_mul_epi32:
+      simde_insns: 8
+      native_insns: 6
+      suggestion: vmlal_s32
+      source: x86/avx2.h:3921
+      note: the 128-bit expansion applied twice
+    _mm_madd_epi16:
+      simde_insns: 4
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/sse2.h:4463
+      note: >-
+        expands to vmull_s16, vmull_high_s16, vpaddq_s32 — AArch64 has no
+        pairwise 16-to-32 multiply-accumulate; reaching smlal changes lane
+        layout and is valid only when the consumer is a horizontal
+        reduction, which this rule does not check
+    _mm256_madd_epi16:
+      simde_insns: 8
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/avx2.h:3146
+      note: the 128-bit expansion applied twice; same reason as _mm_madd_epi16
+    _mm256_mullo_epi32:
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/avx2.h:4076
+      note: >-
+        no NEON branch — falls through to the portable per-element loop, not
+        a doubled 128-bit expansion, so there is no vector lowering to count
   M.scalar_insert_chain:
-    simde_insns: 2
-    native_insns: 1
-    suggestion: vld1q_lane_s16
-    source: x86/sse2.h:4005
-    note: >-
-      Counts are per chain element. insert_epi16 maps to vsetq_lane_s16, which
-      needs the value in a general-purpose register first; a lane load reads
-      straight into the vector register
+    _mm_insert_epi16:
+      simde_insns: 2
+      native_insns: 1
+      suggestion: vld1q_lane_s16
+      source: x86/sse2.h:4005
+      note: >-
+        Counts are per chain element. insert_epi16 maps to vsetq_lane_s16,
+        which needs the value in a general-purpose register first; a lane
+        load reads straight into the vector register
+    _mm_insert_epi32:
+      simde_insns: 2
+      native_insns: 1
+      suggestion: vld1q_lane_s32
+      source: x86/sse4.1.h:1598
+      note: Counts are per chain element, same shape as insert_epi16
+    _mm_insert_epi64:
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/sse4.1.h:1619
+      note: >-
+        no lane-insert branch; defers to simde_mm_set_epi64x, which spills to
+        a stack array
+    _mm256_insert_epi16:
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/avx.h:4046
+      note: no NEON branch
   M.scalar_set_build:
-    simde_insns: 1
-    native_insns: 1
-    suggestion: vsetq_lane_s64
-    source: x86/sse2.h:5811
-    note: >-
-      Counts are per assembled lane. SIMDe writes each scalar into a stack
-      array and reloads the whole vector with vld1q_s64, so no instruction is
-      saved on paper — the cost is the store-to-load round trip that a lane
-      insert or a structured load avoids. Same shape at x86/sse2.h:5728 for
-      set_epi32 and x86/sse2.h:5676 for set_epi16
+    _mm_set_epi64x:
+      simde_insns: 1
+      native_insns: 1
+      suggestion: vsetq_lane_s64
+      source: x86/sse2.h:5811
+      note: >-
+        Counts are per assembled lane. SIMDe writes each scalar into a stack
+        array and reloads the whole vector with vld1q_s64, so no instruction
+        is saved on paper — the cost is the store-to-load round trip that a
+        lane insert or a structured load avoids
+    _mm_set_epi32:
+      simde_insns: 1
+      native_insns: 1
+      suggestion: vsetq_lane_s32
+      source: x86/sse2.h:5728
+      note: same shape as set_epi64x
+    _mm_set_epi16:
+      simde_insns: 1
+      native_insns: 1
+      suggestion: vsetq_lane_s16
+      source: x86/sse2.h:5676
+      note: same shape as set_epi64x
   P.cmp_immediate_use:
-    simde_insns: 2
-    native_insns: 2
-    suggestion: reorder independent work between the compare and its use
-    source: x86/sse4.2.h:326
-    note: >-
-      vcgtq_s64 followed immediately by its consumer. No instruction is saved;
-      the cost is the use-to-use latency, which is why the impact class is
-      diagnostic
+    _mm_cmpgt_epi64:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/sse4.2.h:326
+      note: >-
+        vcgtq_s64 followed immediately by its consumer. No instruction is
+        saved; the cost is the use-to-use latency, which is why the impact
+        class is diagnostic
+    _mm_cmpgt_epi32:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/sse2.h:2696
+      note: vcgtq_s32, same shape as cmpgt_epi64
+    _mm_cmpgt_epi16:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/sse2.h:2661
+      note: vcgtq_s16, same shape as cmpgt_epi64
+    _mm_cmpgt_epi8:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/sse2.h:2626
+      note: vcgtq_s8, same shape as cmpgt_epi64
+    _mm_cmpeq_epi32:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/sse2.h:2171
+      note: vceqq_s32, same shape as cmpgt_epi64
+    _mm_cmpeq_epi64:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/sse4.1.h:525
+      note: vceqq_u64, same shape as cmpgt_epi64
+    _mm256_cmpgt_epi32:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/avx2.h:1590
+      note: the 128-bit expansion applied twice
+    _mm256_cmpgt_epi64:
+      simde_insns: 2
+      native_insns: 2
+      suggestion: reorder independent work between the compare and its use
+      source: x86/avx2.h:1623
+      note: the 128-bit expansion applied twice

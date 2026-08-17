@@ -38,7 +38,6 @@ class MemoryRule:
     mechanism = "scalar insert chain"
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
-        cost = ctx.knowledge.cost(self.rule_id)
         threshold = int(ctx.config.get("memory_chain_threshold", _DEFAULT_THRESHOLD))
 
         by_var: dict[str, list[IntrinsicCall]] = {}
@@ -51,7 +50,7 @@ class MemoryRule:
             for chain in self._split_chains(unit, target, calls):
                 if len(chain) < threshold:
                     continue
-                yield self._finding(unit, cost, target, chain)
+                yield self._finding(unit, ctx, target, chain)
 
     @staticmethod
     def _split_chains(
@@ -77,7 +76,7 @@ class MemoryRule:
             yield chain
 
     def _finding(
-        self, unit: FunctionUnit, cost, target: str, calls: list[IntrinsicCall]
+        self, unit: FunctionUnit, ctx: Context, target: str, calls: list[IntrinsicCall]
     ) -> Finding:
         direct = all(
             call.args and call.args[0].kind is ValueKind.VARIABLE and call.args[0].text == target
@@ -85,6 +84,8 @@ class MemoryRule:
         )
         first = calls[0]
         last = calls[-1]
+        first_cost = ctx.knowledge.cost(self.rule_id, first.name)
+        simde_total, native_total = self._sum_costs(ctx, calls)
         return Finding(
             type=self.type,
             rule=self.rule_id,
@@ -98,12 +99,31 @@ class MemoryRule:
             rationale=(
                 f"{len(calls)} scalar inserts assemble {target} between lines "
                 f"{first.line} and {last.line}; a NEON lane load chain avoids "
-                f"the general-purpose to vector register transfers ({cost.source})"
+                f"the general-purpose to vector register transfers ({first_cost.source})"
             ),
-            simde_insns=cost.simde_insns * len(calls),
-            native_insns=cost.native_insns * len(calls),
-            suggestion=cost.suggestion,
+            simde_insns=simde_total,
+            native_insns=native_total,
+            # Representative: chains observed so far are one insert intrinsic
+            # throughout, so the first call's suggestion stands for the whole
+            # chain. If the first element's own cost is unknown, no fused
+            # instruction is offered for the chain either.
+            suggestion=first_cost.suggestion,
         )
+
+    def _sum_costs(
+        self, ctx: Context, calls: list[IntrinsicCall]
+    ) -> tuple[int | None, int | None]:
+        simde_total = 0
+        native_total = 0
+        for call in calls:
+            cost = ctx.knowledge.cost(self.rule_id, call.name)
+            if cost.simde_insns is None or cost.native_insns is None:
+                # One unknown element makes the chain total unknown: there is
+                # no honest number to add it to.
+                return None, None
+            simde_total += cost.simde_insns
+            native_total += cost.native_insns
+        return simde_total, native_total
 
 
 class ScalarSetBuildRule:
@@ -121,14 +141,18 @@ class ScalarSetBuildRule:
     mechanism = "vector built from runtime scalars"
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
-        cost = ctx.knowledge.cost(self.rule_id)
         for call in unit.calls:
             if call.name not in _SCALAR_SETS or not call.args:
                 continue
             if all(_is_integer_literal(arg.text) for arg in call.args):
                 # A constant vector, not a scalar assembly.
                 continue
+            cost = ctx.knowledge.cost(self.rule_id, call.name)
             direct = all(arg.kind is ValueKind.VARIABLE for arg in call.args)
+            simde_total = cost.simde_insns * len(call.args) if cost.simde_insns is not None else None
+            native_total = (
+                cost.native_insns * len(call.args) if cost.native_insns is not None else None
+            )
             yield Finding(
                 type=self.type,
                 rule=self.rule_id,
@@ -145,7 +169,7 @@ class ScalarSetBuildRule:
                     f"round trip a lane insert or structured load avoids "
                     f"({cost.source})"
                 ),
-                simde_insns=cost.simde_insns * len(call.args),
-                native_insns=cost.native_insns * len(call.args),
+                simde_insns=simde_total,
+                native_insns=native_total,
                 suggestion=cost.suggestion,
             )

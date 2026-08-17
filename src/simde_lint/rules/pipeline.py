@@ -32,11 +32,11 @@ class PipelineRule:
     mechanism = "compare consumed by the next call"
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
-        cost = ctx.knowledge.cost(self.rule_id)
         ordered = sorted(unit.calls, key=lambda c: (c.line, c.column))
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:
                 continue
+            cost = ctx.knowledge.cost(self.rule_id, current.name)
             consumed = any(
                 arg.kind is ValueKind.VARIABLE and arg.text == current.result_var
                 for arg in following.args
