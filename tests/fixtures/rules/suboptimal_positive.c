@@ -20,6 +20,13 @@ void kernel(const unsigned char *src, int shift) {
     (void)via_table; (void)via_runtime; (void)blended;
 }
 
+void unsafe_but_known(const unsigned char *src) {
+    __m128i data = _mm_loadu_si128((const __m128i *)src);
+    __m128i unsafe = _mm_shuffle_epi8(
+        data, _mm_setr_epi8(0, 20, 1, 1, 2, 2, 3, 3, -1, -1, -1, -1, -1, -1, -1, -1));
+    (void)unsafe;
+}
+
 void reassigned_after_use(const unsigned char *src) {
     __m128i data = _mm_loadu_si128((const __m128i *)src);
     __m128i mymask = _mm_setr_epi8(0, 4, 8, 12, -1, -1, -1, -1,

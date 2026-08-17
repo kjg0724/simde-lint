@@ -17,6 +17,22 @@ def _label(finding: Finding) -> str:
     return f"{finding.type} ({finding.rule_mechanism})"
 
 
+def _evidence_label(finding: Finding) -> str:
+    # Reason is set only on grade C, distinguishing "could not resolve"
+    # (unresolved) from "resolved, and the guard is load-bearing"
+    # (guard_required). Both share grade C because v1 acts on them
+    # identically: no transform without human confirmation.
+    if finding.reason is not None:
+        return f"{finding.evidence.value} ({finding.reason.value})"
+    return finding.evidence.value
+
+
+def _intrinsic_label(finding: Finding) -> str:
+    if finding.raw_name is not None:
+        return f"{finding.intrinsic} (source spelling: {finding.raw_name})"
+    return finding.intrinsic
+
+
 def _counts(finding: Finding) -> str:
     if finding.simde_insns is None or finding.native_insns is None:
         return "instruction count unknown"
@@ -38,9 +54,9 @@ def render_text(findings: list[Finding]) -> str:
     for finding in sorted(findings, key=sort_key):
         lines.append(
             f"{finding.file}:{finding.line}  {_label(finding)}  "
-            f"evidence={finding.evidence.value}  impact={finding.impact.value}"
+            f"evidence={_evidence_label(finding)}  impact={finding.impact.value}"
         )
-        lines.append(f"    {finding.intrinsic} in {finding.function}")
+        lines.append(f"    {_intrinsic_label(finding)} in {finding.function}")
         lines.append(f"    {finding.rationale}")
         lines.append(_suggestion_line(finding))
         lines.append("")

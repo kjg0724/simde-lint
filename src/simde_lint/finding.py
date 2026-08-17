@@ -18,6 +18,29 @@ class Impact(str, Enum):
     DIAGNOSTIC = "diagnostic"
 
 
+class Reason(str, Enum):
+    """Why a finding graded C, distinguishing two meanings that grade alone can't.
+
+    Grade C always means "the tool cannot confirm the transform is safe from
+    source alone", but that collapses two different situations:
+
+    - **UNRESOLVED** — the rule could not see far enough to judge at all (a
+      runtime-loaded value, a call result with unknown lanes, a symbol not
+      defined in the scanned inputs).
+    - **GUARD_REQUIRED** — the rule saw everything relevant and the answer is
+      that the guard the rule is examining is load-bearing (a mask whose
+      lanes are fully known but include one outside the safe range).
+
+    v1 keeps one grade, C, for both: the action either warrants is identical
+    — do not transform without human confirmation. A fourth grade would only
+    be warranted if the two ever needed different `--min-evidence` filtering
+    or other CLI/automation behaviour, which they do not today.
+    """
+
+    UNRESOLVED = "unresolved"
+    GUARD_REQUIRED = "guard_required"
+
+
 @dataclass(frozen=True)
 class Finding:
     type: str
@@ -39,6 +62,15 @@ class Finding:
     native_insns: int | None
     suggestion: str | None
     mask_source: dict[str, Any] | None = None
+    # Set only when evidence is C; None for A and B. See Reason's docstring
+    # for why one grade carries two reasons rather than splitting into two
+    # grades.
+    reason: Reason | None = None
+    # The call's original spelling, set only when it differs from `intrinsic`
+    # (a macro-aliased call site, e.g. VVenC's `_my_cmpgt_epi64` resolving to
+    # `_mm_cmpgt_epi64`). Without this, grepping the source for `intrinsic`
+    # finds nothing at an aliased site.
+    raw_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -46,6 +78,7 @@ class Finding:
             "rule": self.rule,
             "rule_mechanism": self.rule_mechanism,
             "evidence": self.evidence.value,
+            "reason": self.reason.value if self.reason is not None else None,
             "impact": self.impact.value,
             "file": self.file,
             "line": self.line,
@@ -58,6 +91,8 @@ class Finding:
         }
         if self.mask_source is not None:
             data["mask_source"] = self.mask_source
+        if self.raw_name is not None:
+            data["raw_name"] = self.raw_name
         return data
 
 

@@ -11,7 +11,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit, IntrinsicCall, ValueKind
-from .base import Context
+from .base import Context, raw_name_if_aliased
 
 _UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
 
@@ -85,6 +85,7 @@ class WideningRule:
                 simde_insns=cost.simde_insns,
                 native_insns=cost.native_insns,
                 suggestion=cost.suggestion,
+                raw_name=raw_name_if_aliased(lo),
             )
 
     @staticmethod

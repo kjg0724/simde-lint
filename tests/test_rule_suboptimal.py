@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence, Impact
+from simde_lint.finding import Evidence, Impact, Reason
 from simde_lint.rules.suboptimal import SuboptimalRule
 
 
@@ -68,6 +68,36 @@ def test_grades_below_a_withhold_the_suggestion_and_instruction_counts(run_rule)
         assert finding.suggestion is None
         assert finding.simde_insns is None
         assert finding.native_insns is None
+
+
+def test_grade_a_and_b_carry_no_reason(run_rule):
+    # Reason distinguishes two meanings of grade C; A and B need no such
+    # distinction, so both must carry None.
+    for finding in _graded(run_rule):
+        if finding.evidence is not Evidence.C:
+            assert finding.reason is None
+
+
+def test_grade_c_from_an_unresolvable_mask_carries_the_unresolved_reason(run_rule):
+    # index 5: _mm_shuffle_epi8(data, _mm_loadu_si128(...)) -- a runtime call
+    # result the rule cannot see the lanes of at all.
+    finding = _graded(run_rule)[5]
+    assert finding.evidence is Evidence.C
+    assert finding.reason is Reason.UNRESOLVED
+
+
+def test_grade_c_from_a_known_unsafe_lane_carries_the_guard_required_reason(run_rule):
+    # `unsafe_but_known` fully resolves the mask (an inline literal) and one
+    # lane (20) sits in the unsafe [16,127] range: the rule saw everything
+    # and the guard is load-bearing, a different situation than not being
+    # able to see the mask at all, even though both grade C.
+    findings = [
+        f for f in run_rule(SuboptimalRule(), "suboptimal_positive.c")
+        if f.function == "unsafe_but_known"
+    ]
+    assert len(findings) == 1
+    assert findings[0].evidence is Evidence.C
+    assert findings[0].reason is Reason.GUARD_REQUIRED
 
 
 def test_a_mask_reassigned_later_in_the_function_is_not_graded_a(run_rule):

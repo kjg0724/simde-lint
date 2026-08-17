@@ -9,6 +9,10 @@ def test_reports_a_compare_consumed_by_the_next_call(run_rule):
     assert findings[0].evidence is Evidence.A
     assert findings[0].impact is Impact.DIAGNOSTIC
     assert findings[0].intrinsic == "_mm_cmpgt_epi64"
+    # I: the fixture calls the VVenC-style macro alias `_my_cmpgt_epi64`, not
+    # `_mm_cmpgt_epi64` directly, so a reader grepping the source for
+    # `intrinsic` needs the raw spelling surfaced here to find the line.
+    assert findings[0].raw_name == "_my_cmpgt_epi64"
 
 
 def test_reports_nothing_when_an_independent_call_separates_them(run_rule):

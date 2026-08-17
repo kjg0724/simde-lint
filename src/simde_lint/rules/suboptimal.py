@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact
+from ..finding import Evidence, Finding, Impact, Reason
 from ..ir import FunctionUnit, ValueKind, ValueRef
-from .base import Context
+from .base import Context, raw_name_if_aliased
 
 _TARGETS = frozenset({"_mm_shuffle_epi8", "_mm256_shuffle_epi8"})
 
@@ -25,10 +25,16 @@ def _lane_is_safe(lane: int) -> bool:
 
     In range [0,15] both select the same byte. With bit 7 set both produce
     zero: pshufb by its MSB rule, tbl because the index exceeds the table.
-    Lanes in [16,127] are the unsafe middle: pshufb selects from the second
-    operand's range while tbl zeroes. 256-bit shuffles apply this per
-    128-bit half, which this byte-level check already expresses since every
-    lane value is masked to a single byte first.
+    Lanes in [16,127] are the unsafe middle: pshufb has one table operand
+    and, with bit 7 clear, masks the index down to its low 4 bits before
+    indexing it — an index like 20 behaves as index 4, not as an
+    out-of-range access. Plain tbl applies no such masking and zeroes any
+    index >= 16. SIMDe's guard reproduces pshufb's low-4-bit masking before
+    the tbl runs (`vandq_u8(b, vdupq_n_u8(0x8F))` in x86/ssse3.h), which is
+    exactly why the guard is load-bearing, not dead work, for a mask lane in
+    this range. 256-bit shuffles apply this per 128-bit half, which this
+    byte-level check already expresses since every lane value is masked to a
+    single byte first.
     """
     lane &= 0xFF
     return lane <= 15 or lane >= 0x80
@@ -48,7 +54,9 @@ class SuboptimalRule:
             if call.name not in _TARGETS or len(call.args) < 2:
                 continue
             cost = ctx.knowledge.cost(self.rule_id, call.name)
-            evidence, rationale, mask_source = self._grade(call.args[1], unit, call.line, ctx)
+            evidence, rationale, mask_source, reason = self._grade(
+                call.args[1], unit, call.line, ctx
+            )
             # Only grade A confirms every mask lane lies in a range tbl and
             # pshufb agree on. B leaves the lane values unpinned and C is
             # either unresolvable or a confirmed unsafe lane — neither
@@ -71,6 +79,8 @@ class SuboptimalRule:
                 native_insns=cost.native_insns if supported else None,
                 suggestion=cost.suggestion if supported else None,
                 mask_source=mask_source,
+                reason=reason,
+                raw_name=raw_name_if_aliased(call),
             )
 
     def _literal_origin(
@@ -110,16 +120,17 @@ class SuboptimalRule:
 
     def _grade(
         self, mask: ValueRef, unit: FunctionUnit, line: int, ctx: Context
-    ) -> tuple[Evidence, str, dict | None]:
+    ) -> tuple[Evidence, str, dict | None, Reason | None]:
         guard = f"SIMDe {ctx.knowledge.simde_version} guards the tbl index on every call"
 
         if mask.kind is ValueKind.LITERAL_VECTOR and mask.lanes:
             if _lanes_are_safe(mask.lanes):
-                return Evidence.A, f"{guard}; inline mask lanes are all in [0,15] or 0xFF", None
+                return Evidence.A, f"{guard}; inline mask lanes are all in [0,15] or 0xFF", None, None
             return (
                 Evidence.C,
                 f"{guard}; inline mask has a lane in the unsafe [16,127] middle range",
                 None,
+                Reason.GUARD_REQUIRED,
             )
 
         if mask.kind is ValueKind.SYMBOL and mask.symbol:
@@ -134,6 +145,7 @@ class SuboptimalRule:
                         "defined_at": array.defined_at,
                         "resolution": "all_rows" if len(array.rows) > 1 else "single_row",
                     },
+                    None,
                 )
             if array:
                 return (
@@ -141,8 +153,14 @@ class SuboptimalRule:
                     f"{guard}; {array.name} has a row with a lane in the unsafe "
                     "[16,127] middle range",
                     {"symbol": array.name, "defined_at": array.defined_at, "resolution": "unsafe_row"},
+                    Reason.GUARD_REQUIRED,
                 )
-            return Evidence.C, f"{guard}; mask symbol {mask.symbol} is not defined in the scanned inputs", None
+            return (
+                Evidence.C,
+                f"{guard}; mask symbol {mask.symbol} is not defined in the scanned inputs",
+                None,
+                Reason.UNRESOLVED,
+            )
 
         if mask.kind is ValueKind.VARIABLE:
             definition = unit.definition_before(mask.text, line)
@@ -169,11 +187,13 @@ class SuboptimalRule:
                         f"{guard}; mask is the local constant {mask.text}, whose lanes "
                         "are all in [0,15] or 0xFF",
                         None,
+                        None,
                     )
                 return (
                     Evidence.C,
                     f"{guard}; local constant {mask.text} sets bit 7 on an in-range index",
                     None,
+                    Reason.GUARD_REQUIRED,
                 )
             origin = self._literal_origin(mask, unit, line, set())
             if origin is not None:
@@ -182,10 +202,21 @@ class SuboptimalRule:
                     f"{guard}; mask derives from a literal through {origin}, "
                     "so the final lane values are not pinned",
                     None,
+                    None,
                 )
-            return Evidence.C, f"{guard}; mask variable {mask.text} is not traced to a literal", None
+            return (
+                Evidence.C,
+                f"{guard}; mask variable {mask.text} is not traced to a literal",
+                None,
+                Reason.UNRESOLVED,
+            )
 
         if mask.kind is ValueKind.CALL_RESULT:
-            return Evidence.C, f"{guard}; mask is produced by a call with unknown lanes", None
+            return (
+                Evidence.C,
+                f"{guard}; mask is produced by a call with unknown lanes",
+                None,
+                Reason.UNRESOLVED,
+            )
 
-        return Evidence.C, f"{guard}; mask is runtime data", None
+        return Evidence.C, f"{guard}; mask is runtime data", None, Reason.UNRESOLVED

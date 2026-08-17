@@ -21,7 +21,7 @@ from typing import Iterator
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
-from .base import Context
+from .base import Context, raw_name_if_aliased
 
 _INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
 _DEFAULT_THRESHOLD = 3
@@ -108,6 +108,7 @@ class MemoryRule:
             # chain. If the first element's own cost is unknown, no fused
             # instruction is offered for the chain either.
             suggestion=first_cost.suggestion,
+            raw_name=raw_name_if_aliased(first),
         )
 
     def _sum_costs(
@@ -172,4 +173,5 @@ class ScalarSetBuildRule:
                 simde_insns=simde_total,
                 native_insns=native_total,
                 suggestion=cost.suggestion,
+                raw_name=raw_name_if_aliased(call),
             )

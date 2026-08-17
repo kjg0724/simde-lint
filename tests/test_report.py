@@ -1,6 +1,6 @@
 import json
 
-from simde_lint.finding import Evidence, Finding, Impact
+from simde_lint.finding import Evidence, Finding, Impact, Reason
 from simde_lint.report.json import render_json
 from simde_lint.report.text import render_text
 
@@ -112,6 +112,63 @@ def test_json_emits_null_for_an_unknown_cost():
     assert finding["native_insns"] is None
     assert finding["suggestion"] is None
     assert finding["simde_insns"] == 4
+
+
+C_GUARD_REQUIRED_FINDING = Finding(
+    type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
+    evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, impact=Impact.CONFIRMED,
+    file="a.c", line=12, function="kernel", intrinsic="_mm_shuffle_epi8",
+    rationale="inline mask has a lane in the unsafe [16,127] middle range",
+    simde_insns=None, native_insns=None, suggestion=None,
+)
+
+
+def test_text_shows_the_reason_beside_grade_c():
+    output = render_text([C_GUARD_REQUIRED_FINDING])
+    assert "evidence=C (guard_required)" in output
+
+
+def test_text_shows_no_reason_suffix_for_a_or_b():
+    output = render_text(FINDINGS)
+    assert "evidence=A (" not in output
+
+
+def test_json_carries_the_reason_next_to_evidence():
+    data = json.loads(render_json([C_GUARD_REQUIRED_FINDING], simde_version="0.8.4"))
+    finding = data["findings"][0]
+    assert finding["evidence"] == "C"
+    assert finding["reason"] == "guard_required"
+
+
+def test_json_reason_is_null_for_grade_a():
+    data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
+    assert all(f["reason"] is None for f in data["findings"])
+
+
+RAW_NAME_FINDING = Finding(
+    type="P", rule="P.cmp_immediate_use", rule_mechanism="compare consumed by the next call",
+    evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=4,
+    function="kernel", intrinsic="_mm_cmpgt_epi64", raw_name="_my_cmpgt_epi64",
+    rationale="consumed by the next call",
+    simde_insns=1, native_insns=1, suggestion=None,
+)
+
+
+def test_text_shows_the_raw_spelling_when_it_differs_from_the_canonical_name():
+    output = render_text([RAW_NAME_FINDING])
+    assert "_mm_cmpgt_epi64 (source spelling: _my_cmpgt_epi64)" in output
+
+
+def test_text_omits_the_raw_spelling_when_it_matches_the_canonical_name():
+    output = render_text(FINDINGS)
+    assert "source spelling" not in output
+
+
+def test_json_carries_raw_name_only_when_it_differs():
+    data = json.loads(render_json([RAW_NAME_FINDING] + FINDINGS, simde_version="0.8.4"))
+    by_rule = {f["rule"]: f for f in data["findings"]}
+    assert by_rule["P.cmp_immediate_use"]["raw_name"] == "_my_cmpgt_epi64"
+    assert "raw_name" not in by_rule["S.pshufb_guard"]
 
 
 def test_both_renderers_order_a_tie_at_one_location_identically():

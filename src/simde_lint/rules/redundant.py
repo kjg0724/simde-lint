@@ -6,7 +6,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit
-from .base import Context
+from .base import Context, raw_name_if_aliased
 
 
 class RedundantRule:
@@ -39,4 +39,5 @@ class RedundantRule:
                 simde_insns=info.simde_insns,
                 native_insns=info.native_insns,
                 suggestion=info.suggestion,
+                raw_name=raw_name_if_aliased(call),
             )
