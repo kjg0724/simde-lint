@@ -99,14 +99,23 @@ Requires Python >= 3.10. Dependencies: `tree-sitter`, `tree-sitter-cpp`,
 
 ```bash
 simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P]
-           [--min-evidence A|B|C] [--impact confirmed|all] [--exclude GLOB]
-           [--config FILE] [--dump-symbols]
+           [--min-evidence A|B|C] [--impact confirmed|all] [--sort impact|file]
+           [--exclude GLOB] [--config FILE] [--dump-symbols]
 ```
 
 - `--type` filters to a comma-separated set of taxonomy types.
 - `--min-evidence` is a floor, not an exact match: `B` keeps grades A and B.
 - `--impact confirmed` keeps only the three types with a measured
   microbenchmark speedup.
+- `--sort` picks the display order; both `--format` values honor it, so text
+  and JSON output never disagree on order for the same run.
+  - `impact` (default) — `confirmed` findings before `diagnostic`, then
+    grade A before B before C, then file and line. On a large codebase, the
+    diagnostic-impact rules (chiefly R) can outnumber everything else several
+    times over; sorting by impact first means the findings worth acting on
+    aren't buried under a scroll of ones `-O3` typically removes on its own.
+  - `file` — the plain `(file, line, type, rule)` walk through the source
+    tree, for a diff-friendly read.
 - `--exclude` is repeatable and matches both the literal path and the
   root-relative tail, so `--exclude 'tests/*'` works regardless of whether
   the scan root was given as absolute or relative.

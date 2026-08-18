@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..finding import Finding, sort_key
+from ..finding import Finding, SORT_KEYS
 
 
 def _label(finding: Finding) -> str:
@@ -49,9 +49,9 @@ def _suggestion_line(finding: Finding) -> str:
     return f"    suggestion: {finding.suggestion} ({counts})"
 
 
-def render_text(findings: list[Finding]) -> str:
+def render_text(findings: list[Finding], *, sort: str = "impact") -> str:
     lines: list[str] = []
-    for finding in sorted(findings, key=sort_key):
+    for finding in sorted(findings, key=SORT_KEYS[sort]):
         lines.append(
             f"{finding.file}:{finding.line}  {_label(finding)}  "
             f"evidence={_evidence_label(finding)}  impact={finding.impact.value}"

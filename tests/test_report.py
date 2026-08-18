@@ -1,4 +1,7 @@
 import json
+import re
+
+import pytest
 
 from simde_lint.finding import Evidence, Finding, Impact, Reason
 from simde_lint.report.json import render_json
@@ -190,3 +193,77 @@ def test_both_renderers_order_a_tie_at_one_location_identically():
     reverse = json.loads(render_json([build, chain], simde_version="0.8.4"))["findings"]
     assert [f["rule"] for f in forward] == [f["rule"] for f in reverse]
     assert render_text([chain, build]) == render_text([build, chain])
+
+
+# v1.1 default order: impact-first (confirmed before diagnostic, then
+# evidence A before B before C, then location). --sort file keeps the
+# pre-v1.1 (file, line, type, rule) order. Both reporters must agree, always,
+# for whichever sort was requested.
+
+_MIXED = [
+    Finding(  # diagnostic, evidence A, earliest in file order
+        type="R", rule="R.zero_init_partial_load", rule_mechanism="zero-init before partial load",
+        evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=1,
+        function="kernel", intrinsic="_mm_loadu_si32", rationale="zero vector then lane load",
+        simde_insns=2, native_insns=1, suggestion="vld1q_lane_s32",
+    ),
+    Finding(  # confirmed, evidence C
+        type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
+        evidence=Evidence.C, reason=Reason.UNRESOLVED, impact=Impact.CONFIRMED, file="a.c", line=5,
+        function="kernel", intrinsic="_mm_shuffle_epi8", rationale="mask lanes unknown",
+        simde_insns=None, native_insns=None, suggestion=None,
+    ),
+    Finding(  # confirmed, evidence A, latest in file order
+        type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
+        evidence=Evidence.A, impact=Impact.CONFIRMED, file="a.c", line=20,
+        function="kernel", intrinsic="_mm_shuffle_epi8", rationale="guard is dead work",
+        simde_insns=3, native_insns=1, suggestion="vqtbl1q_u8",
+    ),
+    Finding(  # confirmed, evidence B, in a different file
+        type="W", rule="W.mul16_widen_roundtrip", rule_mechanism="16x16->32 widening roundtrip",
+        evidence=Evidence.B, impact=Impact.CONFIRMED, file="b.c", line=1,
+        function="kernel", intrinsic="_mm_mullo_epi16", rationale="matched through an intermediate",
+        simde_insns=4, native_insns=1, suggestion="vmull_s16",
+    ),
+]
+
+_IMPACT_ORDER = ["S.pshufb_guard", "W.mul16_widen_roundtrip", "S.pshufb_guard", "R.zero_init_partial_load"]
+_FILE_ORDER = ["R.zero_init_partial_load", "S.pshufb_guard", "S.pshufb_guard", "W.mul16_widen_roundtrip"]
+# (file, line) is unique per entry in _MIXED, so a location tells us which
+# finding produced a given text-output header line even when two entries
+# share a rule id.
+_RULE_BY_LOCATION = {(f.file, f.line): f.rule for f in _MIXED}
+
+
+def _text_rule_order(output: str) -> list[str]:
+    # A finding's header line is the only unindented line of the form
+    # "file:line  ...". Everything else is either an indented detail line, a
+    # blank separator, or the "Summary:" block, so this pattern alone tells
+    # header lines apart from both.
+    matches = re.findall(r"^(\S+):(\d+)  ", output, re.MULTILINE)
+    return [_RULE_BY_LOCATION[file, int(line)] for file, line in matches]
+
+
+def test_default_sort_is_impact_first_then_evidence_then_location():
+    data = json.loads(render_json(_MIXED, simde_version="0.8.4"))
+    assert [f["rule"] for f in data["findings"]] == _IMPACT_ORDER
+    # First finding must be the confirmed grade-A one, not the diagnostic one
+    # that happens to sit earliest in the file.
+    assert data["findings"][0]["evidence"] == "A"
+    assert data["findings"][0]["impact"] == "confirmed"
+    assert data["findings"][-1]["impact"] == "diagnostic"
+    assert _text_rule_order(render_text(_MIXED)) == _IMPACT_ORDER
+
+
+def test_sort_file_reproduces_the_previous_location_order():
+    data = json.loads(render_json(_MIXED, simde_version="0.8.4", sort="file"))
+    assert [f["rule"] for f in data["findings"]] == _FILE_ORDER
+    assert _text_rule_order(render_text(_MIXED, sort="file")) == _FILE_ORDER
+
+
+@pytest.mark.parametrize("sort, expected", [("impact", _IMPACT_ORDER), ("file", _FILE_ORDER)])
+def test_both_reporters_agree_on_order_under_each_sort_value(sort, expected):
+    json_order = [f["rule"] for f in json.loads(render_json(_MIXED, simde_version="0.8.4", sort=sort))["findings"]]
+    text_order = _text_rule_order(render_text(_MIXED, sort=sort))
+    assert json_order == expected
+    assert text_order == expected

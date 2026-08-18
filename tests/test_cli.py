@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import pytest
 
@@ -72,6 +73,32 @@ def test_text_output_is_the_default(tmp_path, capsys):
 
 def test_exit_code_is_zero_even_with_findings(tmp_path):
     assert main([_write(tmp_path)]) == 0
+
+
+def test_sort_defaults_to_impact_first(tmp_path, capsys):
+    main([_write(tmp_path), "--format", "json"])
+    data = json.loads(capsys.readouterr().out)
+    impacts = [f["impact"] for f in data["findings"]]
+    # Every "confirmed" entry must precede every "diagnostic" one; this
+    # fixture mixes S (confirmed) and R (diagnostic) findings at the same
+    # file, so a location-first sort would interleave them instead.
+    assert impacts == sorted(impacts, key=lambda i: 0 if i == "confirmed" else 1)
+
+
+def test_sort_file_restores_the_pre_v1_1_location_order(tmp_path, capsys):
+    main([_write(tmp_path), "--format", "json", "--sort", "file"])
+    data = json.loads(capsys.readouterr().out)
+    locations = [(f["file"], f["line"]) for f in data["findings"]]
+    assert locations == sorted(locations)
+
+
+def test_both_formats_agree_on_order_under_the_default_sort(tmp_path, capsys):
+    path = _write(tmp_path)
+    main([path, "--format", "json"])
+    json_order = [(f["file"], f["line"], f["rule"]) for f in json.loads(capsys.readouterr().out)["findings"]]
+    main([path, "--format", "text"])
+    text_locations = re.findall(r"^(\S+):(\d+)  \S+ \(", capsys.readouterr().out, re.MULTILINE)
+    assert [(loc[0], int(loc[1])) for loc in text_locations] == [(f, l) for f, l, _ in json_order]
 
 
 def test_dump_symbols_survives_an_unreadable_file(tmp_path):

@@ -24,6 +24,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("paths", nargs="+", type=Path, help="files or directories to scan")
     parser.add_argument("--format", choices=["text", "json"], default="text")
+    parser.add_argument(
+        "--sort",
+        choices=["impact", "file"],
+        default="impact",
+        help="impact-first (default): confirmed before diagnostic, then evidence, then location. "
+        "file: the previous (file, line, type, rule) location order",
+    )
     parser.add_argument("--type", default="", help="comma-separated taxonomy types, e.g. S,F")
     parser.add_argument("--min-evidence", choices=["A", "B", "C"], default="C")
     parser.add_argument("--impact", choices=["confirmed", "all"], default="all")
@@ -70,9 +77,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     if args.format == "json":
-        print(render_json(findings, simde_version=knowledge.simde_version))
+        print(render_json(findings, simde_version=knowledge.simde_version, sort=args.sort))
     else:
-        print(render_text(findings))
+        print(render_text(findings, sort=args.sort))
     return 0
 
 

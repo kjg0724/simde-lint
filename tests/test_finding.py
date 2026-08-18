@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence, Finding, Impact, Reason
+from simde_lint.finding import Evidence, Finding, Impact, Reason, file_sort_key, sort_key
 
 
 def _finding(**over) -> Finding:
@@ -53,3 +53,38 @@ def test_to_dict_omits_raw_name_when_absent():
 def test_to_dict_includes_raw_name_when_it_differs_from_the_canonical_spelling():
     data = _finding(raw_name="_my_cmpgt_epi64").to_dict()
     assert data["raw_name"] == "_my_cmpgt_epi64"
+
+
+# v1.1: findings are ordered impact-first by default (confirmed before
+# diagnostic, then evidence A before B before C), because a large sweep is
+# dominated by diagnostic-impact findings that buried the confirmed ones a
+# reader actually needs to act on. --sort file keeps the pre-v1.1 order.
+
+_CONFIRMED_A = _finding(impact=Impact.CONFIRMED, evidence=Evidence.A, file="a.c", line=20)
+_CONFIRMED_B = _finding(impact=Impact.CONFIRMED, evidence=Evidence.B, file="b.c", line=1)
+_CONFIRMED_C = _finding(impact=Impact.CONFIRMED, evidence=Evidence.C, file="a.c", line=5)
+_DIAGNOSTIC_A = _finding(impact=Impact.DIAGNOSTIC, evidence=Evidence.A, file="a.c", line=1)
+
+
+def test_sort_key_orders_confirmed_before_diagnostic():
+    mixed = [_DIAGNOSTIC_A, _CONFIRMED_C]
+    assert sorted(mixed, key=sort_key) == [_CONFIRMED_C, _DIAGNOSTIC_A]
+
+
+def test_sort_key_orders_evidence_a_before_b_before_c_within_one_impact():
+    mixed = [_CONFIRMED_C, _CONFIRMED_A, _CONFIRMED_B]
+    assert sorted(mixed, key=sort_key) == [_CONFIRMED_A, _CONFIRMED_B, _CONFIRMED_C]
+
+
+def test_sort_key_falls_back_to_location_within_one_impact_and_evidence():
+    # _CONFIRMED_A (a.c:20) and a same-impact-and-evidence sibling at a.c:3
+    # must land in line order once impact and evidence are tied.
+    earlier = _finding(impact=Impact.CONFIRMED, evidence=Evidence.A, file="a.c", line=3)
+    assert sorted([_CONFIRMED_A, earlier], key=sort_key) == [earlier, _CONFIRMED_A]
+
+
+def test_file_sort_key_reproduces_the_pre_v1_1_location_order():
+    # (file, line, type, rule): a.c:5 before a.c:20 before b.c:1, regardless
+    # of impact or evidence.
+    ordered = sorted([_CONFIRMED_B, _CONFIRMED_A, _CONFIRMED_C], key=file_sort_key)
+    assert ordered == [_CONFIRMED_C, _CONFIRMED_A, _CONFIRMED_B]

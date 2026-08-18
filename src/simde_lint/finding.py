@@ -96,8 +96,26 @@ class Finding:
         return data
 
 
-def sort_key(finding: "Finding") -> tuple[str, int, str, str]:
-    """Total display order for findings.
+# Explicit rank tables, not a bare comparison on the enum values. "confirmed"
+# < "diagnostic" and "A" < "B" < "C" happen to sort correctly as plain
+# strings today, but that is a coincidence of the value names — renaming a
+# value would silently reorder findings with no test catching it. A rank
+# table makes the order an explicit decision instead of an accident of
+# spelling.
+impact_rank = {Impact.CONFIRMED: 0, Impact.DIAGNOSTIC: 1}
+evidence_rank = {Evidence.A: 0, Evidence.B: 1, Evidence.C: 2}
+
+
+def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
+    """Impact-first display order — the v1.1 default.
+
+    Rule R alone accounts for the majority of a large sweep's findings (56%
+    of SVT-AV1's), and its impact is always `diagnostic`: `-O3` generally
+    removes the pattern on its own. Sorting by location first buried the
+    `confirmed` findings — the ones actually worth acting on — under a wall
+    of diagnostic ones. This key surfaces `confirmed` first, then the
+    strongest evidence within it, and only then falls back to a stable
+    location order.
 
     Includes the rule id because one location can legitimately carry findings
     from several rules — two Type M mechanisms can fire on the same statement.
@@ -105,4 +123,24 @@ def sort_key(finding: "Finding") -> tuple[str, int, str, str]:
     happened to assemble them, and two runs over the same input could differ.
     Both reporters use this so their outputs stay comparable.
     """
+    return (
+        impact_rank[finding.impact],
+        evidence_rank[finding.evidence],
+        finding.file,
+        finding.line,
+        finding.rule,
+    )
+
+
+def file_sort_key(finding: "Finding") -> tuple[str, int, str, str]:
+    """Location-first display order — the pre-v1.1 default, kept as `--sort file`.
+
+    Some readers want a diff-friendly walk through the source tree rather
+    than a priority ordering; this preserves that.
+    """
     return (finding.file, finding.line, finding.type, finding.rule)
+
+
+# Both reporters index into this by the CLI's --sort value, so the two
+# formats can never end up sorted differently for the same invocation.
+SORT_KEYS = {"impact": sort_key, "file": file_sort_key}
