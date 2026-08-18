@@ -2,8 +2,10 @@
 
 This records the measurements behind the v1 completion criteria in the design
 spec (Section 13): an exact match against SVT-AV1's known `_mm_shuffle_epi8`
-count, and a per-module comparison against Table III of "A Taxonomy of SIMDe
-Emulation Inefficiencies for ARM NEON Porting of VVC Encoders" (CAL, 2026).
+count, and a per-module comparison against Table III of J. Kim, "A Taxonomy of
+SIMDe Emulation Inefficiencies for ARM NEON Porting of VVC Encoders," *IEEE
+Computer Architecture Letters*, 2026, doi:
+[10.1109/LCA.2026.3725622](https://doi.org/10.1109/LCA.2026.3725622).
 
 **Absolute agreement with the paper is not a criterion.** The paper counted
 instances in GCC `-O3` assembly; this tool counts source call sites (spec

@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this tool in academic work, please cite the paper it implements."
+title: simde-lint
+abstract: >-
+  Source-level detection of the six SIMDe emulation inefficiency types
+  described in the referenced paper, for C/C++ codebases using x86 SIMD
+  intrinsics translated to ARM NEON.
+type: software
+authors:
+  - family-names: Kim
+    given-names: Jeongkeun
+    email: variety0724@gmail.com
+    orcid: "https://orcid.org/0009-0003-1171-8034"
+license: MIT
+repository-code: "https://github.com/kjg0724/simde-lint"
+version: 1.0.0
+preferred-citation:
+  type: article
+  title: >-
+    A Taxonomy of SIMDe Emulation Inefficiencies for ARM NEON Porting of
+    VVC Encoders
+  authors:
+    - family-names: Kim
+      given-names: Jeongkeun
+      orcid: "https://orcid.org/0009-0003-1171-8034"
+  journal: IEEE Computer Architecture Letters
+  year: 2026
+  doi: 10.1109/LCA.2026.3725622
