@@ -110,10 +110,16 @@ $ echo $?
 
 > R rose from 716 to 1798 between v1 and v1.1: `knowledge/redundant.yaml`
 > gained `_mm_loadl_epi64` and `_mm_loadu_si64` (see Section 2 below), and
-> SVT-AV1 uses the former 1082 times at the call-site level the tool counts
-> (a plain `grep` for the name returns 1101; the gap is non-call text —
-> comment and disabled-branch occurrences `grep` cannot tell apart from a
-> call). Every other type is unchanged. F's count (1009 here vs. 1010 the
+> SVT-AV1 uses the former 1082 times at the call-site level the tool counts,
+> where a plain `grep` for the name returns 1101. The 19 are accounted for
+> exactly, and in both directions. Two are not calls at all. Twenty sit
+> inside `#define` macro bodies — `cdef_filter_block_avx2.c:93-96`,
+> `cdef_filter_block_sse4_1.c` and `compute_mean_intrin_sse2.c` — which are
+> outside any function and so outside the tool's declared
+> `FunctionUnit`-scoped extraction. Against that, the tool finds four calls
+> `grep` misses: `ssim_avx2.c` defines `#define _mm_loadu_si64(p)
+> _mm_loadl_epi64(...)`, and alias resolution reports those four under the
+> canonical name. Every other type is unchanged. F's count (1009 here vs. 1010 the
 > last time this section was measured) is unrelated to this change: it is
 > the same live-working-tree drift already described above for the
 > file-count footnote, not a consequence of the R additions.
