@@ -20,3 +20,15 @@ intrinsics:
     suggestion: vsetq_lane_s64
     source: x86/sse2.h:3652
     note: vsetq_lane_s64(a, vdupq_n_s64(0), 0) builds a zero vector before inserting lane 0
+  _mm_loadl_epi64:
+    simde_insns: 2
+    native_insns: 1
+    suggestion: vld1q_lane_s64
+    source: x86/sse2.h:4163
+    note: vcombine_s64(vld1_s64(mem_addr), vdup_n_s64(0)) explicitly zeroes the upper half a native 64-bit load already zeroes as a side effect
+  _mm_loadu_si64:
+    simde_insns: 2
+    native_insns: 1
+    suggestion: vsetq_lane_s64
+    source: x86/sse2.h:5844
+    note: returns simde_mm_cvtsi64_si128(val) (x86/sse2.h:5844), which itself expands to vsetq_lane_s64(a, vdupq_n_s64(0), 0) (x86/sse2.h:3652) — the zero-init and the cost are inherited from that call, not introduced at this line

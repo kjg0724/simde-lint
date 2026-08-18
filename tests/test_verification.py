@@ -76,13 +76,16 @@ def test_depquant_reports_the_types_its_source_can_carry():
 
     At assembly-instance granularity the paper's Table III ranks DepQuant's
     dominant type as S (12). At call-site granularity — the unit this tool
-    uses (spec Section 3) — R leads: R 26, S 22, P 3. W, F and M are absent
+    uses (spec Section 3) — R leads: R 40, S 22, P 3. W, F and M are absent
     because the file carries no x86 multiply intrinsic at all and no insert
-    chain (see docs/verification.md for the traced cause of each zero).
+    chain (see docs/verification.md for the traced cause of each zero). R's
+    26 -> 40 jump (v1.1) comes from `_mm_loadu_si64`, added to
+    `knowledge/redundant.yaml` after the paper's R=4 undercounted DepQuant's
+    14 call sites of it.
     """
     findings, _ = analyze([VVENC_X86 / "DepQuantX86.h"])
     counts = Counter(f.type for f in findings)
-    assert counts["R"] == 26
+    assert counts["R"] == 40
     assert counts["S"] == 22
     assert counts["P"] == 3
     assert counts["W"] == 0

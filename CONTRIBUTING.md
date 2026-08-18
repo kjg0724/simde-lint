@@ -83,6 +83,17 @@ add it to `knowledge/aliases.yaml` instead (or as well). Local, file-scoped
 the macro body; `aliases.yaml` is for cross-file, cross-project spellings
 like the `simde_mm_*` prefix.
 
+A knowledge-table entry with no test asserting a rule actually reports it is
+a row nobody checks — the schema tests above only enforce that the entry is
+*shaped* correctly (a citation, a version), not that any rule fires on it.
+Add a call site for the new intrinsic to the matching rule's positive
+fixture (`tests/fixtures/rules/<rule>_positive.c`) and a test in
+`tests/test_rule_<rule>.py` that asserts it's among the findings — follow
+the pattern of the existing per-intrinsic tests in that file. If the new
+entry changes a pinned count in `tests/test_verification.py` or
+`docs/verification.md` (adding an intrinsic that occurs in one of the
+reference checkouts will), update those too rather than leaving them stale.
+
 ## Adding a rule module
 
 A rule covers one **named mechanism** of a taxonomy type — not the whole

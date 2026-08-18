@@ -11,8 +11,9 @@ Section 3), a different and larger unit. Divergences below are recorded as
 results, with an established cause for each — not smoothed over and not
 treated as failures.
 
-Every command in this document was re-run against `feature/v1` on the day
-this file was written. Reference checkouts are given through the
+Every command in this document was re-run against `main` on the day this
+file was last updated (v1.1: `redundant.yaml` gained `_mm_loadl_epi64` and
+`_mm_loadu_si64`; see Section 2). Reference checkouts are given through the
 `SIMDE_LINT_SVT_AV1` and `SIMDE_LINT_VVENC` environment variables (see
 CONTRIBUTING.md), which fall back to a local checkout path when unset.
 
@@ -104,8 +105,18 @@ $ echo $?
 ```
 
 561 files scanned (all `.c`/`.h` under `Source/`), exit 0, no stderr output.
-2152 total findings: `F 1010, R 716, S 341, M 53, P 31, W 1`. Evidence
-`A 1797, B 49, C 306`.
+3233 total findings: `F 1009, R 1798, S 341, M 53, P 31, W 1`. Evidence
+`A 2878, B 49, C 306`.
+
+> R rose from 716 to 1798 between v1 and v1.1: `knowledge/redundant.yaml`
+> gained `_mm_loadl_epi64` and `_mm_loadu_si64` (see Section 2 below), and
+> SVT-AV1 uses the former 1082 times at the call-site level the tool counts
+> (a plain `grep` for the name returns 1101; the gap is non-call text —
+> comment and disabled-branch occurrences `grep` cannot tell apart from a
+> call). Every other type is unchanged. F's count (1009 here vs. 1010 the
+> last time this section was measured) is unrelated to this change: it is
+> the same live-working-tree drift already described above for the
+> file-count footnote, not a consequence of the R additions.
 
 > An earlier run of the same command against this tree recorded 557 files
 > and 22s wall clock. The run recorded above counts 561 — the SVT-AV1
@@ -130,7 +141,7 @@ Counter(f.type for f in findings)
 
 | Module | Type | Paper (Table III) | Tool |
 |---|---|---:|---:|
-| DepQuantX86.h | R | 4 | 26 |
+| DepQuantX86.h | R | 4 | 40 |
 | DepQuantX86.h | S | 12 | 22 |
 | DepQuantX86.h | W | 3 | 0 |
 | DepQuantX86.h | F | 6 | 0 |
@@ -164,14 +175,19 @@ Counter(f.type for f in findings)
 Re-running the `analyze()` calls above against the current checkout
 reproduces every cell in this table with no changes.
 `test_depquant_reports_the_types_its_source_can_carry` in
-`tests/test_verification.py` pins DepQuant's row directly: R 26, S 22, P 3,
-W/F/M 0.
+`tests/test_verification.py` pins DepQuant's row directly: R 40, S 22, P 3,
+W/F/M 0. (R was 26 before v1.1 added `_mm_loadu_si64` to
+`knowledge/redundant.yaml`; DepQuant carries 14 call sites of it, all of
+them in the `+40` here.)
 
 A full recursive sweep of the whole `x86/` directory (47 files: the five
 SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
-`avx2/` and `sse41/` subdirectories) totals 412 findings — `R 73, S 164,
-F 131, W 17, M 23, P 4` — evidence `A 287, B 87, C 38`, impact
-`confirmed 312, diagnostic 100`.
+`avx2/` and `sse41/` subdirectories) totals 445 findings — `R 106, S 164,
+F 131, W 17, M 23, P 4` — evidence `A 320, B 87, C 38`, impact
+`confirmed 312, diagnostic 133`. R was 73 at v1 (three registered
+intrinsics); v1.1 added `_mm_loadl_epi64` (1 call site in this sweep) and
+`_mm_loadu_si64` (32 call sites), for +33. Every other type is unchanged
+from the v1 measurement.
 `test_full_sweep_of_both_codebases_does_not_crash` runs this and only checks
 it returns a list: no crash, no hang.
 
@@ -185,7 +201,7 @@ invoked from more than one place produces several source-level findings that
 
 | Module | Type | Paper | Tool | Ratio |
 |---|---|---:|---:|---:|
-| DepQuantX86.h | R | 4 | 26 | 6.5x |
+| DepQuantX86.h | R | 4 | 40 | 10.0x |
 | DepQuantX86.h | S | 12 | 22 | 1.8x |
 | QuantX86.h | R | 2 | 5 | 2.5x |
 | QuantX86.h | F | 4 | 8 | 2.0x |
@@ -236,14 +252,30 @@ verified individually rather than assumed:
   built from `_mm_unpacklo_epi64` and `_mm_set_epi64x`, a different
   mechanism than the pshufb guard rule S implements. This is the expected,
   documented outcome, not a verification failure.
-- **R = 0 on LoopFilter, Trafo and FGA.** None of those three files contains
-  any of the three intrinsics currently registered in `redundant.yaml`
-  (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`). The paper's R
-  instances there come from intrinsics the knowledge table does not yet
-  carry. **This is knowledge-table coverage, not a matching failure — it is
-  also the cheapest of every divergence in this document to close: adding an
-  intrinsic to `redundant.yaml` is a data change with no code change (see
-  CONTRIBUTING.md).**
+- **R = 0 on LoopFilter, Trafo and FGA, still, after v1.1.** v1.1 added
+  `_mm_loadl_epi64` and `_mm_loadu_si64` to `redundant.yaml` specifically to
+  close this gap (see the R rows in the table above and the full-sweep note
+  under Section 1), and it did close the gap on DepQuant (R 26 → 40, all 14
+  of the increase from `_mm_loadu_si64`). It did not move LoopFilter, Trafo
+  or FGA: none of the five intrinsics now registered
+  (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`,
+  `_mm_loadl_epi64`, `_mm_loadu_si64`) appears in any of those three files at
+  all — confirmed by grep, not just by the tool's silence.
+  - **LoopFilter** and **Trafo** do contain `_mm_cvtsi128_si64` and
+    `_mm_cvtsi128_si32` respectively — the *extract* direction (vector lane
+    to scalar), the mirror image of the intrinsics rule R covers (scalar or
+    partial memory to zero-padded vector). That is a distinct, currently
+    unimplemented mechanism, not an unregistered intrinsic of the mechanism
+    R already has; registering `_mm_cvtsi128_si64` in `redundant.yaml` under
+    the current rule would be citing the wrong SIMDe expansion for what the
+    rule actually matches. LoopFilter's `_mm_set_epi64x` occurrences are
+    already covered, but by `M.scalar_set_build`, not R.
+  - **FGA** contains no candidate at all under either direction — every load
+    in it (`_mm_loadu_si128`, `_mm256_loadu_si256`) is full-width, and it has
+    no `_mm_cvtsi128_*`/`_mm_cvtsi*_si128` call of any kind. Which SIMDe
+    construct produces the paper's 2 FGA instances is not established by
+    this change; it needs separate investigation, not assumed to be the same
+    extract-direction mechanism as the other two.
 
 ### Types the paper did not report
 
