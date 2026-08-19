@@ -31,10 +31,10 @@ class WideningRule:
 
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
         cost = ctx.knowledge.cost(self.rule_id)
-        by_line = lambda calls: sorted(calls, key=lambda c: c.line)
-        los = by_line(c for c in unit.calls if c.name == "_mm_mullo_epi16")
-        his = by_line(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
-        unpacks = by_line(c for c in unit.calls if c.name in _UNPACK)
+        by_position = lambda calls: sorted(calls, key=lambda c: c.start_byte)
+        los = by_position(c for c in unit.calls if c.name == "_mm_mullo_epi16")
+        his = by_position(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
+        unpacks = by_position(c for c in unit.calls if c.name in _UNPACK)
 
         # One finding per round-trip, not per matching pair. VVenC's DeQuant
         # repeats this sequence four times in one function reusing the same
@@ -49,7 +49,7 @@ class WideningRule:
             if hi is None or not lo.result_var or not hi.result_var:
                 continue
             consumer = self._consumer(
-                unpacks, claimed_unpacks, lo.result_var, hi.result_var, hi.line
+                unpacks, claimed_unpacks, lo.result_var, hi.result_var, hi.start_byte
             )
             if consumer is None:
                 continue
@@ -100,7 +100,7 @@ class WideningRule:
         ]
         if not candidates:
             return None
-        return min(candidates, key=lambda hi: abs(hi.line - lo.line))
+        return min(candidates, key=lambda hi: abs(hi.start_byte - lo.start_byte))
 
     @staticmethod
     def _consumer(
@@ -108,7 +108,7 @@ class WideningRule:
         claimed: set[int],
         lo_var: str,
         hi_var: str,
-        after_line: int,
+        after_position: int,
     ) -> IntrinsicCall | None:
         """First unclaimed unpack at or after the multiplies taking both results.
 
@@ -122,7 +122,7 @@ class WideningRule:
         separation the other rules keep.
         """
         for unpack in unpacks:
-            if unpack.id in claimed or unpack.line < after_line:
+            if unpack.id in claimed or unpack.start_byte < after_position:
                 continue
             texts = {arg.text for arg in unpack.args}
             if lo_var in texts and hi_var in texts:
