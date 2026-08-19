@@ -21,7 +21,7 @@ from typing import Iterator
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
-from .base import Context, raw_name_if_aliased
+from .base import Context, own_availability, raw_name_if_aliased
 
 _INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
 _DEFAULT_THRESHOLD = 3
@@ -41,7 +41,7 @@ class MemoryRule:
         threshold = int(ctx.config.get("memory_chain_threshold", _DEFAULT_THRESHOLD))
 
         by_var: dict[str, list[IntrinsicCall]] = {}
-        for call in sorted(unit.calls, key=lambda c: c.line):
+        for call in sorted(unit.calls, key=lambda c: c.start_byte):
             if call.name not in _INSERTS or not call.result_var:
                 continue
             by_var.setdefault(call.result_var, []).append(call)
@@ -68,7 +68,9 @@ class MemoryRule:
         """
         chain: list[IntrinsicCall] = []
         for call in calls:
-            if chain and unit.redefined_between(target, chain[-1].line, call.line):
+            if chain and unit.redefined_between(
+                target, own_availability(unit, chain[-1]), call.start_byte
+            ):
                 yield chain
                 chain = []
             chain.append(call)

@@ -39,7 +39,7 @@ def test_records_a_variable_argument_and_its_definition():
     # `shuf` is assigned a byte literal constructor, so the definition carries
     # the lanes AND still names the call that produced them — rules F, W and M
     # reach a producing call through `call_id`.
-    definition = unit.definition_before("shuf", call.line)
+    definition = unit.definition_before("shuf", call.start_byte)
     assert definition.value.kind == ValueKind.LITERAL_VECTOR
     assert definition.value.lanes is not None
     assert unit.call_by_id(definition.value.call_id).name == "_mm_setr_epi8"
@@ -50,7 +50,9 @@ def test_a_variable_assigned_a_byte_literal_constructor_is_a_literal_vector():
     # knowable as the same literal written inline, so its definition should
     # carry them rather than an opaque call result.
     unit = _unit()
-    definition = unit.definition_before("shuf", unit.end_line)
+    # A position past the whole file's bytes stands in for "after everything",
+    # the byte-offset equivalent of the old line sentinel `unit.end_line`.
+    definition = unit.definition_before("shuf", len(FIXTURE.read_bytes()))
     assert definition.value.kind == ValueKind.LITERAL_VECTOR
     assert definition.value.lanes == (0, 0, 1, 1, 2, 2, 3, 3, 255, 255, 255, 255, 255, 255, 255, 255)
 
@@ -59,7 +61,7 @@ def test_a_variable_assigned_a_non_literal_call_stays_a_call_result():
     # `cmp = _mm_cmpgt_epi64(...)` has no literal lanes to record, so its
     # definition still names the producing call for one-hop tracing.
     unit = _unit()
-    definition = unit.definition_before("cmp", unit.end_line)
+    definition = unit.definition_before("cmp", len(FIXTURE.read_bytes()))
     assert definition.value.kind == ValueKind.CALL_RESULT
 
 
@@ -107,8 +109,13 @@ void f(__m128i a, __m128i b, __m128i c) {
 }
 """
     unit = extract_units("t.c", source, load_knowledge())[0]
-    assert unit.redefined_between("mask", 3, 5) is True
-    overwrite = unit.definition_before("mask", 5)
+    # Byte-offset equivalents of the old line bounds 3 and 5: the first
+    # `mask` definition's own position, and the position of the call that
+    # follows the overwrite.
+    mask_defs = unit.definitions["mask"]
+    sel_call = next(c for c in unit.calls if c.name == "_mm_and_si128")
+    assert unit.redefined_between("mask", mask_defs[0].start_byte, sel_call.start_byte) is True
+    overwrite = unit.definition_before("mask", sel_call.start_byte)
     assert overwrite.line == 4
     assert overwrite.value.kind == ValueKind.UNKNOWN
 
@@ -141,3 +148,19 @@ void f(__m128i c) {
     unit = extract_units("t.c", source, load_knowledge())[0]
     assert len(unit.definitions["mask"]) == 1
     assert unit.definitions["mask"][0].value.kind == ValueKind.UNKNOWN
+
+
+def test_extraction_orders_same_line_statements_by_byte():
+    source = (
+        b"void f(const int *p) {\n"
+        b"    __m128i a = _mm_loadu_si32(p); a = _mm_add_epi32(a, a); "
+        b"__m128i b = _mm_add_epi32(a, a);\n"
+        b"}\n"
+    )
+    unit = extract_units("t.c", source, load_knowledge())[0]
+    adds = [c for c in unit.calls if c.name == "_mm_add_epi32"]
+    assert len(adds) == 2
+    # The second add sees the reassignment made by the first; the first does not.
+    first, second = sorted(adds, key=lambda c: c.start_byte)
+    assert unit.definition_before("a", first.start_byte).value.text == "_mm_loadu_si32"
+    assert unit.definition_before("a", second.start_byte).value.text == "_mm_add_epi32"

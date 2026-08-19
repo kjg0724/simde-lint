@@ -11,7 +11,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit, IntrinsicCall, ValueKind
-from .base import Context, raw_name_if_aliased
+from .base import Context, own_availability, raw_name_if_aliased
 
 _UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
 
@@ -54,8 +54,10 @@ class WideningRule:
             if consumer is None:
                 continue
             if unit.redefined_between(
-                lo.result_var, lo.line, consumer.line
-            ) or unit.redefined_between(hi.result_var, hi.line, consumer.line):
+                lo.result_var, own_availability(unit, lo), consumer.start_byte
+            ) or unit.redefined_between(
+                hi.result_var, own_availability(unit, hi), consumer.start_byte
+            ):
                 # The unpack still names lo.result_var/hi.result_var, but one
                 # of them was overwritten before the unpack runs, so the value
                 # it consumes is not this multiply's product. Every other rule

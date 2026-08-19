@@ -134,6 +134,22 @@ def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     return None
 
 
+def _binding_end_byte(call: Node) -> int:
+    """End of the initializer or assignment that binds this call's result.
+
+    The value exists only after the whole right-hand side has been evaluated,
+    so this is what `available_after_byte` records.
+    """
+    parent = call.parent
+    while parent is not None:
+        if parent.type in ("init_declarator", "assignment_expression"):
+            return parent.end_byte
+        if parent.type in ("call_expression", "function_definition"):
+            break
+        parent = parent.parent
+    return call.end_byte
+
+
 def _iter_function_definitions(root: Node) -> Iterator[Node]:
     yield from iter_nodes(root, "function_definition")
 
@@ -199,6 +215,7 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Functi
                 args=args,
                 line=node.start_point[0] + 1,
                 column=node.start_point[1] + 1,
+                start_byte=node.start_byte,
                 result_var=result_var,
             )
             unit.calls.append(call)
@@ -217,7 +234,15 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Functi
                     lanes=lanes,
                     call_id=call.id,
                 )
-                unit.add_definition(Definition(result_var, call.line, value))
+                unit.add_definition(
+                    Definition(
+                        result_var,
+                        call.line,
+                        start_byte=call.start_byte,
+                        available_after_byte=_binding_end_byte(node),
+                        value=value,
+                    )
+                )
         _record_plain_assignments(definition, source, unit, aliases, knowledge)
         units.append(unit)
     return units
@@ -257,7 +282,9 @@ def _record_plain_assignments(
                 Definition(
                     name,
                     node.start_point[0] + 1,
-                    ValueRef(ValueKind.UNKNOWN, node_text(right, source).strip()),
+                    start_byte=node.start_byte,
+                    available_after_byte=node.end_byte,
+                    value=ValueRef(ValueKind.UNKNOWN, node_text(right, source).strip()),
                 )
             )
     for node in iter_nodes(scope, "init_declarator"):
@@ -275,6 +302,8 @@ def _record_plain_assignments(
                 Definition(
                     name,
                     node.start_point[0] + 1,
-                    ValueRef(ValueKind.UNKNOWN, node_text(value, source).strip()),
+                    start_byte=node.start_byte,
+                    available_after_byte=node.end_byte,
+                    value=ValueRef(ValueKind.UNKNOWN, node_text(value, source).strip()),
                 )
             )

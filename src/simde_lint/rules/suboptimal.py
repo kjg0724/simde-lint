@@ -55,7 +55,7 @@ class SuboptimalRule:
                 continue
             cost = ctx.knowledge.cost(self.rule_id, call.name)
             evidence, rationale, mask_source, reason = self._grade(
-                call.args[1], unit, call.line, ctx
+                call.args[1], unit, call.start_byte, ctx
             )
             # Only grade A confirms every mask lane lies in a range tbl and
             # pshufb agree on. B leaves the lane values unpinned and C is
@@ -84,7 +84,7 @@ class SuboptimalRule:
             )
 
     def _literal_origin(
-        self, ref: ValueRef, unit: FunctionUnit, line: int, seen: set[int]
+        self, ref: ValueRef, unit: FunctionUnit, position: int, seen: set[int]
     ) -> str | None:
         """Name of the operation a value reaches a byte literal through.
 
@@ -97,12 +97,12 @@ class SuboptimalRule:
         if ref.kind is ValueKind.LITERAL_VECTOR:
             return None
         if ref.kind is ValueKind.VARIABLE:
-            definition = unit.definition_before(ref.text, line)
+            definition = unit.definition_before(ref.text, position)
             if definition is None:
                 return None
             if definition.value.kind is ValueKind.LITERAL_VECTOR:
                 return definition.value.text
-            return self._literal_origin(definition.value, unit, definition.line, seen)
+            return self._literal_origin(definition.value, unit, definition.start_byte, seen)
         if ref.kind is ValueKind.CALL_RESULT and ref.call_id is not None:
             if ref.call_id in seen:
                 return None
@@ -113,13 +113,13 @@ class SuboptimalRule:
             if any(a.kind is ValueKind.LITERAL_VECTOR for a in source.args):
                 return source.name
             for argument in source.args:
-                found = self._literal_origin(argument, unit, source.line, seen)
+                found = self._literal_origin(argument, unit, source.start_byte, seen)
                 if found is not None:
                     return source.name
         return None
 
     def _grade(
-        self, mask: ValueRef, unit: FunctionUnit, line: int, ctx: Context
+        self, mask: ValueRef, unit: FunctionUnit, position: int, ctx: Context
     ) -> tuple[Evidence, str, dict | None, Reason | None]:
         guard = f"SIMDe {ctx.knowledge.simde_version} guards the tbl index on every call"
 
@@ -163,7 +163,7 @@ class SuboptimalRule:
             )
 
         if mask.kind is ValueKind.VARIABLE:
-            definition = unit.definition_before(mask.text, line)
+            definition = unit.definition_before(mask.text, position)
             if (
                 definition is not None
                 and definition.value.kind is ValueKind.LITERAL_VECTOR
@@ -195,7 +195,7 @@ class SuboptimalRule:
                     None,
                     Reason.GUARD_REQUIRED,
                 )
-            origin = self._literal_origin(mask, unit, line, set())
+            origin = self._literal_origin(mask, unit, position, set())
             if origin is not None:
                 return (
                     Evidence.B,

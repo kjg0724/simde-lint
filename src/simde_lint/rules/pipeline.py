@@ -12,7 +12,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import FunctionUnit, ValueKind
-from .base import Context, raw_name_if_aliased
+from .base import Context, own_availability, raw_name_if_aliased
 
 _COMPARES = {
     "_mm_cmpgt_epi64",
@@ -43,7 +43,9 @@ class PipelineRule:
             )
             if not consumed:
                 continue
-            if unit.redefined_between(current.result_var, current.line, following.line):
+            if unit.redefined_between(
+                current.result_var, own_availability(unit, current), following.start_byte
+            ):
                 # The name still matches but the value does not: something
                 # overwrote it in between, so the compare's result never
                 # reaches this call and there is no back-to-back use.

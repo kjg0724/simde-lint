@@ -31,6 +31,25 @@ class Rule(Protocol):
     def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]: ...
 
 
+def own_availability(unit: FunctionUnit, call: IntrinsicCall) -> int:
+    """Byte offset after which `call`'s own bound result becomes available.
+
+    A rule asking `redefined_between(call.result_var, call.start_byte, ...)`
+    means "did something else overwrite this after `call` produced it" — but
+    `call.start_byte` is where the call begins, not where its result becomes
+    available, and the binding `Definition` it creates always has a later
+    `available_after_byte`. Anchoring at `call.start_byte` therefore makes
+    that same definition look like a redefinition of itself. The producing
+    call and its binding definition share `start_byte` (extraction sets the
+    definition's `start_byte` from the call's), so that identity finds the
+    right definition and its `available_after_byte` is the correct anchor.
+    """
+    for definition in unit.definitions.get(call.result_var, ()):
+        if definition.start_byte == call.start_byte:
+            return definition.available_after_byte
+    return call.start_byte
+
+
 def raw_name_if_aliased(call: IntrinsicCall) -> str | None:
     """The call's original spelling, when the rule matched it under an alias.
 

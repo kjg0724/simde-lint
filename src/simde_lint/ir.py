@@ -34,6 +34,7 @@ class IntrinsicCall:
     args: tuple[ValueRef, ...]
     line: int
     column: int
+    start_byte: int
     result_var: str | None = None
 
 
@@ -41,6 +42,8 @@ class IntrinsicCall:
 class Definition:
     var: str
     line: int
+    start_byte: int
+    available_after_byte: int
     value: ValueRef
 
 
@@ -56,16 +59,22 @@ class FunctionUnit:
     def add_definition(self, definition: Definition) -> None:
         bucket = self.definitions.setdefault(definition.var, [])
         bucket.append(definition)
-        bucket.sort(key=lambda d: d.line)
+        bucket.sort(key=lambda d: d.available_after_byte)
 
-    def definition_before(self, var: str, line: int) -> Definition | None:
-        """Latest definition of `var` strictly before `line`."""
-        candidates = [d for d in self.definitions.get(var, []) if d.line < line]
+    def definition_before(self, var: str, position: int) -> Definition | None:
+        """Latest definition of `var` available strictly before `position`.
+
+        Positions are byte offsets, not lines. A definition becomes available
+        only once its right-hand side has been evaluated, so `x = f(x, ...)`
+        does not see itself, and two definitions on one physical line stay
+        ordered.
+        """
+        candidates = [d for d in self.definitions.get(var, []) if d.available_after_byte < position]
         return candidates[-1] if candidates else None
 
-    def redefined_between(self, var: str, start_line: int, end_line: int) -> bool:
-        """True if `var` is defined again strictly between the two lines."""
-        return any(start_line < d.line < end_line for d in self.definitions.get(var, []))
+    def redefined_between(self, var: str, start: int, end: int) -> bool:
+        """True if `var` is redefined strictly between two byte offsets."""
+        return any(start < d.available_after_byte < end for d in self.definitions.get(var, []))
 
     def call_by_id(self, call_id: int) -> IntrinsicCall | None:
         for call in self.calls:
