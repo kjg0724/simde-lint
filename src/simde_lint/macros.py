@@ -40,6 +40,22 @@ def line_column(source: bytes, byte: int) -> tuple[int, int]:
     return line, column
 
 
+def _body_range(source: bytes, value: Node) -> tuple[int, int]:
+    """Source range of a macro body, following backslash continuations.
+
+    tree-sitter's `preproc_arg` sometimes stops at the first physical line of
+    a continued macro, which would hand the parser a fragment — `do {` with no
+    closing brace — and fail on input that is merely truncated.
+    """
+    end = value.end_byte
+    while source[value.start_byte:end].rstrip().endswith(b"\\"):
+        newline = source.find(b"\n", end)
+        if newline < 0:
+            return value.start_byte, len(source)
+        end = newline + 1
+    return value.start_byte, end
+
+
 def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
     """Reparse every function-like macro body in one file.
 
@@ -57,7 +73,8 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
             for child in (define.child_by_field_name("parameters") or define).named_children
             if child.type == "identifier"
         )
-        body = source[value.start_byte : value.end_byte]
+        body_start, body_end = _body_range(source, value)
+        body = source[body_start:body_end]
         synthetic = _PREFIX + body + _SUFFIX
         tree = parse_source(synthetic)
         macros.append(
