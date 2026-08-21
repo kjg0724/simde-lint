@@ -33,6 +33,12 @@ def _intrinsic_label(finding: Finding) -> str:
     return finding.intrinsic
 
 
+def _location_label(finding: Finding) -> str:
+    if finding.scope == "macro":
+        return f"{finding.macro} (macro)"
+    return str(finding.function)
+
+
 def _counts(finding: Finding) -> str:
     if finding.simde_insns is None or finding.native_insns is None:
         return "instruction count unknown"
@@ -56,7 +62,7 @@ def render_text(findings: list[Finding], *, sort: str = "impact") -> str:
             f"{finding.file}:{finding.line}  {_label(finding)}  "
             f"evidence={_evidence_label(finding)}  impact={finding.impact.value}"
         )
-        lines.append(f"    {_intrinsic_label(finding)} in {finding.function}")
+        lines.append(f"    {_intrinsic_label(finding)} in {_location_label(finding)}")
         lines.append(f"    {finding.rationale}")
         lines.append(_suggestion_line(finding))
         lines.append("")

@@ -76,7 +76,9 @@ class WideningRule:
                 impact=Impact.CONFIRMED,
                 file=unit.file,
                 line=lo.line,
-                function=unit.name,
+                function=unit.function_name,
+                scope=unit.scope,
+                macro=unit.macro_name,
                 intrinsic="_mm_mullo_epi16",
                 rationale=(
                     f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at line "

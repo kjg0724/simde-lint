@@ -27,7 +27,9 @@ class RedundantRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
-                function=unit.name,
+                function=unit.function_name,
+                scope=unit.scope,
+                macro=unit.macro_name,
                 intrinsic=call.name,
                 rationale=(
                     f"SIMDe {ctx.knowledge.simde_version} expands {call.name} to "

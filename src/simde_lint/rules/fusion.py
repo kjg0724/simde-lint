@@ -64,7 +64,9 @@ class FusionRule:
                     impact=Impact.CONFIRMED,
                     file=unit.file,
                     line=mul.line,
-                    function=unit.name,
+                    function=unit.function_name,
+                    scope=unit.scope,
+                    macro=unit.macro_name,
                     intrinsic=mul.name,
                     rationale=(
                         f"{mul.name} at line {mul.line} reaches {add.name} at line "

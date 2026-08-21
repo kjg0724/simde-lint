@@ -267,3 +267,15 @@ def test_both_reporters_agree_on_order_under_each_sort_value(sort, expected):
     text_order = _text_rule_order(render_text(_MIXED, sort=sort))
     assert json_order == expected
     assert text_order == expected
+
+
+def test_text_marks_a_macro_finding():
+    macro = Finding(
+        type="R", rule="R.zero_init_partial_load",
+        rule_mechanism="zero-init before partial load",
+        evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=9,
+        function=None, scope="macro", macro="LOAD4",
+        intrinsic="_mm_loadl_epi64", rationale="r",
+        simde_insns=2, native_insns=1, suggestion="vld1q_lane_s64",
+    )
+    assert "_mm_loadl_epi64 in LOAD4 (macro)" in render_text([macro])

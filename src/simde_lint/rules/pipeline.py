@@ -58,7 +58,9 @@ class PipelineRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=current.line,
-                function=unit.name,
+                function=unit.function_name,
+                scope=unit.scope,
+                macro=unit.macro_name,
                 intrinsic=current.name,
                 rationale=(
                     f"{current.name} at line {current.line} is consumed by "

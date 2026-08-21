@@ -50,7 +50,9 @@ class Finding:
     impact: Impact
     file: str
     line: int
-    function: str
+    # None for a macro-scoped finding (see `scope`/`macro` below) — never
+    # both `function` and `macro` set, never both unset.
+    function: str | None
     intrinsic: str
     rationale: str
     # None means the cost, or the suggested transform, could not be
@@ -61,6 +63,13 @@ class Finding:
     simde_insns: int | None
     native_insns: int | None
     suggestion: str | None
+    # "function" or "macro" — whether the call site sits in a function body
+    # or a `#define` body. A macro finding is fixed differently from a
+    # function one: one edit changes every expansion, and has to be valid at
+    # every expansion site, which this tool does not check. `function` and
+    # `macro` mirror this: exactly one of them is set, matching `scope`.
+    scope: str = "function"
+    macro: str | None = None
     mask_source: dict[str, Any] | None = None
     # Set only when evidence is C; None for A and B. See Reason's docstring
     # for why one grade carries two reasons rather than splitting into two
@@ -82,7 +91,9 @@ class Finding:
             "impact": self.impact.value,
             "file": self.file,
             "line": self.line,
+            "scope": self.scope,
             "function": self.function,
+            "macro": self.macro,
             "intrinsic": self.intrinsic,
             "rationale": self.rationale,
             "simde_insns": self.simde_insns,

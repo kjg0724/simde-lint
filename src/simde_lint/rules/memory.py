@@ -96,7 +96,9 @@ class MemoryRule:
             impact=Impact.DIAGNOSTIC,
             file=unit.file,
             line=first.line,
-            function=unit.name,
+            function=unit.function_name,
+            scope=unit.scope,
+            macro=unit.macro_name,
             intrinsic=first.name,
             rationale=(
                 f"{len(calls)} scalar inserts assemble {target} between lines "
@@ -164,7 +166,9 @@ class ScalarSetBuildRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
-                function=unit.name,
+                function=unit.function_name,
+                scope=unit.scope,
+                macro=unit.macro_name,
                 intrinsic=call.name,
                 rationale=(
                     f"{call.name} assembles {len(call.args)} runtime scalars into a "

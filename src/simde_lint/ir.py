@@ -59,6 +59,13 @@ class AnalysisUnit(Protocol):
     name: str
     file: str
     scope: str
+    # Exactly one of the two is set, mirroring `scope`: `function_name` holds
+    # the enclosing function's name and `macro_name` is `None` for a
+    # `FunctionUnit`; `macro_name` holds the macro's name and `function_name`
+    # is `None` for a `MacroUnit`. A rule or reporter reads whichever of the
+    # two it needs and never has to branch on `scope` to know which is live.
+    function_name: str | None
+    macro_name: str | None
     calls: list[IntrinsicCall]
     definitions: dict[str, list[Definition]]
 
@@ -129,6 +136,14 @@ class FunctionUnit(_UnitBase):
     end_line: int = 0
     scope: str = "function"
 
+    @property
+    def function_name(self) -> str | None:
+        return self.name
+
+    @property
+    def macro_name(self) -> str | None:
+        return None
+
 
 @dataclass(kw_only=True)
 class MacroUnit(_UnitBase):
@@ -137,9 +152,15 @@ class MacroUnit(_UnitBase):
     Symbol state is never shared with a `FunctionUnit`: a variable named
     `tmp` inside a macro and a `tmp` inside a function query separate
     `definitions` dicts and cannot satisfy each other's def-use lookups.
-    `name` holds the macro's name, same as `macro_name` — a rule that reports
-    `unit.name` therefore needs no special case for macro-scoped findings.
+    `name` holds the macro's name, same as `macro_name` — kept for callers
+    that only need "the unit's own name" regardless of scope. A rule
+    attributing a finding uses `function_name`/`macro_name` instead, so it
+    never has to branch on `scope` to know which one is live.
     """
 
     macro_name: str = ""
     scope: str = "macro"
+
+    @property
+    def function_name(self) -> str | None:
+        return None

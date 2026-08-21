@@ -55,6 +55,20 @@ def test_to_dict_includes_raw_name_when_it_differs_from_the_canonical_spelling()
     assert data["raw_name"] == "_my_cmpgt_epi64"
 
 
+def test_a_function_finding_carries_no_macro_name():
+    data = _finding().to_dict()
+    assert data["scope"] == "function"
+    assert data["function"] == "f"
+    assert data["macro"] is None
+
+
+def test_a_macro_finding_carries_no_function_name():
+    data = _finding(scope="macro", function=None, macro="LOAD4").to_dict()
+    assert data["scope"] == "macro"
+    assert data["function"] is None
+    assert data["macro"] == "LOAD4"
+
+
 # v1.1: findings are ordered impact-first by default (confirmed before
 # diagnostic, then evidence A before B before C), because a large sweep is
 # dominated by diagnostic-impact findings that buried the confirmed ones a
@@ -88,3 +102,28 @@ def test_file_sort_key_reproduces_the_pre_v1_1_location_order():
     # of impact or evidence.
     ordered = sorted([_CONFIRMED_B, _CONFIRMED_A, _CONFIRMED_C], key=file_sort_key)
     assert ordered == [_CONFIRMED_C, _CONFIRMED_A, _CONFIRMED_B]
+
+
+# `function` became `str | None` once a finding could sit in a macro body.
+# Neither sort key reads `function`, so a `None` must never reach a `<`
+# comparison against another finding's `str` function name — this pins that
+# a macro finding (function=None) and a function finding sort together in
+# one file without raising.
+_MACRO_FINDING = _finding(
+    scope="macro", function=None, macro="LOAD4", impact=Impact.CONFIRMED, evidence=Evidence.A,
+    file="a.c", line=2,
+)
+_FUNCTION_FINDING = _finding(
+    scope="function", function="f", macro=None, impact=Impact.CONFIRMED, evidence=Evidence.A,
+    file="a.c", line=9,
+)
+
+
+def test_sort_key_orders_a_macro_finding_next_to_a_function_finding_without_raising():
+    ordered = sorted([_FUNCTION_FINDING, _MACRO_FINDING], key=sort_key)
+    assert ordered == [_MACRO_FINDING, _FUNCTION_FINDING]
+
+
+def test_file_sort_key_orders_a_macro_finding_next_to_a_function_finding_without_raising():
+    ordered = sorted([_FUNCTION_FINDING, _MACRO_FINDING], key=file_sort_key)
+    assert ordered == [_MACRO_FINDING, _FUNCTION_FINDING]
