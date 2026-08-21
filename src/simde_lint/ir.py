@@ -73,13 +73,22 @@ class MutableAnalysisUnit(AnalysisUnit, Protocol):
     def add_definition(self, definition: Definition) -> None: ...
 
 
-@dataclass
+@dataclass(kw_only=True)
 class _UnitBase:
     """Def-use machinery shared by `FunctionUnit` and `MacroUnit`.
 
     Both units order definitions the same way and answer the same queries;
     keeping the body here means the two implementations of `AnalysisUnit`
     cannot drift apart from each other.
+
+    `kw_only=True` on this class and both subclasses is deliberate: before it,
+    `FunctionUnit`'s constructor accepted `(name, file, start_line, end_line,
+    ...)` positionally, and this refactor changed that order to
+    `(name, file, calls, definitions, start_line, end_line, scope)` with
+    `start_line`/`end_line` now defaulted. A caller still passing positionally
+    would silently assign `calls=<int>, definitions=<int>` instead of raising.
+    Keyword-only construction makes that hazard impossible instead of merely
+    unlikely.
     """
 
     name: str
@@ -114,14 +123,14 @@ class _UnitBase:
         return None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FunctionUnit(_UnitBase):
     start_line: int = 0
     end_line: int = 0
     scope: str = "function"
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MacroUnit(_UnitBase):
     """A `#define` function-like macro body whose calls are analysed.
 

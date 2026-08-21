@@ -12,7 +12,16 @@ from typing import Iterator
 
 from tree_sitter import Node
 
-from .ir import AnalysisUnit, Definition, FunctionUnit, IntrinsicCall, MacroUnit, ValueKind, ValueRef
+from .ir import (
+    AnalysisUnit,
+    Definition,
+    FunctionUnit,
+    IntrinsicCall,
+    MacroUnit,
+    MutableAnalysisUnit,
+    ValueKind,
+    ValueRef,
+)
 from .knowledge import Knowledge
 from .macros import ReparsedMacro, _is_intrinsic, build_alias_map, line_column, original_byte, reparse_macros
 from .parser import iter_nodes, node_text, parse_source
@@ -321,7 +330,7 @@ def _extract_macro_unit(
 
 
 def _record_plain_assignments(
-    scope: Node, source: bytes, unit: FunctionUnit, aliases: dict[str, str], knowledge: Knowledge
+    scope: Node, source: bytes, unit: MutableAnalysisUnit, aliases: dict[str, str], knowledge: Knowledge
 ) -> None:
     """Record assignments whose right side is not a recognized intrinsic call.
 
@@ -384,7 +393,7 @@ def _record_plain_assignments(
 def _record_macro_plain_assignments(
     macro: ReparsedMacro,
     source: bytes,
-    unit: MacroUnit,
+    unit: MutableAnalysisUnit,
     aliases: dict[str, str],
     knowledge: Knowledge,
 ) -> None:
