@@ -12,10 +12,17 @@ from dataclasses import dataclass
 
 from tree_sitter import Node
 
+from .knowledge import Knowledge
 from .parser import iter_nodes, node_text, parse_source
 
 _PREFIX = b"void __simde_lint_macro_body(void){\n"
 _SUFFIX = b"\n;}\n"
+
+_INTRINSIC_PREFIXES = ("_mm_", "_mm256_", "_mm512_")
+
+
+def _is_intrinsic(name: str) -> bool:
+    return name.startswith(_INTRINSIC_PREFIXES)
 
 
 @dataclass(frozen=True)
@@ -88,3 +95,86 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
             )
         )
     return macros
+
+
+_TRANSPARENT = {"parenthesized_expression", "cast_expression"}
+
+
+def _unwrap(node: Node) -> Node:
+    """Strip parentheses and casts, which do not change what a body computes."""
+    while node.type in _TRANSPARENT:
+        inner = [c for c in node.named_children if c.type != "type_descriptor"]
+        if len(inner) != 1:
+            return node
+        node = inner[0]
+    return node
+
+
+def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
+    """The single callee a body forwards to, or None if it does anything else.
+
+    Only the written name is returned; resolving it through the knowledge
+    tables and through other macros is `build_alias_map`'s job.
+    """
+    if not macro.ok:
+        return None
+    body = [
+        child
+        for child in _statements(macro.root)
+        if child.type not in ("comment",)
+    ]
+    if len(body) != 1:
+        return None
+    expression = _unwrap(body[0])
+    if expression.type != "call_expression":
+        return None
+    if len(list(iter_nodes(expression, "call_expression"))) != 1:
+        return None
+    callee = expression.child_by_field_name("function")
+    if callee is None or callee.type != "identifier":
+        return None
+    return macro.source[callee.start_byte : callee.end_byte].decode()
+
+
+def _statements(root: Node) -> list[Node]:
+    """The reparsed body's top-level expressions, minus the synthetic tail."""
+    for function in iter_nodes(root, "function_definition"):
+        body = function.child_by_field_name("body")
+        if body is None:
+            continue
+        return [
+            child.named_children[0] if child.type == "expression_statement" and child.named_children else child
+            for child in body.named_children
+        ]
+    return []
+
+
+def build_alias_map(macros: list[ReparsedMacro], knowledge: Knowledge) -> dict[str, str]:
+    """Resolve forwarding aliases to the intrinsic at the end of their chain.
+
+    Pass 1 collects single-call bodies as candidates; each candidate's callee
+    is then followed through the knowledge aliases and through other
+    candidates. A chain that revisits a name is abandoned — a self-referential
+    macro is legal C — and only chains ending at a recognized intrinsic are
+    confirmed.
+    """
+    candidates = {}
+    for macro in macros:
+        callee = is_forwarding_alias(macro)
+        if callee is not None:
+            candidates[macro.name] = callee
+
+    resolved: dict[str, str] = {}
+    for name in candidates:
+        seen = {name}
+        current = candidates[name]
+        while True:
+            normalized = knowledge.normalize(current)
+            if _is_intrinsic(normalized):
+                resolved[name] = normalized
+                break
+            if current in seen or current not in candidates:
+                break
+            seen.add(current)
+            current = candidates[current]
+    return resolved

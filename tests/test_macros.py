@@ -1,4 +1,11 @@
-from simde_lint.macros import line_column, original_byte, reparse_macros
+from simde_lint.knowledge import load_knowledge
+from simde_lint.macros import (
+    build_alias_map,
+    is_forwarding_alias,
+    line_column,
+    original_byte,
+    reparse_macros,
+)
 from simde_lint.parser import iter_nodes, parse_source
 
 MACRO = (
@@ -94,3 +101,51 @@ def test_position_on_third_physical_line_of_a_continued_body():
     byte = original_byte(macro, fn.start_byte)
     assert DO_WHILE_MACRO[byte : byte + len(name)].decode() == name
     assert line_column(DO_WHILE_MACRO, byte) == (3, 13)
+
+
+FORWARDING = b"#define _my_cmpgt_epi64(a, b) simde_mm_cmpgt_epi64(a, b)\n"
+WRAPPED = b"#define LOADP(p) ((__m128i)_mm_loadl_epi64((const __m128i*)(p)))\n"
+MULTI = (
+    b"#define PAIR(a, b) \\\n"
+    b"    _mm_unpacklo_epi64(_mm_loadl_epi64(a), _mm_loadl_epi64(b))\n"
+)
+CHAIN = (
+    b"#define INNER(a, b) _mm_cmpgt_epi64(a, b)\n"
+    b"#define OUTER(a, b) INNER(a, b)\n"
+)
+CYCLE = (
+    b"#define PING(a) PONG(a)\n"
+    b"#define PONG(a) PING(a)\n"
+)
+
+
+def _macros(source):
+    return reparse_macros(parse_source(source).root_node, source)
+
+
+def test_single_call_body_is_a_forwarding_alias():
+    assert is_forwarding_alias(_macros(FORWARDING)[0]) == "simde_mm_cmpgt_epi64"
+
+
+def test_transparent_wrappers_are_stripped():
+    assert is_forwarding_alias(_macros(WRAPPED)[0]) == "_mm_loadl_epi64"
+
+
+def test_a_multi_call_body_is_not_an_alias():
+    assert is_forwarding_alias(_macros(MULTI)[0]) is None
+
+
+def test_alias_map_resolves_a_chain_to_its_end():
+    assert build_alias_map(_macros(CHAIN), load_knowledge()) == {
+        "INNER": "_mm_cmpgt_epi64",
+        "OUTER": "_mm_cmpgt_epi64",
+    }
+
+
+def test_a_cycle_resolves_to_nothing():
+    assert build_alias_map(_macros(CYCLE), load_knowledge()) == {}
+
+
+def test_a_body_whose_callee_is_not_an_intrinsic_is_not_an_alias():
+    source = b"#define WRAP(x) helper_fn(x)\n"
+    assert build_alias_map(_macros(source), load_knowledge()) == {}

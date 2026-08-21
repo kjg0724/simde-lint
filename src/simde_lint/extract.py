@@ -14,31 +14,11 @@ from tree_sitter import Node
 
 from .ir import Definition, FunctionUnit, IntrinsicCall, ValueKind, ValueRef
 from .knowledge import Knowledge
+from .macros import _is_intrinsic, build_alias_map, reparse_macros
 from .parser import iter_nodes, node_text, parse_source
 from .symbols import parse_int_literal
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_INTRINSIC_PREFIXES = ("_mm_", "_mm256_", "_mm512_")
-
-
-def _is_intrinsic(name: str) -> bool:
-    return name.startswith(_INTRINSIC_PREFIXES)
-
-
-def _file_macro_aliases(root: Node, source: bytes) -> dict[str, str]:
-    """Map function-like #define wrappers onto the intrinsic they forward to.
-
-    VVenC declares `#define _my_cmpgt_epi64(a, b) simde_mm_cmpgt_epi64(a, b)`;
-    without this the call site would be invisible to every rule.
-    """
-    aliases: dict[str, str] = {}
-    for define in iter_nodes(root, "preproc_function_def"):
-        name = node_text(define.child_by_field_name("name"), source)
-        body = node_text(define.child_by_field_name("value"), source)
-        match = _IDENTIFIER.search(body)
-        if name and match:
-            aliases[name] = match.group(0)
-    return aliases
 
 
 def _first_identifier(text: str) -> str | None:
@@ -180,7 +160,8 @@ def _call_is_recognized_intrinsic(
 
 def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[FunctionUnit]:
     root = parse_source(source).root_node
-    aliases = _file_macro_aliases(root, source)
+    macros = reparse_macros(root, source)
+    aliases = build_alias_map(macros, knowledge)
 
     units: list[FunctionUnit] = []
     for definition in _iter_function_definitions(root):

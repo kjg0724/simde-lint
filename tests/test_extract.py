@@ -164,3 +164,15 @@ def test_extraction_orders_same_line_statements_by_byte():
     first, second = sorted(adds, key=lambda c: c.start_byte)
     assert unit.definition_before("a", first.start_byte).value.text == "_mm_loadu_si32"
     assert unit.definition_before("a", second.start_byte).value.text == "_mm_add_epi32"
+
+
+def test_a_multi_operation_macro_is_not_registered_as_an_alias():
+    # LOAD8_S-style: several calls in the body. Registering it as an alias for
+    # the first would report its call sites as that intrinsic's call sites.
+    source = (
+        b"#define LOAD8_S(p) \\\n"
+        b"    _mm256_setr_epi32(_mm_loadl_epi64(p), _mm_loadl_epi64(p))\n"
+        b"void f(const void *p) { __m256i v = LOAD8_S(p); (void)v; }\n"
+    )
+    unit = next(u for u in extract_units("t.c", source, load_knowledge()) if u.name == "f")
+    assert [c.name for c in unit.calls] == []
