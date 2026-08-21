@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact, Reason
-from ..ir import FunctionUnit, ValueKind, ValueRef
+from ..ir import AnalysisUnit, ValueKind, ValueRef
 from .base import Context, raw_name_if_aliased
 
 _TARGETS = frozenset({"_mm_shuffle_epi8", "_mm256_shuffle_epi8"})
@@ -49,7 +49,7 @@ class SuboptimalRule:
     rule_id = "S.pshufb_guard"
     mechanism = "pshufb->tbl guard only"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         for call in unit.calls:
             if call.name not in _TARGETS or len(call.args) < 2:
                 continue
@@ -84,7 +84,7 @@ class SuboptimalRule:
             )
 
     def _literal_origin(
-        self, ref: ValueRef, unit: FunctionUnit, position: int, seen: set[int]
+        self, ref: ValueRef, unit: AnalysisUnit, position: int, seen: set[int]
     ) -> str | None:
         """Name of the operation a value reaches a byte literal through.
 
@@ -119,7 +119,7 @@ class SuboptimalRule:
         return None
 
     def _grade(
-        self, mask: ValueRef, unit: FunctionUnit, position: int, ctx: Context
+        self, mask: ValueRef, unit: AnalysisUnit, position: int, ctx: Context
     ) -> tuple[Evidence, str, dict | None, Reason | None]:
         guard = f"SIMDe {ctx.knowledge.simde_version} guards the tbl index on every call"
 

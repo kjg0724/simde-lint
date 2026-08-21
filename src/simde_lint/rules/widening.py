@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit, IntrinsicCall, ValueKind
+from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import Context, own_availability, raw_name_if_aliased
 
 _UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
@@ -29,7 +29,7 @@ class WideningRule:
     rule_id = "W.mul16_widen_roundtrip"
     mechanism = "16-to-32 widening multiply round-trip"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         cost = ctx.knowledge.cost(self.rule_id)
         by_position = lambda calls: sorted(calls, key=lambda c: c.start_byte)
         los = by_position(c for c in unit.calls if c.name == "_mm_mullo_epi16")

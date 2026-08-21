@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Protocol
 
 
 class ValueKind(str, Enum):
@@ -47,12 +48,42 @@ class Definition:
     value: ValueRef
 
 
-@dataclass
-class FunctionUnit:
+class AnalysisUnit(Protocol):
+    """What a rule may read from a unit of analysis.
+
+    `FunctionUnit` and `MacroUnit` are the two implementations. A rule takes
+    this protocol, not either concrete class, so a rule written against
+    function bodies works unchanged against macro bodies.
+    """
+
     name: str
     file: str
-    start_line: int
-    end_line: int
+    scope: str
+    calls: list[IntrinsicCall]
+    definitions: dict[str, list[Definition]]
+
+    def definition_before(self, var: str, position: int) -> Definition | None: ...
+    def redefined_between(self, var: str, start: int, end: int) -> bool: ...
+    def call_by_id(self, call_id: int) -> IntrinsicCall | None: ...
+
+
+class MutableAnalysisUnit(AnalysisUnit, Protocol):
+    """What extraction additionally needs, beyond what a rule may read."""
+
+    def add_definition(self, definition: Definition) -> None: ...
+
+
+@dataclass
+class _UnitBase:
+    """Def-use machinery shared by `FunctionUnit` and `MacroUnit`.
+
+    Both units order definitions the same way and answer the same queries;
+    keeping the body here means the two implementations of `AnalysisUnit`
+    cannot drift apart from each other.
+    """
+
+    name: str
+    file: str
     calls: list[IntrinsicCall] = field(default_factory=list)
     definitions: dict[str, list[Definition]] = field(default_factory=dict)
 
@@ -81,3 +112,25 @@ class FunctionUnit:
             if call.id == call_id:
                 return call
         return None
+
+
+@dataclass
+class FunctionUnit(_UnitBase):
+    start_line: int = 0
+    end_line: int = 0
+    scope: str = "function"
+
+
+@dataclass
+class MacroUnit(_UnitBase):
+    """A `#define` function-like macro body whose calls are analysed.
+
+    Symbol state is never shared with a `FunctionUnit`: a variable named
+    `tmp` inside a macro and a `tmp` inside a function query separate
+    `definitions` dicts and cannot satisfy each other's def-use lookups.
+    `name` holds the macro's name, same as `macro_name` — a rule that reports
+    `unit.name` therefore needs no special case for macro-scoped findings.
+    """
+
+    macro_name: str = ""
+    scope: str = "macro"

@@ -12,9 +12,9 @@ from typing import Iterator
 
 from tree_sitter import Node
 
-from .ir import Definition, FunctionUnit, IntrinsicCall, ValueKind, ValueRef
+from .ir import AnalysisUnit, Definition, FunctionUnit, IntrinsicCall, MacroUnit, ValueKind, ValueRef
 from .knowledge import Knowledge
-from .macros import _is_intrinsic, build_alias_map, reparse_macros
+from .macros import ReparsedMacro, _is_intrinsic, build_alias_map, line_column, original_byte, reparse_macros
 from .parser import iter_nodes, node_text, parse_source
 from .symbols import parse_int_literal
 
@@ -158,12 +158,12 @@ def _call_is_recognized_intrinsic(
     return _is_intrinsic(resolved)
 
 
-def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[FunctionUnit]:
+def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[AnalysisUnit]:
     root = parse_source(source).root_node
     macros = reparse_macros(root, source)
     aliases = build_alias_map(macros, knowledge)
 
-    units: list[FunctionUnit] = []
+    units: list[AnalysisUnit] = []
     for definition in _iter_function_definitions(root):
         declarator = definition.child_by_field_name("declarator")
         name = _first_identifier(node_text(declarator, source)) or "<anonymous>"
@@ -226,7 +226,98 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Functi
                 )
         _record_plain_assignments(definition, source, unit, aliases, knowledge)
         units.append(unit)
+
+    for macro in macros:
+        if not macro.ok:
+            continue
+        if macro.name in aliases:
+            # A confirmed forwarding alias's use sites are already covered by
+            # normalization (its callee resolves to the intrinsic it forwards
+            # to). Building a unit for it too would report the same call
+            # twice: once as the alias's normalized use, once as a call
+            # inside the macro body.
+            continue
+        unit = _extract_macro_unit(macro, source, path, aliases, knowledge)
+        if unit is not None:
+            units.append(unit)
     return units
+
+
+def _extract_macro_unit(
+    macro: ReparsedMacro,
+    source: bytes,
+    path: str,
+    aliases: dict[str, str],
+    knowledge: Knowledge,
+) -> MacroUnit | None:
+    """Build a `MacroUnit` from one reparsed macro body.
+
+    Mirrors the function-unit call loop above, over the macro's synthetic
+    parse tree instead of the file's own. Every position on a resulting call
+    or definition is mapped back to the original file through `original_byte`
+    and `line_column` before it is stored — nothing here is read from the
+    synthetic wrapper's own coordinates, so a finding never points into text
+    that does not exist in the file. Returns None when no call in the body
+    normalizes to a recognized intrinsic; a unit built from a body that
+    contains none would have nothing for a rule to match.
+    """
+    call_nodes = [c for c in iter_nodes(macro.root, "call_expression")]
+    call_nodes.sort(key=lambda n: n.start_byte)
+    call_ids = {node.start_byte: index for index, node in enumerate(call_nodes)}
+
+    calls: list[IntrinsicCall] = []
+    definitions: list[Definition] = []
+    for node in call_nodes:
+        raw_name = node_text(node.child_by_field_name("function"), macro.source)
+        resolved = knowledge.normalize(aliases.get(raw_name, raw_name))
+        if not _is_intrinsic(resolved):
+            continue
+        arguments = node.child_by_field_name("arguments")
+        args = tuple(
+            _value_ref(child, macro.source, call_ids)
+            for child in (arguments.named_children if arguments else [])
+        )
+        result_var = _enclosing_result_var(node, macro.source)
+        start_byte = original_byte(macro, node.start_byte)
+        line, column = line_column(source, start_byte)
+        call = IntrinsicCall(
+            id=call_ids[node.start_byte],
+            name=resolved,
+            raw_name=raw_name,
+            args=args,
+            line=line,
+            column=column,
+            start_byte=start_byte,
+            result_var=result_var,
+        )
+        calls.append(call)
+        if result_var:
+            lanes = _literal_lanes(node, macro.source) if resolved.startswith(_SET_PREFIXES) else None
+            value = ValueRef(
+                ValueKind.LITERAL_VECTOR if lanes is not None else ValueKind.CALL_RESULT,
+                raw_name,
+                lanes=lanes,
+                call_id=call.id,
+            )
+            definitions.append(
+                Definition(
+                    result_var,
+                    line,
+                    start_byte=start_byte,
+                    available_after_byte=original_byte(macro, _binding_end_byte(node)),
+                    value=value,
+                )
+            )
+
+    if not calls:
+        return None
+
+    unit = MacroUnit(name=macro.name, file=path, macro_name=macro.name)
+    unit.calls = calls
+    for definition in definitions:
+        unit.add_definition(definition)
+    _record_macro_plain_assignments(macro, source, unit, aliases, knowledge)
+    return unit
 
 
 def _record_plain_assignments(
@@ -286,5 +377,67 @@ def _record_plain_assignments(
                     start_byte=node.start_byte,
                     available_after_byte=node.end_byte,
                     value=ValueRef(ValueKind.UNKNOWN, node_text(value, source).strip()),
+                )
+            )
+
+
+def _record_macro_plain_assignments(
+    macro: ReparsedMacro,
+    source: bytes,
+    unit: MacroUnit,
+    aliases: dict[str, str],
+    knowledge: Knowledge,
+) -> None:
+    """Macro-body counterpart of `_record_plain_assignments`.
+
+    Same rationale — an overwrite with a non-intrinsic or non-call right-hand
+    side must still be visible to `redefined_between`, or a value would look
+    like it survived when it had been overwritten. Every position here comes
+    from the macro's synthetic parse tree, so it is mapped back to the
+    original file through `original_byte`/`line_column` before being stored,
+    exactly as `_extract_macro_unit` does for calls.
+    """
+    for node in iter_nodes(macro.root, "assignment_expression"):
+        right = node.child_by_field_name("right")
+        if right is None:
+            continue
+        unwrapped = _unwrap_cast(right)
+        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
+            unwrapped, macro.source, aliases, knowledge
+        ):
+            continue
+        name = _first_identifier(node_text(node.child_by_field_name("left"), macro.source))
+        if name:
+            start_byte = original_byte(macro, node.start_byte)
+            line, _ = line_column(source, start_byte)
+            unit.add_definition(
+                Definition(
+                    name,
+                    line,
+                    start_byte=start_byte,
+                    available_after_byte=original_byte(macro, node.end_byte),
+                    value=ValueRef(ValueKind.UNKNOWN, node_text(right, macro.source).strip()),
+                )
+            )
+    for node in iter_nodes(macro.root, "init_declarator"):
+        value = node.child_by_field_name("value")
+        if value is None or value.type == "initializer_list":
+            continue
+        unwrapped = _unwrap_cast(value)
+        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
+            unwrapped, macro.source, aliases, knowledge
+        ):
+            continue
+        name = _first_identifier(node_text(node.child_by_field_name("declarator"), macro.source))
+        if name:
+            start_byte = original_byte(macro, node.start_byte)
+            line, _ = line_column(source, start_byte)
+            unit.add_definition(
+                Definition(
+                    name,
+                    line,
+                    start_byte=start_byte,
+                    available_after_byte=original_byte(macro, node.end_byte),
+                    value=ValueRef(ValueKind.UNKNOWN, node_text(value, macro.source).strip()),
                 )
             )

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Protocol
 
 from ..finding import Finding
-from ..ir import FunctionUnit, IntrinsicCall
+from ..ir import AnalysisUnit, IntrinsicCall
 from ..knowledge import Knowledge
 from ..symbols import SymbolIndex
 
@@ -28,10 +28,10 @@ class Rule(Protocol):
     rule_id: str
     mechanism: str
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]: ...
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]: ...
 
 
-def own_availability(unit: FunctionUnit, call: IntrinsicCall) -> int:
+def own_availability(unit: AnalysisUnit, call: IntrinsicCall) -> int:
     """Byte offset after which `call`'s own bound result becomes available.
 
     A rule asking `redefined_between(call.result_var, call.start_byte, ...)`

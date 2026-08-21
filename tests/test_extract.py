@@ -176,3 +176,90 @@ def test_a_multi_operation_macro_is_not_registered_as_an_alias():
     )
     unit = next(u for u in extract_units("t.c", source, load_knowledge()) if u.name == "f")
     assert [c.name for c in unit.calls] == []
+
+
+NESTED_MACRO = (
+    b"#define LOAD4(BASE, OFF) \\\n"
+    b"    _mm_unpacklo_epi64(_mm_loadl_epi64((const __m128i*)((BASE)+(OFF))), \\\n"
+    b"                       _mm_loadl_epi64((const __m128i*)((BASE)+(OFF)+8)))\n"
+)
+
+STATEMENT_MACRO = (
+    b"#define ACC(dst, a, b) do { \\\n"
+    b"    __m128i t = _mm_mullo_epi32(a, b); \\\n"
+    b"    dst = _mm_add_epi32(dst, t); \\\n"
+    b"} while (0)\n"
+)
+
+
+def test_a_macro_body_becomes_a_unit():
+    units = extract_units("t.c", NESTED_MACRO, load_knowledge())
+    macro = next(u for u in units if u.scope == "macro")
+    assert macro.macro_name == "LOAD4"
+    assert sorted(c.name for c in macro.calls) == [
+        "_mm_loadl_epi64", "_mm_loadl_epi64", "_mm_unpacklo_epi64",
+    ]
+    assert [c.line for c in macro.calls if c.name == "_mm_loadl_epi64"] == [2, 3]
+
+
+def test_macro_def_use_links_a_body_assignment():
+    units = extract_units("t.c", STATEMENT_MACRO, load_knowledge())
+    macro = next(u for u in units if u.scope == "macro")
+    mul = next(c for c in macro.calls if c.name == "_mm_mullo_epi32")
+    add = next(c for c in macro.calls if c.name == "_mm_add_epi32")
+    assert macro.definition_before("t", add.start_byte).value.call_id == mul.id
+
+
+def test_a_macro_parameter_has_no_definition():
+    units = extract_units("t.c", NESTED_MACRO, load_knowledge())
+    macro = next(u for u in units if u.scope == "macro")
+    assert macro.definition_before("BASE", 10_000) is None
+
+
+def test_a_macro_without_intrinsics_makes_no_unit():
+    source = b"#define MAX2(a, b) ((a) > (b) ? (a) : (b))\n"
+    assert [u for u in extract_units("t.c", source, load_knowledge()) if u.scope == "macro"] == []
+
+
+def test_units_do_not_share_symbols():
+    # M's body deliberately holds two calls, not one: a single-call body
+    # (`_mm_add_epi32(tmp, a)` alone) satisfies the forwarding-alias predicate
+    # from Task 3 regardless of what its argument spells, so it would be
+    # registered as an alias and produce no MacroUnit at all — leaving nothing
+    # for this test to isolate. The second call keeps the body a genuine
+    # multi-operation macro while still referencing the free variable `tmp`.
+    source = (
+        b"#define M(a) _mm_add_epi32(tmp, _mm_add_epi32(a, a))\n"
+        b"void f(__m128i x) { __m128i tmp = _mm_loadu_si32(&x); (void)tmp; }\n"
+    )
+    units = extract_units("t.c", source, load_knowledge())
+    macro = next(u for u in units if u.scope == "macro")
+    assert macro.definition_before("tmp", 10_000) is None
+
+
+def test_an_alias_used_inside_a_macro_keeps_its_written_spelling():
+    source = (
+        b"#define LOAD1(p) _mm_loadl_epi64(p)\n"
+        b"#define LOAD_PAIR(a, b) _mm_unpacklo_epi64(LOAD1(a), LOAD1(b))\n"
+    )
+    units = extract_units("t.c", source, load_knowledge())
+    names = {u.macro_name for u in units if u.scope == "macro"}
+    assert names == {"LOAD_PAIR"}
+    pair = next(u for u in units if getattr(u, "macro_name", None) == "LOAD_PAIR")
+    loads = [c for c in pair.calls if c.name == "_mm_loadl_epi64"]
+    assert len(loads) == 2
+    assert {c.raw_name for c in loads} == {"LOAD1"}
+
+
+def test_a_macro_used_many_times_still_yields_one_unit():
+    source = (
+        b"#define LOAD1(p) _mm_unpacklo_epi64(_mm_loadl_epi64(p), _mm_loadl_epi64(p))\n"
+        b"void f(const void *p) {\n"
+        b"    __m128i a = LOAD1(p); __m128i b = LOAD1(p); __m128i c = LOAD1(p);\n"
+        b"    (void)a; (void)b; (void)c;\n"
+        b"}\n"
+    )
+    units = extract_units("t.c", source, load_knowledge())
+    macros = [u for u in units if u.scope == "macro"]
+    assert len(macros) == 1
+    assert sum(1 for c in macros[0].calls if c.name == "_mm_loadl_epi64") == 2

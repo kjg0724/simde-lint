@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit, ValueKind
+from ..ir import AnalysisUnit, ValueKind
 from .base import Context, own_availability, raw_name_if_aliased
 
 _COMPARES = {
@@ -31,7 +31,7 @@ class PipelineRule:
     rule_id = "P.cmp_immediate_use"
     mechanism = "compare consumed by the next call"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         ordered = sorted(unit.calls, key=lambda c: (c.line, c.column))
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:

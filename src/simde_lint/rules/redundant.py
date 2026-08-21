@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit
+from ..ir import AnalysisUnit
 from .base import Context, raw_name_if_aliased
 
 
@@ -14,7 +14,7 @@ class RedundantRule:
     rule_id = "R.zero_init_partial_load"
     mechanism = "zero-init before partial load"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         for call in unit.calls:
             info = ctx.knowledge.redundant.get(call.name)
             if info is None:

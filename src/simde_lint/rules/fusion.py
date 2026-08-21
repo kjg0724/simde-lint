@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit, IntrinsicCall, ValueKind
+from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import Context, own_availability, raw_name_if_aliased
 
 _MULTIPLIES = {
@@ -36,7 +36,7 @@ class FusionRule:
     rule_id = "F.mul_add_no_fuse"
     mechanism = "multiply-add not fused"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.start_byte)
         # An add is one fusion opportunity, so the first multiply reaching it
         # claims it. Without this, `sum = _mm_add_epi32(p1, p2)` over two
@@ -97,7 +97,7 @@ class FusionRule:
         )
 
     def _path(
-        self, unit: FunctionUnit, mul: IntrinsicCall, add: IntrinsicCall
+        self, unit: AnalysisUnit, mul: IntrinsicCall, add: IntrinsicCall
     ) -> tuple[Evidence, str] | None:
         """Direct identity grades A; one widening hop grades B."""
         operands = {arg.text for arg in add.args if arg.kind is ValueKind.VARIABLE}
