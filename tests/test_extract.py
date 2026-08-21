@@ -277,7 +277,7 @@ def test_an_alias_used_inside_a_macro_keeps_its_written_spelling():
     units = extract_units("t.c", source, load_knowledge())
     names = {u.macro_name for u in units if u.scope == "macro"}
     assert names == {"LOAD_PAIR"}
-    pair = next(u for u in units if getattr(u, "macro_name", None) == "LOAD_PAIR")
+    pair = next(u for u in units if u.macro_name == "LOAD_PAIR")
     loads = [c for c in pair.calls if c.name == "_mm_loadl_epi64"]
     assert len(loads) == 2
     assert {c.raw_name for c in loads} == {"LOAD1"}

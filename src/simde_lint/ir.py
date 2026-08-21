@@ -64,8 +64,15 @@ class AnalysisUnit(Protocol):
     # `FunctionUnit`; `macro_name` holds the macro's name and `function_name`
     # is `None` for a `MacroUnit`. A rule or reporter reads whichever of the
     # two it needs and never has to branch on `scope` to know which is live.
-    function_name: str | None
-    macro_name: str | None
+    # Declared read-only: both implementations supply these as `@property`,
+    # and a settable protocol member would reject a read-only property as a
+    # structural match.
+    @property
+    def function_name(self) -> str | None: ...
+
+    @property
+    def macro_name(self) -> str | None: ...
+
     calls: list[IntrinsicCall]
     definitions: dict[str, list[Definition]]
 
@@ -152,15 +159,22 @@ class MacroUnit(_UnitBase):
     Symbol state is never shared with a `FunctionUnit`: a variable named
     `tmp` inside a macro and a `tmp` inside a function query separate
     `definitions` dicts and cannot satisfy each other's def-use lookups.
-    `name` holds the macro's name, same as `macro_name` — kept for callers
-    that only need "the unit's own name" regardless of scope. A rule
-    attributing a finding uses `function_name`/`macro_name` instead, so it
-    never has to branch on `scope` to know which one is live.
+
+    `macro_name` is a property mirroring `name`, not a separate field: a
+    macro unit's name and its "macro name" are the same string by
+    construction (extraction never has a second name to offer), so keeping
+    `macro_name` independently settable would let it diverge from `name` —
+    including staying at its old default when a caller forgot to pass it,
+    which would surface as a blank macro name in a rendered report. A single
+    source of truth removes that failure mode outright.
     """
 
-    macro_name: str = ""
     scope: str = "macro"
 
     @property
     def function_name(self) -> str | None:
         return None
+
+    @property
+    def macro_name(self) -> str | None:
+        return self.name

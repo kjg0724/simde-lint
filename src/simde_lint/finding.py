@@ -81,6 +81,27 @@ class Finding:
     # finds nothing at an aliased site.
     raw_name: str | None = None
 
+    def __post_init__(self) -> None:
+        # The field comments above state the rule as absolute — enforcing it
+        # turns that into a guarantee instead of leaving it to convention. A
+        # violation would otherwise reach a reporter silently: `text.py`
+        # would print the literal word "None" as a location, or "(macro)"
+        # with a blank macro name.
+        if self.scope == "function":
+            if self.function is None or self.macro is not None:
+                raise ValueError(
+                    "a function-scoped finding must set function and leave macro "
+                    f"unset: function={self.function!r}, macro={self.macro!r}"
+                )
+        elif self.scope == "macro":
+            if self.macro is None or self.function is not None:
+                raise ValueError(
+                    "a macro-scoped finding must set macro and leave function "
+                    f"unset: function={self.function!r}, macro={self.macro!r}"
+                )
+        else:
+            raise ValueError(f"scope must be 'function' or 'macro', got {self.scope!r}")
+
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
             "type": self.type,

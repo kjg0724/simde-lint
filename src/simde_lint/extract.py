@@ -321,7 +321,7 @@ def _extract_macro_unit(
     if not calls:
         return None
 
-    unit = MacroUnit(name=macro.name, file=path, macro_name=macro.name)
+    unit = MacroUnit(name=macro.name, file=path)
     unit.calls = calls
     for definition in definitions:
         unit.add_definition(definition)

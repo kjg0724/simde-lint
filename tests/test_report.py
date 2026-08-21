@@ -51,6 +51,36 @@ def test_json_is_parseable_and_carries_the_mechanism():
     assert pshufb_entry["rule_mechanism"] == "pshufb->tbl guard only"
 
 
+# M7: `render_json` delegates to `Finding.to_dict()`, whose key set was only
+# ever covered transitively (individual field assertions, plus the two
+# `test_finding.py` tests that would `KeyError` if a mandatory key were
+# dropped). Task 5 is a JSON schema change per the design doc, so pin the
+# exact key set directly at the reporter boundary, not just at `to_dict`.
+_MANDATORY_JSON_KEYS = {
+    "type", "rule", "rule_mechanism", "evidence", "reason", "impact",
+    "file", "line", "scope", "function", "macro", "intrinsic", "rationale",
+    "simde_insns", "native_insns", "suggestion",
+}
+
+
+def test_json_finding_has_exactly_the_mandatory_keys_when_optional_fields_are_absent():
+    data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
+    assert set(data["findings"][0].keys()) == _MANDATORY_JSON_KEYS
+
+
+def test_json_finding_adds_mask_source_and_raw_name_only_when_present():
+    finding = Finding(
+        type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
+        evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, impact=Impact.CONFIRMED,
+        file="a.c", line=1, function="kernel", intrinsic="_mm_shuffle_epi8",
+        raw_name="_my_shuffle_epi8", rationale="r",
+        simde_insns=None, native_insns=None, suggestion=None,
+        mask_source={"symbol": "t", "defined_at": "b.c:1", "resolution": "all_rows"},
+    )
+    data = json.loads(render_json([finding], simde_version="0.8.4"))
+    assert set(data["findings"][0].keys()) == _MANDATORY_JSON_KEYS | {"mask_source", "raw_name"}
+
+
 def test_json_summary_counts_by_rule_with_its_mechanism():
     data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
     assert data["summary"]["by_type"]["S"] == 1

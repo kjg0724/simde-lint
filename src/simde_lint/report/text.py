@@ -34,9 +34,9 @@ def _intrinsic_label(finding: Finding) -> str:
 
 
 def _location_label(finding: Finding) -> str:
-    if finding.scope == "macro":
+    if finding.macro is not None:
         return f"{finding.macro} (macro)"
-    return str(finding.function)
+    return finding.function
 
 
 def _counts(finding: Finding) -> str:

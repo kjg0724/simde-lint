@@ -106,24 +106,38 @@ def test_file_sort_key_reproduces_the_pre_v1_1_location_order():
 
 # `function` became `str | None` once a finding could sit in a macro body.
 # Neither sort key reads `function`, so a `None` must never reach a `<`
-# comparison against another finding's `str` function name — this pins that
-# a macro finding (function=None) and a function finding sort together in
-# one file without raising.
-_MACRO_FINDING = _finding(
-    scope="macro", function=None, macro="LOAD4", impact=Impact.CONFIRMED, evidence=Evidence.A,
-    file="a.c", line=2,
-)
-_FUNCTION_FINDING = _finding(
-    scope="function", function="f", macro=None, impact=Impact.CONFIRMED, evidence=Evidence.A,
-    file="a.c", line=9,
-)
+# comparison against another finding's `str` function name. The two findings
+# below tie on every component either key actually reads — same file, line,
+# type, rule, impact, evidence — and differ only in scope/function/macro, so
+# both keys compare them as equal. That is deliberate: if `function` were
+# ever appended to either key, comparing these two would immediately raise
+# `TypeError: '<' not supported between instances of 'NoneType' and 'str'`,
+# because every earlier component ties and `function` is the first one that
+# differs. A pair that differs in `line` would never reach that comparison —
+# tuple comparison stops at the first differing component — so it would stay
+# green even after that regression.
+_MACRO_FINDING = _finding(scope="macro", function=None, macro="LOAD4")
+_FUNCTION_FINDING = _finding(scope="function", function="f", macro=None)
 
 
-def test_sort_key_orders_a_macro_finding_next_to_a_function_finding_without_raising():
-    ordered = sorted([_FUNCTION_FINDING, _MACRO_FINDING], key=sort_key)
-    assert ordered == [_MACRO_FINDING, _FUNCTION_FINDING]
+def test_sort_key_ties_a_macro_finding_and_a_function_finding_that_share_every_component():
+    # Keys are equal, so a stable sort preserves input order either way.
+    assert sorted([_FUNCTION_FINDING, _MACRO_FINDING], key=sort_key) == [
+        _FUNCTION_FINDING,
+        _MACRO_FINDING,
+    ]
+    assert sorted([_MACRO_FINDING, _FUNCTION_FINDING], key=sort_key) == [
+        _MACRO_FINDING,
+        _FUNCTION_FINDING,
+    ]
 
 
-def test_file_sort_key_orders_a_macro_finding_next_to_a_function_finding_without_raising():
-    ordered = sorted([_FUNCTION_FINDING, _MACRO_FINDING], key=file_sort_key)
-    assert ordered == [_MACRO_FINDING, _FUNCTION_FINDING]
+def test_file_sort_key_ties_a_macro_finding_and_a_function_finding_that_share_every_component():
+    assert sorted([_FUNCTION_FINDING, _MACRO_FINDING], key=file_sort_key) == [
+        _FUNCTION_FINDING,
+        _MACRO_FINDING,
+    ]
+    assert sorted([_MACRO_FINDING, _FUNCTION_FINDING], key=file_sort_key) == [
+        _MACRO_FINDING,
+        _FUNCTION_FINDING,
+    ]
