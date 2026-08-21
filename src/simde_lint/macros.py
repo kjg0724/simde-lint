@@ -137,7 +137,15 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
 
 
 def _statements(root: Node) -> list[Node]:
-    """The reparsed body's top-level expressions, minus the synthetic tail."""
+    """The reparsed body's top-level expressions, minus the synthetic tail.
+
+    The wrapper appends its own `;` after the body (`_SUFFIX = b"\n;}\n"`), so
+    a body that already ends in `;` reparses with a doubled semicolon: the
+    real statement, followed by an empty `expression_statement` with no named
+    children. That trailing empty statement is an artifact of the wrapper,
+    not anything the macro's own source contained, so it is dropped here
+    rather than counted as a second statement.
+    """
     for function in iter_nodes(root, "function_definition"):
         body = function.child_by_field_name("body")
         if body is None:
@@ -145,6 +153,7 @@ def _statements(root: Node) -> list[Node]:
         return [
             child.named_children[0] if child.type == "expression_statement" and child.named_children else child
             for child in body.named_children
+            if not (child.type == "expression_statement" and not child.named_children)
         ]
     return []
 

@@ -79,9 +79,12 @@ that should normalize onto a canonical x86 name your rules already look for,
 add it to `knowledge/aliases.yaml` instead (or as well). Local, file-scoped
 `#define` wrappers around an already-known intrinsic (VVenC's
 `_my_cmpgt_epi64`, for instance) don't need an aliases.yaml entry at all —
-`extract.py`'s `_file_macro_aliases` resolves those automatically by reading
-the macro body; `aliases.yaml` is for cross-file, cross-project spellings
-like the `simde_mm_*` prefix.
+`macros.py`'s `build_alias_map` resolves those automatically: a macro whose
+body reduces to exactly one call (after stripping parentheses and casts) is
+registered as an alias for its callee, following chains of such macros
+through to a recognized intrinsic and refusing to loop on a cycle;
+`aliases.yaml` is for cross-file, cross-project spellings like the
+`simde_mm_*` prefix.
 
 A knowledge-table entry with no test asserting a rule actually reports it is
 a row nobody checks — the schema tests above only enforce that the entry is

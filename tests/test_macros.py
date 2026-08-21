@@ -149,3 +149,24 @@ def test_a_cycle_resolves_to_nothing():
 def test_a_body_whose_callee_is_not_an_intrinsic_is_not_an_alias():
     source = b"#define WRAP(x) helper_fn(x)\n"
     assert build_alias_map(_macros(source), load_knowledge()) == {}
+
+
+def test_a_trailing_semicolon_still_resolves_as_a_single_call_alias():
+    # The synthetic wrapper appends its own `;`, so a body already ending in
+    # `;` reparses with a doubled semicolon: the real call, followed by an
+    # empty `expression_statement` that is an artifact of the wrapper, not
+    # anything the macro's source contained. That artifact must not count as
+    # a second statement.
+    with_semicolon = b"#define M(a) f(a);\n"
+    without_semicolon = b"#define M(a) f(a)\n"
+    assert is_forwarding_alias(_macros(with_semicolon)[0]) == is_forwarding_alias(
+        _macros(without_semicolon)[0]
+    )
+    assert is_forwarding_alias(_macros(with_semicolon)[0]) == "f"
+
+
+def test_a_genuinely_two_statement_body_is_still_rejected():
+    # Two real calls, each terminated with its own semicolon: this must stay
+    # rejected even after empty artifact statements are dropped.
+    source = b"#define M(a) f(a); g(a);\n"
+    assert is_forwarding_alias(_macros(source)[0]) is None
