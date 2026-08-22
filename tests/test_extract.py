@@ -442,9 +442,16 @@ def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor()
     arity would be misled by such a call if the alias's confirmed target were
     ever one of that rule's anchors.
 
-    At HEAD this is not a live defect: the review cross-checked all 20
-    confirmed aliases in the two reference codebases against every rule's
-    anchor set and found no intersection with an operand-sensitive one. This
+    At HEAD this is not a live defect: every confirmed alias in the two
+    reference codebases was cross-checked against every rule's anchor set and
+    no intersection with an operand-sensitive one was found. Measured over
+    the two sweep directories (SVT-AV1 `Source` and VVenC `CommonLib/x86`),
+    that is **22 forwarding-alias definition sites, resolving to 16 distinct
+    per-file alias entries** -- 11 of the 22 sites forward their parameters
+    unfaithfully, which is what makes the tripwire worth having. The counting
+    unit matters and is stated because it is what an earlier bare figure left
+    ambiguous; the conclusion holds on every basis, including the 23
+    definition sites counted over VVenC's whole `source/` tree. This
     test pins that as a regression tripwire using the real
     `is_forwarding_alias`/`build_alias_map` machinery (via `_ALIAS_SHAPES`,
     fixtures reproducing the real shapes structurally rather than needing an

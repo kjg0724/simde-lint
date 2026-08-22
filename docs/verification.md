@@ -156,16 +156,27 @@ finding-for-finding (Section 5).
 > and `R 1816` printed above are those function-body counts plus the 10 F
 > and 18 R findings v1.2 reports inside macro bodies (Section 5).
 
-> An earlier run of the same command against this tree recorded 557 files
-> and 22s wall clock. The run recorded above counts 561 — the SVT-AV1
-> checkout is a live working tree, and one untracked ARM-NEON source file
-> was added and two others were modified between the two runs. None of the
-> changed or added files contain an x86 intrinsic any rule matches: the
-> finding totals above (2152, and every per-type and per-evidence count)
-> are bit-for-bit identical between the two runs. Wall clock varies with
-> machine load and is not a pinned figure. The file-count difference is an
-> artifact of running the same command twice against a tree that changed
-> in between, not a tool defect.
+> **The sweep is deterministic.** The command above was run twice in
+> succession against this checkout and the two JSON outputs are identical
+> byte for byte (`cmp` reports no difference), so every count in this section
+> reproduces exactly. Both runs saw 561 files:
+>
+> ```
+> $ find "$SIMDE_LINT_SVT_AV1/Source" -type f \
+>     \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.cxx' \
+>        -o -name '*.h' -o -name '*.hpp' -o -name '*.hxx' \) | wc -l
+> 561
+> ```
+>
+> Wall clock is the one figure that does vary — 14.9s and 18.6s total for the
+> two runs — because it tracks machine load. It is not a pinned number.
+>
+> A v1-era note recorded here previously is worth keeping for what it warns
+> about rather than for its figures: an earlier pair of runs disagreed on the
+> file count (557 vs 561) because the SVT-AV1 checkout is a live working tree
+> and files were added or modified between them, while the finding totals
+> stayed identical. A file-count difference across two runs means the tree
+> changed, not that the tool is nondeterministic.
 
 ## 2. VVenC: per-module comparison against Table III
 
@@ -519,8 +530,9 @@ gaps to be closed later:
 A confirmed forwarding alias's call site presents the **alias macro's own**
 argument list, not the forwarded intrinsic's. Nothing in the alias predicate
 requires a body to pass its parameters through faithfully, and real macros do
-not: of the 22 alias definition sites across the two sweep directories, 11
-forward unfaithfully. Two measured examples:
+not: of the **22 forwarding-alias definition sites** across the two sweep
+directories — which resolve to 16 distinct per-file alias entries — **11
+forward unfaithfully**. Two measured examples:
 
 - SVT-AV1's `_mm256_setr_m128i(lo, hi)` forwards to
   `_mm256_set_m128i((hi), (lo))` — the two operands are reversed.
