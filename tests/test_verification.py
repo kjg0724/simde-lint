@@ -20,6 +20,7 @@ import pytest
 
 from simde_lint.analyze import analyze
 from simde_lint.finding import Evidence
+from simde_lint.knowledge import load_knowledge
 
 # Reference checkout roots, overridable so an outside contributor can point
 # these at their own clones without editing this file. See CONTRIBUTING.md
@@ -44,6 +45,22 @@ def _grep_count(root: Path, needle: str) -> int:
     return len(result.stdout.splitlines())
 
 
+def _recognized_intrinsic_names() -> set[str]:
+    """Every name the knowledge tables treat as an x86 intrinsic.
+
+    Derived from the tables rather than listed literally, so a rule that
+    registers a new intrinsic family widens this set with it and the caller
+    below keeps testing the property rather than a snapshot of it.
+    """
+    knowledge = load_knowledge()
+    names = set(knowledge.redundant)
+    for table in knowledge.patterns.values():
+        names |= set(table)
+    # An alias's canonical target is what a normalized call site reports.
+    names |= set(knowledge.aliases.values())
+    return names
+
+
 @requires_svt
 def test_rule_s_matches_the_grep_count_of_shuffle_epi8_call_sites():
     """The plan's primary acceptance gate: 204 call sites, exact equality.
@@ -54,6 +71,54 @@ def test_rule_s_matches_the_grep_count_of_shuffle_epi8_call_sites():
     findings, _ = analyze([SVT_AV1], types=["S"])
     tool_count = sum(1 for f in findings if f.intrinsic == "_mm_shuffle_epi8")
     assert tool_count == _grep_count(SVT_AV1, r"_mm_shuffle_epi8")
+
+
+@requires_svt
+def test_macro_findings_are_reported_with_their_macro_name():
+    """Macro-scoped findings name the macro they sit in, and no function.
+
+    v1.2 analyses `#define` bodies, so a finding no longer always belongs to
+    a function. `scope` says which kind of unit produced it and `function` /
+    `macro` are mutually exclusive (spec Section 9); docs/verification.md
+    Section 5 records the 28 SVT-AV1 macro findings this walks over.
+    """
+    findings, _ = analyze([SVT_AV1])
+    macro = [f for f in findings if f.scope == "macro"]
+    assert macro, "expected findings inside macro bodies"
+    assert all(f.macro and f.function is None for f in macro)
+
+
+@requires_svt
+def test_every_reported_intrinsic_is_a_name_the_knowledge_tables_recognize():
+    """No macro name may leak into a finding's `intrinsic` field.
+
+    Before v1.2 a macro was registered as a forwarding alias for whichever
+    identifier appeared first in its body, so a call site of a multi-call
+    macro was reported as a call to an intrinsic it merely happened to
+    mention first. `is_forwarding_alias` now admits only single-call bodies
+    whose callee normalizes to a recognized intrinsic, and macro bodies that
+    fail that test become units of their own instead.
+
+    The property is checked against the recognized set derived from the
+    knowledge tables, not against a couple of macro-name prefixes: a
+    misattribution can carry any spelling, including one that looks like an
+    intrinsic (SVT-AV1 defines macros literally named `_mm_loadu_si64` and
+    `_mm256_setr_m128i`), so a prefix heuristic would pass while the field
+    was wrong.
+
+    The old defect was silent rather than visible: the 15 misregistrations
+    measured across the two reference checkouts all pointed at names outside
+    every rule's anchor set (`_mm256_inserti128_si256`, `_mm_unpacklo_epi64`
+    and the like), so no finding was emitted on them and the totals did not
+    move. This assertion is what turns "no rule happens to anchor on a
+    misattributed name" into an enforced invariant: register one of those
+    names in `knowledge/` under a rule, and a resurfaced misattribution
+    fails here instead of being reported as a real call site.
+    """
+    findings, _ = analyze([SVT_AV1])
+    recognized = _recognized_intrinsic_names()
+    unrecognized = sorted({f.intrinsic for f in findings} - recognized)
+    assert unrecognized == []
 
 
 @requires_svt
@@ -110,6 +175,6 @@ def test_full_sweep_of_both_codebases_does_not_crash():
     findings, _ = analyze([VVENC_X86])
     assert isinstance(findings, list)
     # isinstance(findings, list) alone would pass for a sweep that silently
-    # crashed every file and returned []; docs/verification.md records 412
+    # crashed every file and returned []; docs/verification.md records 449
     # findings over this directory, so require it to have found something.
     assert findings

@@ -114,7 +114,7 @@ Type S, for example).
        rule_id: str
        mechanism: str
 
-       def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]: ...
+       def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]: ...
    ```
 
    `rule_id` follows the `<TYPE>.<mechanism>` convention (e.g.
@@ -122,7 +122,7 @@ Type S, for example).
    phrase that appears next to the bare type letter in every report line —
    see "Report output requirements" below.
 
-2. A rule sees only the `FunctionUnit` IR and the `Context` (`ctx.symbols`,
+2. A rule sees only the `AnalysisUnit` IR and the `Context` (`ctx.symbols`,
    `ctx.knowledge`, `ctx.config`). Rules never import each other and never
    inspect tree-sitter nodes directly — `parser.py` and `extract.py` are the
    only modules that touch the tree-sitter API. If your mechanism needs
@@ -174,9 +174,38 @@ Type S, for example).
    so `--min-evidence` means something for it.
 
 4. Register the rule in `src/simde_lint/rules/__init__.py`'s `ALL_RULES`
-   list. The registry runs every rule independently over every function
-   unit and never merges, deduplicates, or reduces their output — see the
+   list. The registry runs every rule independently over every *analysis
+   unit* and never merges, deduplicates, or reduces their output — see the
    next section.
+
+   **A unit is a function body or a `#define` body**, and a rule cannot tell
+   them apart unless it asks. `AnalysisUnit` (`ir.py`) is the protocol every
+   rule reads: `name`, `file`, `scope`, `calls`, `definitions`,
+   `definition_before`, `redefined_between`, `call_by_id`. `FunctionUnit` and
+   `MacroUnit` both satisfy it and share one def-use implementation, so a new
+   rule needs no macro special-case — take `AnalysisUnit` in `match()`, and
+   macro bodies come for free.
+
+   Macro bodies get there by being reparsed: tree-sitter leaves a `#define`
+   body as an opaque `preproc_arg` with no children, so `macros.py` copies
+   the body bytes into a synthetic function wrapper, parses that, and maps
+   every position back to the original file by one constant offset. A
+   `MacroUnit`'s calls and definitions therefore carry the byte, line and
+   column of the original source, not of the synthetic text — so a finding a
+   rule opens on one points at the real `#define`, and no rule needs to know
+   the reparse happened.
+
+   Two consequences are worth knowing before writing matching logic:
+
+   - **Order by byte offset, never by line.** `definition_before` and
+     `redefined_between` take byte offsets, and `IntrinsicCall.start_byte` is
+     what you pass them. `line` and `column` exist for reporting only. A
+     macro body collapses several statements onto one or two physical lines,
+     so line-based comparison cannot order them at all.
+   - **A macro parameter has no definition.** It is an external input, so
+     `definition_before` returns `None` for it and the rule's existing
+     unknown-value path applies — grade down, withhold the counts. Do not
+     invent a definition for it.
 
 5. Add fixture tests: `tests/fixtures/rules/<name>_positive.c` (at least one
    call site the rule should catch, ideally covering more than one evidence
