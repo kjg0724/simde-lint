@@ -18,21 +18,25 @@ from pathlib import Path
 
 import pytest
 
-from simde_lint.analyze import analyze
+from simde_lint.analyze import analyze, read_sources
 from simde_lint.finding import Evidence
 from simde_lint.knowledge import load_knowledge
+from simde_lint.macros import build_alias_map, reparse_macros
+from simde_lint.parser import parse_source
+from simde_lint.rules import memory, suboptimal, widening
 
-# Reference checkout roots, overridable so an outside contributor can point
-# these at their own clones without editing this file. See CONTRIBUTING.md
-# for the SIMDE_LINT_SVT_AV1 / SIMDE_LINT_VVENC variables.
-_SVT_AV1_ROOT = Path(
-    os.environ.get("SIMDE_LINT_SVT_AV1", str(Path.home() / "Solario/Solido/open-source/svt-av1"))
+# Reference checkout roots, read only from the environment (see
+# CONTRIBUTING.md for SIMDE_LINT_SVT_AV1 / SIMDE_LINT_VVENC). There is
+# deliberately no fallback to a local path here: this file is public, and a
+# default checkout location would publish the author's own directory layout
+# for no verification benefit -- a contributor without the variable set gets
+# a clean skip, exactly as one without a clone at all does.
+_SVT_AV1_ENV = os.environ.get("SIMDE_LINT_SVT_AV1")
+_VVENC_ENV = os.environ.get("SIMDE_LINT_VVENC")
+SVT_AV1 = Path(_SVT_AV1_ENV) / "Source" if _SVT_AV1_ENV else Path("/nonexistent-svt-av1-checkout")
+VVENC_X86 = (
+    Path(_VVENC_ENV) / "source/Lib/CommonLib/x86" if _VVENC_ENV else Path("/nonexistent-vvenc-checkout")
 )
-_VVENC_ROOT = Path(
-    os.environ.get("SIMDE_LINT_VVENC", str(Path.home() / "Solario/Solido/open-source/vvenc"))
-)
-SVT_AV1 = _SVT_AV1_ROOT / "Source"
-VVENC_X86 = _VVENC_ROOT / "source/Lib/CommonLib/x86"
 
 requires_svt = pytest.mark.skipif(not SVT_AV1.exists(), reason="SVT-AV1 checkout not present")
 requires_vvenc = pytest.mark.skipif(not VVENC_X86.exists(), reason="VVenC checkout not present")
@@ -68,7 +72,7 @@ def test_rule_s_matches_the_grep_count_of_shuffle_epi8_call_sites():
     Both sides count source call sites, not assembly instances, so this is
     the one place absolute agreement is required rather than merely expected.
     """
-    findings, _ = analyze([SVT_AV1], types=["S"])
+    findings, _, _ = analyze([SVT_AV1], types=["S"])
     tool_count = sum(1 for f in findings if f.intrinsic == "_mm_shuffle_epi8")
     assert tool_count == _grep_count(SVT_AV1, r"_mm_shuffle_epi8")
 
@@ -82,7 +86,7 @@ def test_macro_findings_are_reported_with_their_macro_name():
     `macro` are mutually exclusive (spec Section 9); docs/verification.md
     Section 5 records the 28 SVT-AV1 macro findings this walks over.
     """
-    findings, _ = analyze([SVT_AV1])
+    findings, _, _ = analyze([SVT_AV1])
     macro = [f for f in findings if f.scope == "macro"]
     assert macro, "expected findings inside macro bodies"
     assert all(f.macro and f.function is None for f in macro)
@@ -115,7 +119,7 @@ def test_every_reported_intrinsic_is_a_name_the_knowledge_tables_recognize():
     names in `knowledge/` under a rule, and a resurfaced misattribution
     fails here instead of being reported as a real call site.
     """
-    findings, _ = analyze([SVT_AV1])
+    findings, _, _ = analyze([SVT_AV1])
     recognized = _recognized_intrinsic_names()
     unrecognized = sorted({f.intrinsic for f in findings} - recognized)
     assert unrecognized == []
@@ -129,7 +133,7 @@ def test_symbol_index_lifts_table_backed_masks_to_grade_a():
     (`even_odd_mask_x[base_shift]`); the all-rows check still grades them A
     because every row's lanes lie in [0,15].
     """
-    findings, _ = analyze([SVT_AV1], types=["S"])
+    findings, _, _ = analyze([SVT_AV1], types=["S"])
     graded_a = [f for f in findings if f.evidence is Evidence.A and f.mask_source]
     assert graded_a
     assert any(f.mask_source["symbol"] == "even_odd_mask_x" for f in graded_a)
@@ -148,7 +152,7 @@ def test_depquant_reports_the_types_its_source_can_carry():
     `knowledge/redundant.yaml` after the paper's R=4 undercounted DepQuant's
     14 call sites of it.
     """
-    findings, _ = analyze([VVENC_X86 / "DepQuantX86.h"])
+    findings, _, _ = analyze([VVENC_X86 / "DepQuantX86.h"])
     counts = Counter(f.type for f in findings)
     assert counts["R"] == 40
     assert counts["S"] == 22
@@ -166,15 +170,68 @@ def test_loopfilter_reports_no_type_s_as_the_spec_declares():
     sequences; it contains zero _mm_shuffle_epi8 call sites, so reporting
     nothing here is the expected outcome (spec Section 2), not a defect.
     """
-    findings, _ = analyze([VVENC_X86 / "LoopFilterX86.h"], types=["S"])
+    findings, _, _ = analyze([VVENC_X86 / "LoopFilterX86.h"], types=["S"])
     assert findings == []
 
 
 @requires_vvenc
 def test_full_sweep_of_both_codebases_does_not_crash():
-    findings, _ = analyze([VVENC_X86])
+    findings, _, _ = analyze([VVENC_X86])
     assert isinstance(findings, list)
     # isinstance(findings, list) alone would pass for a sweep that silently
     # crashed every file and returned []; docs/verification.md records 449
     # findings over this directory, so require it to have found something.
     assert findings
+
+
+@requires_svt
+@requires_vvenc
+def test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensitive_anchor():
+    """The real C1 tripwire: run against the checkouts, not a hand-picked fixture.
+
+    `tests/test_extract.py::
+    test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor`
+    checks three shapes written inside the test file, so it can never observe
+    a confirmed alias from an actual codebase. This test runs the same
+    `reparse_macros`/`build_alias_map` machinery `extract_units` uses over
+    every file `analyze()` would scan in SVT-AV1 `Source` and VVenC
+    `CommonLib/x86`, and asserts the resulting alias-target set is disjoint
+    from the narrowed operand-sensitive anchor union.
+
+    That union is `suboptimal._TARGETS (S) | memory._SCALAR_SETS |
+    memory._INSERTS (M) | widening._UNPACK | {_mm_mullo_epi16,
+    _mm_mulhi_epi16} (W)` -- the three rules that read `call.args[N]` or
+    `len(call.args)`, and so are genuinely misled by an alias that forwards
+    its operands unfaithfully (see docs/verification.md, "The
+    forwarding-alias argument list", for two measured examples). `fusion._*`
+    and `pipeline._COMPARES` (F and P) are deliberately excluded: both read
+    only operand *membership* (`arg.text == result_var`), which an operand
+    reversal or an arity mismatch cannot affect. `_mm_cmpgt_epi64` -- the
+    confirmed target of VVenC's `_my_cmpgt_epi64`, which is why rule P's
+    DepQuant count agrees with the paper (docs/verification.md, "DepQuant P:
+    3 vs 3") -- therefore sits outside this anchor union deliberately, not by
+    coincidence: adding `pipeline._COMPARES` back into the union above makes
+    this test fail, because `_mm_cmpgt_epi64` is a confirmed alias target
+    over VVenC and is a member of that set.
+    """
+    knowledge = load_knowledge()
+    operand_sensitive_anchors = (
+        suboptimal._TARGETS
+        | memory._SCALAR_SETS
+        | memory._INSERTS
+        | widening._UNPACK
+        | {"_mm_mullo_epi16", "_mm_mulhi_epi16"}
+    )
+
+    alias_targets: set[str] = set()
+    for _, source in read_sources([SVT_AV1, VVENC_X86]):
+        root = parse_source(source).root_node
+        macros = reparse_macros(root, source)
+        alias_targets |= set(build_alias_map(macros, knowledge).values())
+
+    assert alias_targets, "expected at least one confirmed forwarding alias across both checkouts"
+    assert "_mm_cmpgt_epi64" in alias_targets, (
+        "this is the known case the anchor union deliberately excludes P for "
+        "-- if it stops resolving, the exclusion's premise needs rechecking"
+    )
+    assert alias_targets.isdisjoint(operand_sensitive_anchors)

@@ -3,7 +3,7 @@ from simde_lint.rules.pipeline import PipelineRule
 
 
 def test_reports_a_compare_consumed_by_the_next_call(run_rule):
-    findings = run_rule(PipelineRule(), "pipeline_positive.c")
+    findings = [f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "kernel"]
     assert len(findings) == 1
     assert findings[0].type == "P"
     assert findings[0].evidence is Evidence.A
@@ -13,6 +13,32 @@ def test_reports_a_compare_consumed_by_the_next_call(run_rule):
     # `_mm_cmpgt_epi64` directly, so a reader grepping the source for
     # `intrinsic` needs the raw spelling surfaced here to find the line.
     assert findings[0].raw_name == "_my_cmpgt_epi64"
+
+
+def test_verdict_is_invariant_to_how_the_alias_forwards_its_operands(run_rule):
+    """C1: P reads only operand membership, never the compare's own args.
+
+    `_reversed_cmpgt_epi64` in the fixture hands its parameters to the real
+    intrinsic in the opposite order from `_my_cmpgt_epi64`, but the call site
+    still records its own args in macro-parameter order (a, b) either way --
+    `is_forwarding_alias` discards the body's internal argument mapping
+    entirely, keeping only the target name. P's verdict must be identical
+    between the faithful and the unfaithful alias, because `PipelineRule.match`
+    never reads `current.args`: it only checks whether `current.result_var`
+    is a *member* of the following call's args, which neither a reversed
+    operand nor a different arity inside the macro body can change.
+    """
+    findings = {
+        f.function: f
+        for f in run_rule(PipelineRule(), "pipeline_positive.c")
+        if f.function in ("kernel", "unfaithful_forward")
+    }
+    assert set(findings) == {"kernel", "unfaithful_forward"}
+    faithful, unfaithful = findings["kernel"], findings["unfaithful_forward"]
+    assert faithful.intrinsic == unfaithful.intrinsic == "_mm_cmpgt_epi64"
+    assert faithful.evidence == unfaithful.evidence == Evidence.A
+    assert faithful.rule_mechanism == unfaithful.rule_mechanism
+    assert unfaithful.raw_name == "_reversed_cmpgt_epi64"
 
 
 def test_reports_nothing_when_an_independent_call_separates_them(run_rule):

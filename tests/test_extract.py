@@ -5,7 +5,7 @@ from simde_lint.ir import ValueKind
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, reparse_macros
 from simde_lint.parser import parse_source
-from simde_lint.rules import fusion, memory, pipeline, suboptimal, widening
+from simde_lint.rules import memory, suboptimal, widening
 
 FIXTURE = Path(__file__).parent / "fixtures" / "extract" / "basic.c"
 
@@ -429,7 +429,7 @@ _ALIAS_SHAPES = (
 
 
 def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor():
-    """Tripwire for the Task 4 review's I-2 finding.
+    """Fast, fixture-based companion to the C1 corpus tripwire.
 
     A forwarding alias's call site presents the alias macro's OWN argument
     list -- whatever was written at the use site, following the macro's own
@@ -438,38 +438,37 @@ def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor()
     forwarding body pass its parameters through faithfully, and real macros
     do not: SVT-AV1's `_mm256_setr_m128i` reverses two operands; its
     `LOAD8_S`/`pair_set_epi16`-shaped macros record an arity that is not the
-    forwarded intrinsic's real one. A rule that reads operand position or
-    arity would be misled by such a call if the alias's confirmed target were
-    ever one of that rule's anchors.
+    forwarded intrinsic's real one. A rule that reads operand *position* or
+    *arity* would be misled by such a call if the alias's confirmed target
+    were ever one of that rule's anchors.
 
-    At HEAD this is not a live defect: every confirmed alias in the two
-    reference codebases was cross-checked against every rule's anchor set and
-    no intersection with an operand-sensitive one was found. Measured over
-    the two sweep directories (SVT-AV1 `Source` and VVenC `CommonLib/x86`),
-    that is **22 forwarding-alias definition sites, resolving to 16 distinct
-    per-file alias entries** -- 11 of the 22 sites forward their parameters
-    unfaithfully, which is what makes the tripwire worth having. The counting
-    unit matters and is stated because it is what an earlier bare figure left
-    ambiguous; the conclusion holds on every basis, including the 23
-    definition sites counted over VVenC's whole `source/` tree. This
-    test pins that as a regression tripwire using the real
-    `is_forwarding_alias`/`build_alias_map` machinery (via `_ALIAS_SHAPES`,
-    fixtures reproducing the real shapes structurally rather than needing an
-    external checkout) against an anchor-set union read from the rule
-    modules' own matching constants, not copied here by hand -- the same
-    technique
-    `test_knowledge.py::test_every_intrinsic_a_rule_can_match_has_a_cost_entry_citing_that_intrinsic`
-    uses to derive matched sets from rule constants. `_mm_mullo_epi16` and
-    `_mm_mulhi_epi16` are included by hand because `WideningRule.match` reads
-    them as literals rather than through a named module constant.
+    `operand_sensitive_anchors` here is deliberately narrower than "every
+    rule this alias's target could match": it is `suboptimal._TARGETS
+    (S) | memory._SCALAR_SETS | memory._INSERTS (M) | widening._UNPACK
+    | {_mm_mullo_epi16, _mm_mulhi_epi16} (W)` -- the three rules that
+    actually read `call.args[N]` or `len(call.args)`. `fusion._*` and
+    `pipeline._COMPARES` (F and P) are excluded on purpose: both read only
+    operand *membership* (`arg.text == result_var`), which neither a reversed
+    operand nor a mismatched arity can affect, so an unfaithful forward
+    cannot mislead them. `_mm_cmpgt_epi64` -- the confirmed target of VVenC's
+    `_my_cmpgt_epi64`, which reaches rule P (see
+    docs/verification.md's "DepQuant P: 3 vs 3") -- is exactly this case: its
+    presence in `pipeline._COMPARES` is safe for the stated membership-only
+    reason, not because no alias happens to target it.
 
-    A failure here does not mean new code is wrong: it means a confirmed
-    alias's target now falls inside an operand-sensitive rule's anchor set,
-    and whoever sees it needs to check whether that specific alias forwards
-    its arguments faithfully before trusting the rule's output at that call
-    site -- per the review's I-2, the two options are tightening the Section
-    4 predicate or re-projecting operands, neither of which this test alone
-    can decide.
+    This test only checks the three hand-picked shapes in `_ALIAS_SHAPES`
+    against the narrowed anchor set using the real
+    `is_forwarding_alias`/`build_alias_map` machinery, so it runs without an
+    external checkout and stays fast. It is NOT a cross-check against the
+    reference codebases -- `test_verification.py::
+    test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensitive_anchor`
+    is the real tripwire, run over SVT-AV1 and VVenC directly, and is what
+    the release notes' safety claim is backed by.
+
+    A failure here does not mean new code is wrong: it means one of these
+    three fixture shapes now resolves to a name inside the narrowed anchor
+    set, which would mean S, M or W could be misled by an unfaithfully
+    forwarded operand at that call site.
     """
     knowledge = load_knowledge()
     root = parse_source(_ALIAS_SHAPES).root_node
@@ -481,11 +480,7 @@ def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor()
         suboptimal._TARGETS
         | memory._SCALAR_SETS
         | memory._INSERTS
-        | fusion._MULTIPLIES
-        | fusion._ADDS
-        | fusion._WIDENING
         | widening._UNPACK
         | {"_mm_mullo_epi16", "_mm_mulhi_epi16"}
-        | pipeline._COMPARES
     )
     assert alias_targets.isdisjoint(operand_sensitive_anchors)

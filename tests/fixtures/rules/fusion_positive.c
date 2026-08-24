@@ -22,6 +22,21 @@ void two_products(const int *a, const int *b) {
     (void)sum;
 }
 
+// C1 invariance case: the macro forwards its operands to the real
+// intrinsic in the opposite order from how the call site wrote them. F must
+// reach the same verdict as `kernel`'s first multiply regardless, because it
+// never reads the multiply's own args -- only `mul.result_var` membership in
+// the following add's args.
+#define _my_mullo_epi32(a, b) _mm_mullo_epi32(b, a)
+
+void unfaithful_forward(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _my_mullo_epi32(va, vb);
+    __m128i sum = _mm_add_epi32(acc, prod);
+    (void)sum;
+}
+
 void reused_name(const int *a, const int *b, __m128i acc) {
     __m128i va = _mm_loadu_si128((const __m128i *)a);
     __m128i vb = _mm_loadu_si128((const __m128i *)b);

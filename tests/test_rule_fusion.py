@@ -71,6 +71,32 @@ def test_mullo_epi32_names_its_fused_instruction(run_rule):
     assert finding.native_insns is not None
 
 
+def test_verdict_is_invariant_to_how_the_alias_forwards_its_operands(run_rule):
+    """C1: F reads only operand membership, never the multiply's own args.
+
+    `_my_mullo_epi32` in the fixture hands its parameters to the real
+    intrinsic in the opposite order from how the call site wrote them, but
+    the call site still records its own args in macro-parameter order either
+    way -- `is_forwarding_alias` discards the body's internal argument
+    mapping entirely, keeping only the target name. F's verdict must be
+    identical between a directly-called multiply and one reached through
+    such an unfaithful alias, because `FusionRule.match`/`_path` never read
+    the multiply's own args: they only check whether `mul.result_var` is a
+    *member* of the following add's args, which an operand reversal inside
+    the macro body cannot change.
+    """
+    findings = {
+        f.function: f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function in ("kernel", "unfaithful_forward") and f.intrinsic == "_mm_mullo_epi32"
+    }
+    assert set(findings) == {"kernel", "unfaithful_forward"}
+    faithful, unfaithful = findings["kernel"], findings["unfaithful_forward"]
+    assert faithful.intrinsic == unfaithful.intrinsic == "_mm_mullo_epi32"
+    assert faithful.evidence == unfaithful.evidence == Evidence.A
+    assert unfaithful.raw_name == "_my_mullo_epi32"
+
+
 def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     # The widening conversion runs before the second multiply, so only the
     # first can own it. Attributing it to the second would invert the interval

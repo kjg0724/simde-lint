@@ -285,6 +285,12 @@ resolves VVenC's local macro `#define _my_cmpgt_epi64(a, b)` down to
 alias step in `extract.py`. Without that resolution the rule would see an
 unregistered call name and report 0.
 
+This reaches P through a confirmed forwarding alias whose target,
+`_mm_cmpgt_epi64`, sits inside `pipeline._COMPARES` — §5's "The
+forwarding-alias argument list" explains why that is sound rather than a gap
+in the safety argument there: P decides by operand membership, not position
+or arity, so it cannot be misled by however the alias forwards its operands.
+
 ### Zeros where the paper reports instances
 
 Every zero-count cell above traces to a concrete property of the source,
@@ -523,7 +529,13 @@ gaps to be closed later:
   definition.** VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two
   separate `#ifdef USE_AVX2` blocks; both are read, as all `#if` branches
   are, and both become units of three calls each. Neither produces a finding
-  today. This is the only such case in either codebase.
+  today. This is the only such case in either codebase. This drops to zero
+  units for every one of that name's definitions when any one of them is a
+  forwarding alias: the alias skip is keyed on the macro's name, not on
+  the specific definition, so a same-named `#if` branch whose body is a
+  genuinely different, multi-call sequence is skipped too, and its calls
+  become invisible. Known limitation, not fixed in v1.2 (see the release
+  notes).
 
 ### The forwarding-alias argument list
 
@@ -539,13 +551,38 @@ forward unfaithfully**. Two measured examples:
 - SVT-AV1's `LOAD8_S(BASE, OFF, S)` forwards to an eight-argument
   `_mm256_setr_epi32`, so its call sites record arity 3.
 
-No wrong output follows from this today, and that is checked rather than
-assumed: no confirmed alias target intersects the anchor set of any rule that
-reads operand position or arity.
-`test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor`
-in `tests/test_extract.py` derives that anchor set from the rule modules' own
-matching constants and fails if the intersection ever becomes non-empty. See
-the release notes for why the underlying re-projection is deferred.
+No wrong output follows from this today, checked rather than assumed, for two
+separately-checked reasons — one per group of rules, not one blanket claim:
+
+- **S, M and W** read a call's own operand *position* (`call.args[1]`) or
+  *arity* (`len(call.args)`), so they genuinely could be misled by an
+  unfaithful forward — and none of the 22 confirmed alias targets is one of
+  their anchors (`suboptimal._TARGETS | memory._SCALAR_SETS |
+  memory._INSERTS | widening._UNPACK | {_mm_mullo_epi16, _mm_mulhi_epi16}`).
+  `test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensitive_anchor`
+  in `tests/test_verification.py` checks this against both reference
+  checkouts directly, over the real `reparse_macros`/`build_alias_map`
+  machinery — not a hand-picked fixture — and fails if the intersection ever
+  becomes non-empty.
+  `tests/test_extract.py::test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor`
+  is the fast, fixture-based companion to that corpus test, over the same
+  narrowed anchor union.
+- **F and P never read a call's own args at all.** Both decide by operand
+  *membership* (`arg.text == result_var`), which an operand reversal or an
+  arity mismatch inside the macro body cannot change — so an unfaithful
+  forward cannot mislead them regardless of whether its target happens to be
+  one of their anchors. §2's "DepQuant P: 3 vs 3" is exactly this case, not
+  an exception to it: `_mm_cmpgt_epi64` is the confirmed target of VVenC's
+  `_my_cmpgt_epi64`, and is a member of `pipeline._COMPARES`, and rule P's
+  three DepQuant findings are sound anyway, precisely because their
+  judgment is invariant to how that alias forwards its operands.
+  `tests/test_rule_pipeline.py::test_verdict_is_invariant_to_how_the_alias_forwards_its_operands`
+  and the equivalent test in `tests/test_rule_fusion.py` demonstrate this
+  directly: a macro that forwards its operands faithfully and one that
+  reverses them produce the identical verdict.
+
+See the release notes for why the underlying re-projection (making a forward
+faithful, or reading through it) is deferred rather than fixed.
 
 ## Reproducing this document
 

@@ -273,7 +273,13 @@ Cross-cutting limits that apply to every rule, not just one:
     drops and the instruction counts are withheld, exactly as for any other
     value a rule cannot see.
   - **A macro name defined more than once in a file yields one unit per
-    definition**, since all `#if` branches are read.
+    definition**, since all `#if` branches are read. This drops to zero
+    units for every one of that name's definitions when any one of them is a
+    forwarding alias: the alias skip is keyed on the macro's name, not on
+    the specific definition, so a same-named `#if` branch whose body is a
+    genuinely different, multi-call sequence is skipped too, and its calls
+    become invisible. Known limitation, not fixed in v1.2 (see the release
+    notes).
 - **The knowledge tables are small by design, not by accident.** Every entry
   in `knowledge/*.yaml` is read from the SIMDe source and cites the file and
   line it came from; nothing is guessed. Extending coverage means adding
