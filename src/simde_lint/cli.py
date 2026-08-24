@@ -67,7 +67,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{array.name}\t{array.defined_at}\t{len(array.rows)} row(s)")
         return 0
 
-    findings, knowledge = analyze(
+    findings, knowledge, errors = analyze(
         args.paths,
         exclude=args.exclude,
         types=types,
@@ -80,7 +80,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_json(findings, simde_version=knowledge.simde_version, sort=args.sort))
     else:
         print(render_text(findings, sort=args.sort))
-    return 0
+
+    # An isolated extraction or rule failure already printed its own warning
+    # to stderr as it happened; the exit code is what makes "this run is
+    # incomplete" distinguishable from a clean success without a reader
+    # having to notice a warning line among the findings.
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

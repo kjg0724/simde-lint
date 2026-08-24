@@ -19,7 +19,7 @@ def test_two_different_rules_fire_at_the_same_source_line():
     # physical line: the compare's result is consumed by the very next call
     # (rule P), and that same call is a shuffle with a safe inline mask
     # (rule S). Neither rule may be dropped in favor of the other.
-    findings, _ = analyze([FIXTURE])
+    findings, _, _ = analyze([FIXTURE])
     same_line = [f for f in findings if f.file == str(FIXTURE) and f.line == 2]
     types = {f.type for f in same_line}
     assert {"P", "S"} <= types
