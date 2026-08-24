@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit, IntrinsicCall, ValueKind
-from .base import Context, raw_name_if_aliased
+from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
 
@@ -29,12 +29,12 @@ class WideningRule:
     rule_id = "W.mul16_widen_roundtrip"
     mechanism = "16-to-32 widening multiply round-trip"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         cost = ctx.knowledge.cost(self.rule_id)
-        by_line = lambda calls: sorted(calls, key=lambda c: c.line)
-        los = by_line(c for c in unit.calls if c.name == "_mm_mullo_epi16")
-        his = by_line(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
-        unpacks = by_line(c for c in unit.calls if c.name in _UNPACK)
+        by_position = lambda calls: sorted(calls, key=lambda c: c.start_byte)
+        los = by_position(c for c in unit.calls if c.name == "_mm_mullo_epi16")
+        his = by_position(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
+        unpacks = by_position(c for c in unit.calls if c.name in _UNPACK)
 
         # One finding per round-trip, not per matching pair. VVenC's DeQuant
         # repeats this sequence four times in one function reusing the same
@@ -49,13 +49,15 @@ class WideningRule:
             if hi is None or not lo.result_var or not hi.result_var:
                 continue
             consumer = self._consumer(
-                unpacks, claimed_unpacks, lo.result_var, hi.result_var, hi.line
+                unpacks, claimed_unpacks, lo.result_var, hi.result_var, hi.start_byte
             )
             if consumer is None:
                 continue
             if unit.redefined_between(
-                lo.result_var, lo.line, consumer.line
-            ) or unit.redefined_between(hi.result_var, hi.line, consumer.line):
+                lo.result_var, own_availability(unit, lo), consumer.start_byte
+            ) or unit.redefined_between(
+                hi.result_var, own_availability(unit, hi), consumer.start_byte
+            ):
                 # The unpack still names lo.result_var/hi.result_var, but one
                 # of them was overwritten before the unpack runs, so the value
                 # it consumes is not this multiply's product. Every other rule
@@ -74,7 +76,7 @@ class WideningRule:
                 impact=Impact.CONFIRMED,
                 file=unit.file,
                 line=lo.line,
-                function=unit.name,
+                **location_fields(unit),
                 intrinsic="_mm_mullo_epi16",
                 rationale=(
                     f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at line "
@@ -98,7 +100,7 @@ class WideningRule:
         ]
         if not candidates:
             return None
-        return min(candidates, key=lambda hi: abs(hi.line - lo.line))
+        return min(candidates, key=lambda hi: abs(hi.start_byte - lo.start_byte))
 
     @staticmethod
     def _consumer(
@@ -106,7 +108,7 @@ class WideningRule:
         claimed: set[int],
         lo_var: str,
         hi_var: str,
-        after_line: int,
+        after_position: int,
     ) -> IntrinsicCall | None:
         """First unclaimed unpack at or after the multiplies taking both results.
 
@@ -120,7 +122,7 @@ class WideningRule:
         separation the other rules keep.
         """
         for unpack in unpacks:
-            if unpack.id in claimed or unpack.line < after_line:
+            if unpack.id in claimed or unpack.start_byte < after_position:
                 continue
             texts = {arg.text for arg in unpack.args}
             if lo_var in texts and hi_var in texts:

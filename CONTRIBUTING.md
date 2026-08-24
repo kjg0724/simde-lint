@@ -79,9 +79,12 @@ that should normalize onto a canonical x86 name your rules already look for,
 add it to `knowledge/aliases.yaml` instead (or as well). Local, file-scoped
 `#define` wrappers around an already-known intrinsic (VVenC's
 `_my_cmpgt_epi64`, for instance) don't need an aliases.yaml entry at all —
-`extract.py`'s `_file_macro_aliases` resolves those automatically by reading
-the macro body; `aliases.yaml` is for cross-file, cross-project spellings
-like the `simde_mm_*` prefix.
+`macros.py`'s `build_alias_map` resolves those automatically: a macro whose
+body reduces to exactly one call (after stripping parentheses and casts) is
+registered as an alias for its callee, following chains of such macros
+through to a recognized intrinsic and refusing to loop on a cycle;
+`aliases.yaml` is for cross-file, cross-project spellings like the
+`simde_mm_*` prefix.
 
 A knowledge-table entry with no test asserting a rule actually reports it is
 a row nobody checks — the schema tests above only enforce that the entry is
@@ -111,7 +114,7 @@ Type S, for example).
        rule_id: str
        mechanism: str
 
-       def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]: ...
+       def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]: ...
    ```
 
    `rule_id` follows the `<TYPE>.<mechanism>` convention (e.g.
@@ -119,7 +122,7 @@ Type S, for example).
    phrase that appears next to the bare type letter in every report line —
    see "Report output requirements" below.
 
-2. A rule sees only the `FunctionUnit` IR and the `Context` (`ctx.symbols`,
+2. A rule sees only the `AnalysisUnit` IR and the `Context` (`ctx.symbols`,
    `ctx.knowledge`, `ctx.config`). Rules never import each other and never
    inspect tree-sitter nodes directly — `parser.py` and `extract.py` are the
    only modules that touch the tree-sitter API. If your mechanism needs
@@ -171,9 +174,64 @@ Type S, for example).
    so `--min-evidence` means something for it.
 
 4. Register the rule in `src/simde_lint/rules/__init__.py`'s `ALL_RULES`
-   list. The registry runs every rule independently over every function
-   unit and never merges, deduplicates, or reduces their output — see the
+   list. The registry runs every rule independently over every *analysis
+   unit* and never merges, deduplicates, or reduces their output — see the
    next section.
+
+   **A unit is a function body or a `#define` body**, and a rule cannot tell
+   them apart unless it asks. `AnalysisUnit` (`ir.py`) is the protocol every
+   rule reads: `name`, `file`, `scope`, `function_name`, `macro_name`,
+   `calls`, `definitions`, `definition_before`, `redefined_between`,
+   `call_by_id`. `FunctionUnit` and `MacroUnit` both satisfy it and share one
+   def-use implementation, so a new rule needs no macro special-case — take
+   `AnalysisUnit` in `match()`, and macro bodies come for free.
+
+   **Every `Finding` a rule constructs must copy `function_name`, `scope` and
+   `macro_name` from the unit** — every rule module does this, because a
+   `Finding`'s `function`/`scope`/`macro` fields are how a reader tells a
+   function-scoped finding from a macro-scoped one, and nothing else sets
+   them. Use `location_fields(unit)` from `rules/base.py` and splat it:
+
+   ```python
+   yield Finding(
+       ...,
+       file=unit.file,
+       line=call.line,
+       **location_fields(unit),
+       intrinsic=call.name,
+       ...,
+   )
+   ```
+
+   Reaching for `unit.name` instead — the more obvious-looking member — has
+   the exact wrong effect on a `MacroUnit`: it silently produces
+   `scope="function", function=<the macro's name>, macro=None`, which reads
+   as a real function finding in every reporter, and `Finding.__post_init__`
+   does not catch it (it enforces internal consistency between `scope`/
+   `function`/`macro`, not correspondence with the unit that produced them).
+   `location_fields` exists so this is structurally impossible rather than
+   merely documented here.
+
+   Macro bodies get there by being reparsed: tree-sitter leaves a `#define`
+   body as an opaque `preproc_arg` with no children, so `macros.py` copies
+   the body bytes into a synthetic function wrapper, parses that, and maps
+   every position back to the original file by one constant offset. A
+   `MacroUnit`'s calls and definitions therefore carry the byte, line and
+   column of the original source, not of the synthetic text — so a finding a
+   rule opens on one points at the real `#define`, and no rule needs to know
+   the reparse happened.
+
+   Two consequences are worth knowing before writing matching logic:
+
+   - **Order by byte offset, never by line.** `definition_before` and
+     `redefined_between` take byte offsets, and `IntrinsicCall.start_byte` is
+     what you pass them. `line` and `column` exist for reporting only. A
+     macro body collapses several statements onto one or two physical lines,
+     so line-based comparison cannot order them at all.
+   - **A macro parameter has no definition.** It is an external input, so
+     `definition_before` returns `None` for it and the rule's existing
+     unknown-value path applies — grade down, withhold the counts. Do not
+     invent a definition for it.
 
 5. Add fixture tests: `tests/fixtures/rules/<name>_positive.c` (at least one
    call site the rule should catch, ideally covering more than one evidence

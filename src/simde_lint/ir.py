@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Protocol
 
 
 class ValueKind(str, Enum):
@@ -34,41 +35,159 @@ class IntrinsicCall:
     args: tuple[ValueRef, ...]
     line: int
     column: int
+    start_byte: int
     result_var: str | None = None
+    # True when `raw_name` was resolved to `name` through a file-local
+    # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
+    # `macros.build_alias_map`) — a macro whose *body* extraction never sees,
+    # so the call's recorded `args` are the call site's own, not necessarily
+    # what the macro's body actually forwards (see `rules/pipeline.py`/
+    # `rules/fusion.py`'s consumer-side abstention). False for a direct call
+    # and for a call whose spelling changed only through
+    # `knowledge/aliases.yaml` normalization (`simde_mm_shuffle_epi8` ->
+    # `_mm_shuffle_epi8`, for instance) — that correspondence is exact by
+    # SIMDe's own naming convention, not an opaque macro body, so `raw_name
+    # != name` alone must not be read as "came through a macro" (P1's P2
+    # finding: it conflates the two).
+    is_macro_alias: bool = False
 
 
 @dataclass(frozen=True)
 class Definition:
     var: str
     line: int
+    start_byte: int
+    available_after_byte: int
     value: ValueRef
 
 
-@dataclass
-class FunctionUnit:
+class AnalysisUnit(Protocol):
+    """What a rule may read from a unit of analysis.
+
+    `FunctionUnit` and `MacroUnit` are the two implementations. A rule takes
+    this protocol, not either concrete class, so a rule written against
+    function bodies works unchanged against macro bodies.
+    """
+
     name: str
     file: str
-    start_line: int
-    end_line: int
+    scope: str
+    # Exactly one of the two is set, mirroring `scope`: `function_name` holds
+    # the enclosing function's name and `macro_name` is `None` for a
+    # `FunctionUnit`; `macro_name` holds the macro's name and `function_name`
+    # is `None` for a `MacroUnit`. A rule or reporter reads whichever of the
+    # two it needs and never has to branch on `scope` to know which is live.
+    # Declared read-only: both implementations supply these as `@property`,
+    # and a settable protocol member would reject a read-only property as a
+    # structural match.
+    @property
+    def function_name(self) -> str | None: ...
+
+    @property
+    def macro_name(self) -> str | None: ...
+
+    calls: list[IntrinsicCall]
+    definitions: dict[str, list[Definition]]
+
+    def definition_before(self, var: str, position: int) -> Definition | None: ...
+    def redefined_between(self, var: str, start: int, end: int) -> bool: ...
+    def call_by_id(self, call_id: int) -> IntrinsicCall | None: ...
+
+
+class MutableAnalysisUnit(AnalysisUnit, Protocol):
+    """What extraction additionally needs, beyond what a rule may read."""
+
+    def add_definition(self, definition: Definition) -> None: ...
+
+
+@dataclass(kw_only=True)
+class _UnitBase:
+    """Def-use machinery shared by `FunctionUnit` and `MacroUnit`.
+
+    Both units order definitions the same way and answer the same queries;
+    keeping the body here means the two implementations of `AnalysisUnit`
+    cannot drift apart from each other.
+
+    `kw_only=True` on this class and both subclasses is deliberate: before it,
+    `FunctionUnit`'s constructor accepted `(name, file, start_line, end_line,
+    ...)` positionally, and this refactor changed that order to
+    `(name, file, calls, definitions, start_line, end_line, scope)` with
+    `start_line`/`end_line` now defaulted. A caller still passing positionally
+    would silently assign `calls=<int>, definitions=<int>` instead of raising.
+    Keyword-only construction makes that hazard impossible instead of merely
+    unlikely.
+    """
+
+    name: str
+    file: str
     calls: list[IntrinsicCall] = field(default_factory=list)
     definitions: dict[str, list[Definition]] = field(default_factory=dict)
 
     def add_definition(self, definition: Definition) -> None:
         bucket = self.definitions.setdefault(definition.var, [])
         bucket.append(definition)
-        bucket.sort(key=lambda d: d.line)
+        bucket.sort(key=lambda d: d.available_after_byte)
 
-    def definition_before(self, var: str, line: int) -> Definition | None:
-        """Latest definition of `var` strictly before `line`."""
-        candidates = [d for d in self.definitions.get(var, []) if d.line < line]
+    def definition_before(self, var: str, position: int) -> Definition | None:
+        """Latest definition of `var` available strictly before `position`.
+
+        Positions are byte offsets, not lines. A definition becomes available
+        only once its right-hand side has been evaluated, so `x = f(x, ...)`
+        does not see itself, and two definitions on one physical line stay
+        ordered.
+        """
+        candidates = [d for d in self.definitions.get(var, []) if d.available_after_byte < position]
         return candidates[-1] if candidates else None
 
-    def redefined_between(self, var: str, start_line: int, end_line: int) -> bool:
-        """True if `var` is defined again strictly between the two lines."""
-        return any(start_line < d.line < end_line for d in self.definitions.get(var, []))
+    def redefined_between(self, var: str, start: int, end: int) -> bool:
+        """True if `var` is redefined strictly between two byte offsets."""
+        return any(start < d.available_after_byte < end for d in self.definitions.get(var, []))
 
     def call_by_id(self, call_id: int) -> IntrinsicCall | None:
         for call in self.calls:
             if call.id == call_id:
                 return call
         return None
+
+
+@dataclass(kw_only=True)
+class FunctionUnit(_UnitBase):
+    start_line: int = 0
+    end_line: int = 0
+    scope: str = "function"
+
+    @property
+    def function_name(self) -> str | None:
+        return self.name
+
+    @property
+    def macro_name(self) -> str | None:
+        return None
+
+
+@dataclass(kw_only=True)
+class MacroUnit(_UnitBase):
+    """A `#define` function-like macro body whose calls are analysed.
+
+    Symbol state is never shared with a `FunctionUnit`: a variable named
+    `tmp` inside a macro and a `tmp` inside a function query separate
+    `definitions` dicts and cannot satisfy each other's def-use lookups.
+
+    `macro_name` is a property mirroring `name`, not a separate field: a
+    macro unit's name and its "macro name" are the same string by
+    construction (extraction never has a second name to offer), so keeping
+    `macro_name` independently settable would let it diverge from `name` —
+    including staying at its old default when a caller forgot to pass it,
+    which would surface as a blank macro name in a rendered report. A single
+    source of truth removes that failure mode outright.
+    """
+
+    scope: str = "macro"
+
+    @property
+    def function_name(self) -> str | None:
+        return None
+
+    @property
+    def macro_name(self) -> str | None:
+        return self.name

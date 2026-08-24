@@ -19,9 +19,9 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit, IntrinsicCall, ValueKind
+from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
-from .base import Context, raw_name_if_aliased
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
 _DEFAULT_THRESHOLD = 3
@@ -37,11 +37,11 @@ class MemoryRule:
     rule_id = "M.scalar_insert_chain"
     mechanism = "scalar insert chain"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         threshold = int(ctx.config.get("memory_chain_threshold", _DEFAULT_THRESHOLD))
 
         by_var: dict[str, list[IntrinsicCall]] = {}
-        for call in sorted(unit.calls, key=lambda c: c.line):
+        for call in sorted(unit.calls, key=lambda c: c.start_byte):
             if call.name not in _INSERTS or not call.result_var:
                 continue
             by_var.setdefault(call.result_var, []).append(call)
@@ -54,7 +54,7 @@ class MemoryRule:
 
     @staticmethod
     def _split_chains(
-        unit: FunctionUnit, target: str, calls: list[IntrinsicCall]
+        unit: AnalysisUnit, target: str, calls: list[IntrinsicCall]
     ) -> Iterator[list[IntrinsicCall]]:
         """Split same-variable inserts into runs unbroken by an intervening write.
 
@@ -68,7 +68,9 @@ class MemoryRule:
         """
         chain: list[IntrinsicCall] = []
         for call in calls:
-            if chain and unit.redefined_between(target, chain[-1].line, call.line):
+            if chain and unit.redefined_between(
+                target, own_availability(unit, chain[-1]), call.start_byte
+            ):
                 yield chain
                 chain = []
             chain.append(call)
@@ -76,7 +78,7 @@ class MemoryRule:
             yield chain
 
     def _finding(
-        self, unit: FunctionUnit, ctx: Context, target: str, calls: list[IntrinsicCall]
+        self, unit: AnalysisUnit, ctx: Context, target: str, calls: list[IntrinsicCall]
     ) -> Finding:
         direct = all(
             call.args and call.args[0].kind is ValueKind.VARIABLE and call.args[0].text == target
@@ -94,7 +96,7 @@ class MemoryRule:
             impact=Impact.DIAGNOSTIC,
             file=unit.file,
             line=first.line,
-            function=unit.name,
+            **location_fields(unit),
             intrinsic=first.name,
             rationale=(
                 f"{len(calls)} scalar inserts assemble {target} between lines "
@@ -141,7 +143,7 @@ class ScalarSetBuildRule:
     rule_id = "M.scalar_set_build"
     mechanism = "vector built from runtime scalars"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         for call in unit.calls:
             if call.name not in _SCALAR_SETS or not call.args:
                 continue
@@ -162,7 +164,7 @@ class ScalarSetBuildRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
-                function=unit.name,
+                **location_fields(unit),
                 intrinsic=call.name,
                 rationale=(
                     f"{call.name} assembles {len(call.args)} runtime scalars into a "

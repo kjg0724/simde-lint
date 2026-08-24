@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
-from ..ir import FunctionUnit, IntrinsicCall, ValueKind
-from .base import Context, raw_name_if_aliased
+from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _MULTIPLIES = {
     "_mm_mullo_epi32",
@@ -36,20 +36,20 @@ class FusionRule:
     rule_id = "F.mul_add_no_fuse"
     mechanism = "multiply-add not fused"
 
-    def match(self, unit: FunctionUnit, ctx: Context) -> Iterator[Finding]:
-        adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.line)
+    def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
+        adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.start_byte)
         # An add is one fusion opportunity, so the first multiply reaching it
         # claims it. Without this, `sum = _mm_add_epi32(p1, p2)` over two
         # products reports twice — and since each finding is anchored at its
         # own multiply's line, no repeated-line check would reveal it.
         claimed_adds: set[int] = set()
 
-        for mul in sorted(unit.calls, key=lambda c: c.line):
+        for mul in sorted(unit.calls, key=lambda c: c.start_byte):
             if mul.name not in _MULTIPLIES or not mul.result_var:
                 continue
             cost = ctx.knowledge.cost(self.rule_id, mul.name)
             for add in adds:
-                if add.id in claimed_adds or add.line <= mul.line:
+                if add.id in claimed_adds or add.start_byte <= mul.start_byte:
                     continue
                 path = self._path(unit, mul, add)
                 if path is None:
@@ -64,7 +64,7 @@ class FusionRule:
                     impact=Impact.CONFIRMED,
                     file=unit.file,
                     line=mul.line,
-                    function=unit.name,
+                    **location_fields(unit),
                     intrinsic=mul.name,
                     rationale=(
                         f"{mul.name} at line {mul.line} reaches {add.name} at line "
@@ -97,24 +97,43 @@ class FusionRule:
         )
 
     def _path(
-        self, unit: FunctionUnit, mul: IntrinsicCall, add: IntrinsicCall
+        self, unit: AnalysisUnit, mul: IntrinsicCall, add: IntrinsicCall
     ) -> tuple[Evidence, str] | None:
         """Direct identity grades A; one widening hop grades B."""
+        if add.is_macro_alias:
+            # P1: `add` was resolved through a file-local `#define`
+            # forwarding alias. Its recorded args are the call site's own --
+            # built from the macro's parameter positions, with no mapping
+            # back to which of the body's operands each parameter actually
+            # reached. Membership here would be a claim about the
+            # *forwarded* call's operands that extraction cannot support, so
+            # F makes no claim at all.
+            #
+            # Deliberately narrower than `add.raw_name != add.name` (P2): a
+            # `simde_`-prefixed direct call also changes spelling on
+            # resolution, through `knowledge/aliases.yaml`, not a macro
+            # body -- that correspondence is exact by SIMDe's own naming
+            # convention, so it must not abstain here.
+            return None
         operands = {arg.text for arg in add.args if arg.kind is ValueKind.VARIABLE}
 
         if mul.result_var in operands:
-            if unit.redefined_between(mul.result_var, mul.line, add.line):
+            if unit.redefined_between(mul.result_var, own_availability(unit, mul), add.start_byte):
                 return None
             return Evidence.A, ""
 
         for name in operands:
-            definition = unit.definition_before(name, add.line)
+            definition = unit.definition_before(name, add.start_byte)
             if definition is None or definition.value.call_id is None:
                 continue
             intermediate = unit.call_by_id(definition.value.call_id)
             if intermediate is None or intermediate.name not in _WIDENING:
                 continue
-            if intermediate.line <= mul.line:
+            if intermediate.is_macro_alias:
+                # Same reasoning as `add` above: the widening hop is also a
+                # consumer whose args this rule checks membership against.
+                continue
+            if intermediate.start_byte <= mul.start_byte:
                 # The intermediate ran before this multiply, so it cannot be
                 # carrying this multiply's product. Without this test the
                 # interval handed to redefined_between inverts, which makes the
@@ -123,7 +142,9 @@ class FusionRule:
                 continue
             if mul.result_var not in {a.text for a in intermediate.args}:
                 continue
-            if unit.redefined_between(mul.result_var, mul.line, intermediate.line):
+            if unit.redefined_between(
+                mul.result_var, own_availability(unit, mul), intermediate.start_byte
+            ):
                 continue
             return Evidence.B, f" through {intermediate.name} at line {intermediate.line}"
         return None

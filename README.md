@@ -188,22 +188,33 @@ real finding from an SVT-AV1 scan (paths shortened for display):
   "impact": "confirmed",
   "file": "Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c",
   "line": 617,
+  "scope": "function",
   "function": "dr_prediction_z1_hxw_internal_avx2",
+  "macro": null,
   "intrinsic": "_mm_shuffle_epi8",
   "rationale": "SIMDe 0.8.4 guards the tbl index on every call; mask resolved via even_odd_mask_x, all 8 row(s) have lanes in [0,15] or 0xFF (x86/ssse3.h:346)",
+  "simde_insns": 3,
+  "native_insns": 1,
+  "suggestion": "vqtbl1q_u8",
   "mask_source": {
     "symbol": "even_odd_mask_x",
     "defined_at": "Source/Lib/Codec/intra_prediction.c:108",
     "resolution": "all_rows"
-  },
-  "simde_insns": 3,
-  "native_insns": 1,
-  "suggestion": "vqtbl1q_u8"
+  }
 }
 ```
 
 `evidence` grade A never carries a `reason`, so it renders `null` here — see
 "Evidence grade and impact class" above for what `reason` holds on grade C.
+
+**`scope` says which kind of unit the call site sits in**, and `function` and
+`macro` are mutually exclusive. A call written in a function body reports
+`"scope": "function"` with the function's name in `function` and `macro`
+`null`, as above. A call written in a `#define` body reports
+`"scope": "macro"` with the macro's name in `macro` and `function` `null`.
+All three keys are always present. The text reporter renders the two cases as
+`_mm_shuffle_epi8 in dr_prediction_z1_hxw_internal_avx2` and
+`_mm_loadl_epi64 in LOAD4_NAT (macro)`.
 
 The `mask_source` field is present only for rule S findings graded through
 `SymbolIndex`; it is omitted entirely (not `null`) on every other finding.
@@ -221,9 +232,9 @@ reduced to one "primary" type.
 
 | Rule id | Type | What it matches | Evidence grades | Impact | What it does not cover |
 |---|---|---|---|---|---|
-| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`) | {A} always | diagnostic | Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
+| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {A} always | diagnostic | Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
 | `S.pshufb_guard` | S | `_mm_shuffle_epi8` and `_mm256_shuffle_epi8`, graded on whether the shuffle mask's lanes are known to be safe | {A, B, C} | confirmed | Transpose and blend sequences the paper also classes as Type S — an explicit v1 exclusion, not an oversight (VVenC's LoopFilter has zero `_mm_shuffle_epi8` sites and is exactly this case) |
-| `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one function | {A, B} | confirmed | Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
+| `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit | {A, B} | confirmed | Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
 | `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32` (128- and 256-bit) reaching an `add_epi32`/`add_epi64`, directly or through one widening conversion hop | {A, B} | confirmed | A multiply's product reaching two different adds (only the first is reported); widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
 | `M.scalar_insert_chain` | M | A same-target chain of `_mm_insert_epi16/epi32/epi64`/`_mm256_insert_epi16` at or above a configurable threshold (default 3) | {A, B} | diagnostic | The `_mm_cvtsi32_si128` + unpack variant of the same mechanism; stride-pointer loop forms |
 | `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (all-literal calls excluded as constant vectors, not scalar assembly) | {A, B} | diagnostic | The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
@@ -240,9 +251,35 @@ Cross-cutting limits that apply to every rule, not just one:
   several places produces several findings where hand-reviewed `-O3`
   assembly might show fewer, folded or unrolled instructions. Rules are
   never tuned toward the paper's totals.
-- **Def-use linking is confined to a single function.** No interprocedural
-  analysis — that would need a build system, which is the exact dependency
-  tree-sitter was chosen to avoid.
+- **Def-use linking is confined to a single unit** — one function body, or
+  one `#define` body. No interprocedural analysis, and no flow between a
+  macro and the functions that expand it — that would need a build system,
+  which is the exact dependency tree-sitter was chosen to avoid. Two units
+  never share symbol state: a `tmp` in a macro and a `tmp` in a function are
+  unrelated.
+- **Every rule runs over macro bodies as well as function bodies**, since
+  v1.2. A `#define` body is reparsed and analysed as its own unit, and a
+  finding in one reports the macro's name with `"scope": "macro"`. Four
+  limits come with it:
+  - **Expansion sites are not analysed.** One intrinsic call in a macro body
+    is one finding, however many times the macro is expanded — it is one
+    place a maintainer would edit. Counting expansions would mean modelling
+    the preprocessor.
+  - **A body that does not reparse is skipped**, not guessed at from its
+    text. Token pasting (`##`), stringification (`#`) and GNU statement
+    expressions are the usual causes.
+  - **Macro parameters are unresolved inputs.** A parameter reference has no
+    definition inside the body, so it resolves conservatively: the grade
+    drops and the instruction counts are withheld, exactly as for any other
+    value a rule cannot see.
+  - **A macro name defined more than once in a file yields one unit per
+    definition**, since all `#if` branches are read. This drops to zero
+    units for every one of that name's definitions when any one of them is a
+    forwarding alias: the alias skip is keyed on the macro's name, not on
+    the specific definition, so a same-named `#if` branch whose body is a
+    genuinely different, multi-call sequence is skipped too, and its calls
+    become invisible. Known limitation, not fixed in v1.2 (see the release
+    notes).
 - **The knowledge tables are small by design, not by accident.** Every entry
   in `knowledge/*.yaml` is read from the SIMDe source and cites the file and
   line it came from; nothing is guessed. Extending coverage means adding
@@ -275,6 +312,12 @@ table that doesn't yet carry an intrinsic, a mechanism the rule doesn't
 implement, or a call site the two methods classify differently. Absolute
 count agreement with the paper is explicitly not the bar — the exact
 `_mm_shuffle_epi8` count is.
+
+That document also records what v1.2's macro-body support changed, measured
+against the `v1.1.0` tag: the function-body findings are identical
+finding-for-finding on both reference codebases, and the 32 macro-body
+findings are reported as their own unit. They are call sites earlier versions
+could not see, not a revision of any figure the paper reports.
 
 ## Contributing
 

@@ -11,3 +11,5 @@ aliases:
   simde_mm_mulhi_epi16: _mm_mulhi_epi16
   simde_mm_madd_epi16: _mm_madd_epi16
   simde_mm256_madd_epi16: _mm256_madd_epi16
+  simde_mm_add_epi32: _mm_add_epi32
+  simde_mm_cvtepi32_epi64: _mm_cvtepi32_epi64

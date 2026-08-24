@@ -1,4 +1,5 @@
 from simde_lint.finding import Evidence, Impact
+from simde_lint.report.text import render_text
 from simde_lint.rules.redundant import RedundantRule
 
 
@@ -50,6 +51,21 @@ def test_grades_every_finding_a_and_marks_it_diagnostic(run_rule):
 
 def test_reports_nothing_for_a_plain_full_width_load(run_rule):
     assert run_rule(RedundantRule(), "redundant_negative.c") == []
+
+
+def test_a_call_inside_a_macro_body_is_attributed_to_the_macro_not_a_function(run_rule):
+    # I2: nothing else drives a MacroUnit through a rule end to end. Every
+    # other test in this file uses a fixture that is a plain function, so a
+    # rule that regressed to `function=unit.name,` (the pre-Task-5 shape,
+    # dropping `scope=`/`macro=`) would still pass every one of them — the
+    # macro-body call site is the only place the defect is observable.
+    findings = run_rule(RedundantRule(), "redundant_macro.c")
+    assert findings, "expected at least one finding from the macro body"
+    for finding in findings:
+        assert finding.scope == "macro"
+        assert finding.function is None
+        assert finding.macro == "LOAD_PAIR"
+    assert "(macro)" in render_text([findings[0]])
 
 
 def test_rationale_states_the_dead_lane_condition_the_rule_does_not_establish(run_rule):
