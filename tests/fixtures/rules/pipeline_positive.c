@@ -35,3 +35,33 @@ void dropped_parameter(__m128i x, __m128i y) {
     __m128i sel = DROP_FIRST(cmp, x);
     (void)sel;
 }
+
+// P1 round 3: the registration predicate itself is a text-appearance search,
+// not a value-flow analysis, and is known-unsound -- `a` (bound to `cmp`)
+// appears in this body's argument subtree even though its value never
+// reaches _mm_add_epi32: a comma expression's value is its last operand,
+// and (void) explicitly discards the first. DROP_VALUE is therefore still
+// CONFIRMED as an alias (is_forwarding_alias cannot see the difference), so
+// this must be caught by P declining to read a consumer call's args at all
+// once that call carries a raw_name, not by registration.
+#define DROP_VALUE(a, b) _mm_add_epi32(((void)(a), (b)), (b))
+
+void drop_value_consumer(__m128i x, __m128i y) {
+    __m128i cmp = _mm_cmpgt_epi64(x, y);
+    __m128i sel = DROP_VALUE(cmp, x);
+    (void)sel;
+}
+
+// P1 round 3: no syntactic rule distinguishes "combined with itself
+// losslessly" from "genuinely used" -- (a) ^ (a) still reads as using `a`,
+// so this is confirmed as an alias too, by design left uncaught at
+// registration (see macros.py's _identifiers docstring). P must still
+// abstain here for the same reason as DROP_VALUE: the consumer call
+// carries a raw_name.
+#define XOR_SELF(a, b) _mm_add_epi32((a) ^ (a), (b))
+
+void xor_self_consumer(__m128i x, __m128i y) {
+    __m128i cmp = _mm_cmpgt_epi64(x, y);
+    __m128i sel = XOR_SELF(cmp, x);
+    (void)sel;
+}

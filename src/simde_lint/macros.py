@@ -142,6 +142,19 @@ def _identifiers(node: Node, source: bytes) -> set[str]:
     `identifier` would read `BASE` as unused and reject a macro that
     forwards every parameter faithfully — a false rejection from a grammar
     ambiguity, not a genuine dropped parameter.
+
+    **This is a text-appearance search, not a value-flow analysis, and it is
+    known-unsound for that reason:** `#define DROP_VALUE(a, b)
+    _mm_add_epi32(((void)(a), (b)), (b))` has `a` appear right here, inside a
+    `(void)`-cast comma operand — a position whose value provably never
+    reaches the forwarded call, since a comma expression's value is its
+    *last* operand and `(void)` explicitly discards one. `is_forwarding_alias`
+    still confirms this as an alias on the strength of `a` merely appearing
+    in the subtree. `(a) ^ (a)` is accepted the same way, for the same
+    reason. Neither `F` nor `P` rely on this predicate for their own
+    soundness (see `is_forwarding_alias`'s docstring); it is used for
+    registration only, and a registered alias's `call.args` at its use sites
+    should be read with that in mind.
     """
     names = {node_text(child, source) for child in iter_nodes(node, "identifier")}
     names |= {node_text(child, source) for child in iter_nodes(node, "type_identifier")}
@@ -155,23 +168,27 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     tables and through other macros is `build_alias_map`'s job.
 
     A body that drops a parameter — writes it in the macro's own parameter
-    list but never uses it in the forwarded call — is rejected here, not
-    merely recorded as unfaithful. The call site's *own* argument list
-    (built from the macro's parameter positions, since nothing here maps a
-    body's argument expressions back to the file) is what extraction
-    attributes to the resolved call; a dropped parameter would then attach
-    an operand to that call that the real forwarded call never receives.
-    Reordering (`_mm256_set_m128i((hi), (lo))`), duplication
-    (`f((b), (b))`), and inserting non-parameter operands (an 8-argument
-    `_mm256_setr_epi32` fed by a 3-parameter macro) all leave every
-    parameter present at least once, so none of those are rejected here —
-    only a parameter that never appears at all is. See
-    `docs/verification.md`'s forwarding-alias section for the corpus
-    measurement backing this predicate and for why it is what keeps F and
-    P's membership judgment sound at an aliased call site: a rule that
-    decides by checking whether a producer's result is a member of a
-    *following* call's args would otherwise see a phantom operand the
-    forwarded intrinsic was never actually given.
+    list but never uses it in the forwarded call — is rejected here when the
+    parameter's name does not appear anywhere in the forwarded call's
+    argument list at all. Reordering (`_mm256_set_m128i((hi), (lo))`),
+    duplication (`f((b), (b))`), and inserting non-parameter operands (an
+    8-argument `_mm256_setr_epi32` fed by a 3-parameter macro) all leave
+    every parameter present at least once, so none of those are rejected
+    here.
+
+    **This check is a heuristic, not a soundness guarantee — see
+    `_identifiers`'s docstring for `DROP_VALUE`, a confirmed alias whose
+    body drops a parameter's value while the name still appears in the
+    subtree.** `PipelineRule`/`FusionRule` do not rely on this predicate to
+    keep their own membership judgment sound: they decline to read a
+    *consumer* call's args at all when that call carries a `raw_name` (was
+    itself resolved through a macro), regardless of what this function
+    decided about it — see `rules/pipeline.py`/`rules/fusion.py` and
+    `docs/verification.md`'s forwarding-alias section. This predicate still
+    matters for the general correctness of a confirmed alias's recorded
+    `call.args` beyond F and P, and for keeping this function's job honest:
+    a name that never appears at all is a stronger sign of a body that does
+    something other than forward than one that does.
     """
     if not macro.ok:
         return None

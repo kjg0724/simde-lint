@@ -22,7 +22,7 @@ from simde_lint.analyze import analyze, read_sources
 from simde_lint.finding import Evidence
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, reparse_macros
-from simde_lint.parser import iter_nodes, node_text, parse_source
+from simde_lint.parser import parse_source
 from simde_lint.rules import memory, suboptimal, widening
 
 # Reference checkout roots, read only from the environment (see
@@ -205,23 +205,27 @@ def test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensit
     its operands unfaithfully as the *producer* call (see
     docs/verification.md, "The forwarding-alias argument list", for two
     measured examples). `fusion._*` and `pipeline._COMPARES` (F and P) are
-    deliberately excluded here, but not because a reversed or dropped
-    operand can never mislead them at all -- only because their exposure is
-    different in kind, not merely "safe": both decide by operand
-    *membership* (`arg.text == result_var`), so what could mislead them is
-    not the *producer* alias's own operand position (which they never read)
-    but a *consuming* alias dropping the parameter that would have carried
-    the producer's result -- see
-    `test_every_confirmed_alias_over_both_checkouts_forwards_every_parameter`
-    below, which is what actually rules that out, by construction rather
-    than by absence. `_mm_cmpgt_epi64` -- the confirmed target of VVenC's
-    `_my_cmpgt_epi64`, which is why rule P's DepQuant count agrees with the
-    paper (docs/verification.md, "DepQuant P: 3 vs 3") -- sits outside this
-    anchor union because, as a producer, an operand reversal at that call
-    site cannot mislead P's membership check; adding `pipeline._COMPARES`
-    back into the union above makes this test fail, because
-    `_mm_cmpgt_epi64` is a confirmed alias target over VVenC and is a member
-    of that set.
+    deliberately excluded here for a narrower reason than "safe": both
+    decide by operand *membership* (`arg.text == result_var`), so a
+    *producer* alias's own operand position (which neither rule reads)
+    cannot mislead them, regardless of what this anchor union contains.
+    They are not excluded because a *consuming* alias is safe -- it is not,
+    in general (`is_forwarding_alias` cannot detect every way a body can
+    drop a parameter's value; see `docs/verification.md`'s forwarding-alias
+    section for `DROP_VALUE`). F and P's protection against that is not
+    this anchor union at all: `PipelineRule.match`/`FusionRule._path`
+    decline to read a consumer call's args whenever that call carries a
+    `raw_name`, unconditionally, regardless of which intrinsic it resolves
+    to or whether this union contains it. `_mm_cmpgt_epi64` -- the confirmed
+    target of VVenC's `_my_cmpgt_epi64`, which is why rule P's DepQuant
+    count agrees with the paper (docs/verification.md, "DepQuant P: 3 vs
+    3") -- sits outside this anchor union because, as a *producer*, an
+    operand reversal at that call site cannot mislead P's membership check;
+    adding `pipeline._COMPARES` back into the union above makes this test
+    fail, because `_mm_cmpgt_epi64` is a confirmed alias target over VVenC
+    and is a member of that set. That failure would say nothing about
+    whether P is sound at that call site -- it still would be, because
+    `_my_cmpgt_epi64` is the producer there, not the consumer.
     """
     knowledge = load_knowledge()
     operand_sensitive_anchors = (
@@ -246,112 +250,83 @@ def test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensit
     assert alias_targets.isdisjoint(operand_sensitive_anchors)
 
 
-def _call_argument_identifiers(macro):
-    """Every identifier used in a reparsed macro's single top-level call's args.
-
-    Deliberately independent of `macros.py`'s own `_identifiers`/
-    `is_forwarding_alias`: this reads the reparsed body's own AST through
-    `iter_nodes`/`node_text` rather than calling the code under test a
-    second time, so the corpus test below is a real check of the property,
-    not a tautological re-assertion of what `is_forwarding_alias` already
-    decided. Only meaningful for a macro `is_forwarding_alias` accepted --
-    such a body has exactly one `call_expression` in the whole tree, so the
-    first one `iter_nodes` yields is the only one.
-    """
-    for call in iter_nodes(macro.root, "call_expression"):
-        arguments = call.child_by_field_name("arguments")
-        if arguments is None:
-            return set()
-        used = {node_text(n, macro.source) for n in iter_nodes(arguments, "identifier")}
-        used |= {node_text(n, macro.source) for n in iter_nodes(arguments, "type_identifier")}
-        return used
-    return set()
-
-
 @requires_svt
 @requires_vvenc
-def test_every_confirmed_alias_over_both_checkouts_forwards_every_parameter():
-    """P1: the registration predicate that keeps F and P's membership judgment sound.
+def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consumer():
+    """P1 round 3: what is actually enforced, stated at the narrowest scope that is true.
 
-    C1's narrowing established that F and P are unaffected by an unfaithful
-    *producer*-side forward, because both decide by operand membership, not
-    position or arity. That reasoning missed the *consumer* side: F and P
-    both decide by checking whether a producer's result is a member of a
-    *following* call's args, and when that following call is itself a
-    forwarding alias, extraction has nothing but the call site's own
-    argument list (built from the macro's parameter positions) to attribute
-    to the resolved call -- there is no mapping back to which of the body's
-    operands each parameter actually reached. A macro that drops a parameter
-    (writes it in its own parameter list but never passes it to the
-    forwarded call) therefore made a phantom operand look consumed:
-    `#define DROP_FIRST(a, b) _mm_add_epi32((b), (b))` called as
-    `DROP_FIRST(cmp, x)` used to resolve to `_mm_add_epi32` with args
-    `(cmp, x)`, misleading P into reporting `cmp` consumed when the real
-    `_mm_add_epi32(x, x)` never receives it (reproduced in
-    `tests/test_rule_pipeline.py`/`test_rule_fusion.py`).
+    An earlier round of this predicate tried to make registration itself
+    reject any alias that drops a parameter -- `is_forwarding_alias`
+    refusing to register a body that never mentions one of its parameters.
+    That is unsound: `#define DROP_VALUE(a, b) _mm_add_epi32(((void)(a),
+    (b)), (b))` still mentions `a`, inside a `(void)`-cast comma operand
+    whose value never reaches the forwarded call, so a text-appearance
+    check confirms it as an alias anyway. `(a) ^ (a)` is accepted the same
+    way. Both are live false positives at rule level before this round's
+    fix, reproduced in `tests/test_rule_pipeline.py`/
+    `tests/test_rule_fusion.py`.
 
-    `is_forwarding_alias` (`macros.py`) now refuses to register any alias
-    whose body does not use every one of its parameters at least once --
-    reordering, duplication, and inserting non-parameter operands all leave
-    every parameter present, so none of those are rejected, only a genuinely
-    dropped one is. This test checks that predicate against both real
-    checkouts directly, independently of `is_forwarding_alias`'s own
-    internals (see `_call_argument_identifiers` above), restricted to the
-    macros that matter for rule soundness: those `build_alias_map` confirms
-    resolve to a recognized intrinsic (`is_forwarding_alias` alone accepts
-    over a hundred single-call macros across both checkouts that have
-    nothing to do with an intrinsic -- `FOPEN`, `LIKELY`, and the like --
-    and checking those would tell this test nothing).
+    **What is actually enforced, not approximated:** `PipelineRule.match`
+    and `FusionRule._path` decline to read a *consumer* call's args at all
+    once that call carries a `raw_name` (was itself resolved through any
+    macro, faithful or not) -- see `rules/pipeline.py`/`rules/fusion.py`.
+    This is unconditional and does not depend on what `is_forwarding_alias`
+    decided about the alias; it is sound for any corpus, not only these
+    two, because it is enforced in the rule's own control flow rather than
+    approximated from the alias's syntax. The registration predicate
+    (`macros.py`) is unchanged from before this round and makes no claim
+    about parameter usage that this test or any other relies on.
 
-    Measured: 16 confirmed forwarding-alias entries across both checkouts,
-    identical in count and target to what an unconstrained predicate found
-    (see docs/verification.md) -- no real alias in either corpus drops a
-    parameter. Two macros, SVT-AV1's `LOAD8_S` and `LOAD4W_S`, came close: a
-    `(BASE) + (0 * (S))`-shaped expression is parsed by tree-sitter's C
-    grammar as a cast (`BASE` as a `type_identifier`, not a parenthesized
-    variable reference) whenever a parenthesized name is immediately
-    followed by something that could be a unary operand, which would have
-    read `BASE` as unused and rejected both as false positives. `_identifiers`
-    in `macros.py` counts `type_identifier` as well as `identifier` for
-    exactly this reason; `checked` below independently confirms both still
-    resolve.
-
-    What this test does NOT do, stated plainly so it does not repeat C1's
-    original mistake: because no real alias in either corpus currently drops
-    a parameter, this test passes identically whether or not the
-    param-dropping predicate exists in `is_forwarding_alias` at all --
-    verified directly (temporarily reverting the predicate leaves this test
-    green). It is a positive assertion about the corpus's current state and
-    a tripwire against the *count* or *targets* drifting, not a corpus-level
-    regression test for the predicate's own correctness. That correctness is
-    what the fixture-based tests actually check with a case the real corpora
-    do not contain:
-    `tests/test_extract.py::test_a_body_that_drops_a_macro_parameter_is_never_registered_as_an_alias`
-    and the `dropped_parameter` end-to-end reproductions in
-    `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py`, all three of
-    which fail without the predicate (verified the same way).
+    **What this test measures, and what it does not:** it is a fact about
+    these two corpora, not a proof of anything general. Over every P
+    "compare consumed" candidate and F "multiply reaches an add" candidate
+    actually realized in SVT-AV1 `Source` and VVenC `CommonLib/x86`, zero
+    have a consumer call that is itself resolved through a macro -- the
+    shape the abstention exists for does not occur at the consumer position
+    in either reference codebase. A codebase that does have this shape will
+    produce fewer F/P findings under this tool than a version without the
+    abstention would have (see the release notes' known limitations) --
+    that loss is not visible here because neither reference corpus pays it.
     """
-    knowledge = load_knowledge()
-    checked: set[tuple[str, str]] = set()
-    for path, source in read_sources([SVT_AV1, VVENC_X86]):
-        root = parse_source(source).root_node
-        macros = reparse_macros(root, source)
-        by_name = {macro.name: macro for macro in macros if macro.ok}
-        for name in build_alias_map(macros, knowledge):
-            macro = by_name.get(name)
-            if macro is None:
-                continue
-            checked.add((path, name))
-            used = _call_argument_identifiers(macro)
-            missing = set(macro.params) - used
-            assert not missing, (
-                f"{path}: {macro.name} is a confirmed forwarding alias but drops "
-                f"parameter(s) {sorted(missing)} -- F/P's membership judgment "
-                "at a call site consuming its result would see a phantom operand"
-            )
+    from simde_lint.extract import extract_units
+    from simde_lint.ir import ValueKind
+    from simde_lint.rules.fusion import _ADDS
+    from simde_lint.rules.pipeline import _COMPARES
 
-    assert len(checked) == 16, (
-        f"expected 16 confirmed forwarding-alias entries across both checkouts "
-        f"(docs/verification.md's measured count), got {len(checked)} -- "
-        "this test is no longer checking the corpus it claims to"
+    knowledge = load_knowledge()
+    p_aliased_consumers = 0
+    p_total_consumers = 0
+    f_aliased_adds = 0
+    f_total_adds = 0
+    for path, source in read_sources([SVT_AV1, VVENC_X86]):
+        for unit in extract_units(path, source, knowledge):
+            ordered = sorted(unit.calls, key=lambda c: c.start_byte)
+            for current, following in zip(ordered, ordered[1:]):
+                if current.name not in _COMPARES or not current.result_var:
+                    continue
+                consumed = any(
+                    arg.kind is ValueKind.VARIABLE and arg.text == current.result_var
+                    for arg in following.args
+                )
+                if consumed:
+                    p_total_consumers += 1
+                    if following.raw_name != following.name:
+                        p_aliased_consumers += 1
+            for add in unit.calls:
+                if add.name in _ADDS:
+                    f_total_adds += 1
+                    if add.raw_name != add.name:
+                        f_aliased_adds += 1
+
+    assert p_total_consumers > 0 and f_total_adds > 0, (
+        "expected at least one P consumer candidate and one F add call across "
+        "both checkouts -- an empty corpus would make the zero below meaningless"
+    )
+    assert p_aliased_consumers == 0, (
+        f"{p_aliased_consumers} of {p_total_consumers} P consumer candidates are "
+        "aliased -- the abstention now has something real to discard in this corpus"
+    )
+    assert f_aliased_adds == 0, (
+        f"{f_aliased_adds} of {f_total_adds} F add calls are aliased -- the "
+        "abstention now has something real to discard in this corpus"
     )

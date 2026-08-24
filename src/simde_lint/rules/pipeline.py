@@ -36,6 +36,18 @@ class PipelineRule:
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:
                 continue
+            if following.raw_name != following.name:
+                # P1: `following` was resolved through a macro. Its recorded
+                # args are the call site's own -- built from the macro's
+                # parameter positions, with no mapping back to which of the
+                # body's operands each parameter actually reached (a body
+                # can drop, duplicate, or discard a parameter's value in a
+                # comma expression, a (void) cast, either branch of a
+                # ternary, and more that no syntactic check can enumerate).
+                # Membership here would be a claim about the *forwarded*
+                # call's operands that extraction cannot support, so P makes
+                # no claim at all rather than approximate one.
+                continue
             cost = ctx.knowledge.cost(self.rule_id, current.name)
             consumed = any(
                 arg.kind is ValueKind.VARIABLE and arg.text == current.result_var

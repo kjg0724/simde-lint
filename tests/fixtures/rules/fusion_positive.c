@@ -54,6 +54,39 @@ void dropped_parameter(const int *a, const int *b, __m128i acc) {
     (void)sum;
 }
 
+// P1 round 3: the registration predicate is a text-appearance search, not a
+// value-flow analysis, and is known-unsound -- `a` (bound to `prod`)
+// appears in this body's argument subtree even though its value never
+// reaches _mm_add_epi32: a comma expression's value is its last operand,
+// and (void) explicitly discards the first. DROP_VALUE_MUL is therefore
+// still CONFIRMED as an alias, so this must be caught by F declining to
+// read a consumer call's args at all once that call carries a raw_name,
+// not by registration.
+#define DROP_VALUE_MUL(a, b) _mm_add_epi32(((void)(a), (b)), (b))
+
+void drop_value_consumer(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_mullo_epi32(va, vb);
+    __m128i sum = DROP_VALUE_MUL(prod, acc);
+    (void)sum;
+}
+
+// P1 round 3: no syntactic rule distinguishes "combined with itself
+// losslessly" from "genuinely used" -- (a) ^ (a) still reads as using `a`,
+// so this is confirmed as an alias too, by design left uncaught at
+// registration. F must still abstain here for the same reason as
+// DROP_VALUE_MUL: the consumer call carries a raw_name.
+#define XOR_SELF_MUL(a, b) _mm_add_epi32((a) ^ (a), (b))
+
+void xor_self_consumer(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_mullo_epi32(va, vb);
+    __m128i sum = XOR_SELF_MUL(prod, acc);
+    (void)sum;
+}
+
 void reused_name(const int *a, const int *b, __m128i acc) {
     __m128i va = _mm_loadu_si128((const __m128i *)a);
     __m128i vb = _mm_loadu_si128((const __m128i *)b);

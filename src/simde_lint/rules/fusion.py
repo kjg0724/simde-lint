@@ -100,6 +100,14 @@ class FusionRule:
         self, unit: AnalysisUnit, mul: IntrinsicCall, add: IntrinsicCall
     ) -> tuple[Evidence, str] | None:
         """Direct identity grades A; one widening hop grades B."""
+        if add.raw_name != add.name:
+            # P1: `add` was resolved through a macro. Its recorded args are
+            # the call site's own -- built from the macro's parameter
+            # positions, with no mapping back to which of the body's
+            # operands each parameter actually reached. Membership here
+            # would be a claim about the *forwarded* call's operands that
+            # extraction cannot support, so F makes no claim at all.
+            return None
         operands = {arg.text for arg in add.args if arg.kind is ValueKind.VARIABLE}
 
         if mul.result_var in operands:
@@ -113,6 +121,10 @@ class FusionRule:
                 continue
             intermediate = unit.call_by_id(definition.value.call_id)
             if intermediate is None or intermediate.name not in _WIDENING:
+                continue
+            if intermediate.raw_name != intermediate.name:
+                # Same reasoning as `add` above: the widening hop is also a
+                # consumer whose args this rule checks membership against.
                 continue
             if intermediate.start_byte <= mul.start_byte:
                 # The intermediate ran before this multiply, so it cannot be

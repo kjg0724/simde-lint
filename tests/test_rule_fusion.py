@@ -113,6 +113,34 @@ def test_reports_nothing_when_the_consuming_alias_dropped_the_producers_result(r
     assert findings == []
 
 
+def test_abstains_when_the_consumer_call_drops_a_parameters_value(run_rule):
+    """P1 round 3: the registration predicate alone is not sound.
+
+    `DROP_VALUE_MUL(a, b)`'s body is `_mm_add_epi32(((void)(a), (b)), (b))`
+    -- `a` (bound to `prod`) appears in the argument subtree, inside a
+    `(void)`-cast comma operand, so a text-appearance registration check
+    still confirms this as an alias. The real fix is that F declines to
+    read `sum`'s args at all once `sum`'s call carries a `raw_name`
+    (`FusionRule._path`'s `add.raw_name != add.name` check) -- it does not
+    matter whether registration would have accepted or rejected this shape.
+    """
+    findings = [f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "drop_value_consumer"]
+    assert findings == []
+
+
+def test_abstains_when_the_consumer_call_combines_a_parameter_with_itself(run_rule):
+    """P1 round 3: the `(a) ^ (a)` residual the registration predicate cannot close.
+
+    No syntactic rule distinguishes "combined with itself losslessly" from
+    "genuinely used" -- `XOR_SELF_MUL`'s `a` is confirmed as used by every
+    identifier-appearance check. F's abstention on an aliased consumer call
+    does not depend on that distinction, which is why it catches this case
+    too.
+    """
+    findings = [f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "xor_self_consumer"]
+    assert findings == []
+
+
 def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     # The widening conversion runs before the second multiply, so only the
     # first can own it. Attributing it to the second would invert the interval

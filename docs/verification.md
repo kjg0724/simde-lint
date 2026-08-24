@@ -289,16 +289,15 @@ unregistered call name and report 0.
 This reaches P through a confirmed forwarding alias whose target,
 `_mm_cmpgt_epi64`, sits inside `pipeline._COMPARES` — §5's "The
 forwarding-alias argument list" explains why that is sound rather than a gap
-in the safety argument there. Two things make it sound, not one: `_my_cmpgt_epi64`
-is the *producer* here, and P decides by operand membership, not position or
-arity, so it cannot be misled by however that particular alias forwards its
-own operands — but that alone was an incomplete argument (P1: it says
-nothing about a *consuming* alias immediately following the compare, which
-would present its own call site's argument list rather than the forwarded
-call's real one). What actually closes the gap is `is_forwarding_alias`
-refusing to register any alias whose body drops one of its parameters, which
-holds regardless of whether the alias is acting as producer or consumer at a
-given call site — see §5 for the corpus measurement.
+in the safety argument there. `_my_cmpgt_epi64` is the *producer* here, and P
+decides by operand membership, not position or arity, so it cannot be misled
+by however that particular alias forwards its own operands. That is the
+whole of why this specific finding is sound — it says nothing about a
+*consuming* alias immediately following a compare, which is a separate case
+P protects against a different way: `PipelineRule.match` declines to read a
+consumer call's args at all once that call carries a `raw_name`, regardless
+of what the registration predicate decided about it. See §5 for what that
+predicate does and does not guarantee.
 
 ### Zeros where the paper reports instances
 
@@ -596,31 +595,72 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   forwarding alias, its args are the call site's own — built from the
   macro's parameter positions, with no mapping back to which of the body's
   operands each parameter actually reached. A macro that *drops* a
-  parameter (writes it in its own parameter list but never passes it to the
-  forwarded call) therefore made a phantom operand look consumed:
-  `#define DROP_FIRST(a, b) _mm_add_epi32((b), (b))` called as
-  `DROP_FIRST(cmp, x)` used to resolve to `_mm_add_epi32` with args
-  `(cmp, x)`, and P reported `cmp` consumed even though the real
-  `_mm_add_epi32(x, x)` never receives it — a live false positive, not a
-  latent risk, reproduced in `tests/test_rule_pipeline.py`/
-  `tests/test_rule_fusion.py`'s `dropped_parameter` fixtures.
+  parameter's value (writes it in its own parameter list but never lets its
+  value reach the forwarded call) therefore made a phantom operand look
+  consumed. Two live false positives, not a latent risk, reproduced in
+  `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py`:
 
-  `is_forwarding_alias` (`macros.py`) now refuses to register any alias
-  whose body does not use every one of its parameters at least once, which
-  closes this regardless of whether the alias sits at the producer or the
-  consumer call site. Reordering, duplication, and inserting non-parameter
-  operands all leave every parameter present, so none of those are
-  rejected — measured over both checkouts, this predicate changes nothing:
-  the same 16 confirmed alias entries, the same targets, as an
-  unconstrained predicate found. No real alias in either corpus drops a
-  parameter.
-  `tests/test_verification.py::test_every_confirmed_alias_over_both_checkouts_forwards_every_parameter`
-  checks the predicate holds against both checkouts directly, and
-  `tests/test_extract.py::test_a_body_that_drops_a_macro_parameter_is_never_registered_as_an_alias`
-  is the fixture-level regression test for the predicate's own correctness
-  — the corpus test alone would not catch a regression here, since no real
-  alias in either corpus currently exercises it (see that test's own
-  docstring).
+  - `#define DROP_FIRST(a, b) _mm_add_epi32((b), (b))` called as
+    `DROP_FIRST(cmp, x)` resolved to `_mm_add_epi32` with args `(cmp, x)`,
+    and P reported `cmp` consumed even though the real `_mm_add_epi32(x,
+    x)` never receives it.
+  - `#define DROP_VALUE(a, b) _mm_add_epi32(((void)(a), (b)), (b))` called
+    the same way produces the identical false positive by a subtler route:
+    `a` (bound to `cmp`) *appears* in the argument subtree — inside a
+    `(void)`-cast comma operand — so a text-appearance registration check
+    still confirms the alias, even though a comma expression's value is its
+    *last* operand and `(void)` explicitly discards the other. `(a) ^ (a)`
+    is accepted by the same kind of check for the same reason: no syntactic
+    rule distinguishes "combined with itself losslessly" from "genuinely
+    used."
+
+  An attempt to close this by tightening the registration predicate itself
+  — rejecting an alias whose body never uses one of its parameters,
+  measured against both checkouts — caught `DROP_FIRST` but not
+  `DROP_VALUE`, because "appears in the subtree" is a text search, not a
+  value-flow analysis. A value-flow-aware version of that predicate (skip a
+  comma expression's non-final operand, a `(void)`-cast's operand, and
+  either branch of a `conditional_expression`) closed `DROP_VALUE` but not
+  `(a) ^ (a)`, which has no syntactic marker at all distinguishing it from
+  a genuine use. Both attempts were approximations with a residual gap by
+  construction, not a decreasing one — so the fix that shipped is not a
+  registration change at all:
+
+  **`PipelineRule.match` and `FusionRule._path` decline to read a consumer
+  call's args at all once that call carries a `raw_name`** (was resolved
+  through any macro, faithful or not), unconditionally and regardless of
+  what the registration predicate decided about that macro. This is sound
+  for any corpus, not only these two, because it is enforced in the rule's
+  own control flow rather than approximated from the alias's syntax — F and
+  P make no operand claim about such a call rather than approximate one.
+  `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py` reproduce both
+  `DROP_VALUE` and `(a) ^ (a)` in both F and P shapes and confirm zero
+  findings; each fails without the abstention.
+
+  **This is a user-visible behaviour change, not a free fix.** A codebase
+  whose F/P consumer call *is* itself a macro alias will get fewer F/P
+  findings under this tool than a version without the abstention would have
+  produced — the tool declines the claim rather than approximating it. Over
+  both reference checkouts, this costs nothing measurable: every P "compare
+  consumed" candidate and F "multiply reaches an add" candidate actually
+  realized in SVT-AV1 `Source` and VVenC `CommonLib/x86` has a consumer
+  call that is *not* itself an alias, so the abstention never actually
+  discards anything in either corpus today
+  (`tests/test_verification.py::test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consumer`).
+  **That is a fact about these two corpora, not a bound on the general
+  case** — a codebase where a compare or a multiply's result flows through
+  a wrapper macro before reaching its add/consumer would lose real findings
+  here, and this tool has no way to recover them without reading through
+  the wrapper, which is exactly the re-projection deferred below.
+
+  The registration predicate (`macros.py`'s `is_forwarding_alias`) is
+  unchanged from the naive "parameter name appears anywhere in the
+  argument subtree" check: it is known-unsound (see `DROP_VALUE` above) and
+  makes no claim this document or the test suite relies on for F/P. It
+  still governs whether a macro is registered as an alias at all, which
+  matters for the S/M/W anchor-disjointness property above and for the
+  general correctness of a confirmed alias's recorded `call.args` beyond F
+  and P.
 
 See the release notes for why the underlying re-projection (making a forward
 faithful, or reading through it) is deferred rather than fixed.

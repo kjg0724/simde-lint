@@ -57,6 +57,39 @@ def test_reports_nothing_when_the_consuming_alias_dropped_the_producers_result(r
     assert findings == []
 
 
+def test_abstains_when_the_consumer_call_drops_a_parameters_value(run_rule):
+    """P1 round 3: the registration predicate alone is not sound.
+
+    `DROP_VALUE(a, b)`'s body is `_mm_add_epi32(((void)(a), (b)), (b))` --
+    `a` (bound to `cmp`) appears in the argument subtree, inside a
+    `(void)`-cast comma operand, so a text-appearance registration check
+    (what `is_forwarding_alias` uses) still confirms this as an alias: a
+    comma expression's value is its *last* operand and `(void)` explicitly
+    discards the other, but neither position is pruned by scanning for
+    identifiers. The real fix is that P declines to read `sel`'s args at
+    all once `sel`'s call carries a `raw_name` (`PipelineRule.match`'s
+    `following.raw_name != following.name` check) -- it does not matter
+    whether registration would have accepted or rejected this shape.
+    """
+    findings = [f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "drop_value_consumer"]
+    assert findings == []
+
+
+def test_abstains_when_the_consumer_call_combines_a_parameter_with_itself(run_rule):
+    """P1 round 3: the `(a) ^ (a)` residual the registration predicate cannot close.
+
+    No syntactic rule distinguishes "combined with itself losslessly" from
+    "genuinely used" -- `XOR_SELF`'s `a` is confirmed as used by every
+    identifier-appearance check, precisely because it does appear, just in
+    a position whose combined value happens to always come out the same
+    regardless of `a`. P's abstention on an aliased consumer call
+    (`following.raw_name != following.name`) does not depend on this
+    distinction at all, which is why it catches this case too.
+    """
+    findings = [f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "xor_self_consumer"]
+    assert findings == []
+
+
 def test_reports_nothing_when_an_independent_call_separates_them(run_rule):
     findings = [f for f in run_rule(PipelineRule(), "pipeline_negative.c") if f.function == "kernel"]
     assert findings == []
