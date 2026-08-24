@@ -48,19 +48,38 @@ def line_column(source: bytes, byte: int) -> tuple[int, int]:
 
 
 def _body_range(source: bytes, value: Node) -> tuple[int, int]:
-    """Source range of a macro body, following backslash continuations.
+    r"""Source range of a macro body, following backslash continuations.
 
     tree-sitter's `preproc_arg` sometimes stops at the first physical line of
-    a continued macro, which would hand the parser a fragment — `do {` with no
-    closing brace — and fail on input that is merely truncated.
+    a continued macro — or even mid-line, inside a `do { ... } while` body's
+    scanner heuristics, a few characters into the *next* physical line — which
+    would hand the parser a fragment (`do {` with no closing brace) and fail
+    on input that is merely truncated, unless the fragment is grown to cover
+    the whole continuation.
+
+    A continuation is followed only when the line actually pending — the one
+    starting wherever `end` currently sits, out to its own newline — ends in
+    `\\` once trailing spaces/tabs/`\r` are stripped. This deliberately does
+    not look at anything before `end` on that line, so it is unaffected by
+    `end` landing mid-line rather than at a line boundary; it also does not
+    look past that line's own newline, which is what the previous
+    `rstrip().endswith(b"\\")` over the whole accumulated range got wrong — a
+    blank or whitespace-only continuation target does not itself end in `\`,
+    so it correctly stops the body right there instead of reading through it
+    into whatever source happens to follow (a stray trailing backslash on an
+    otherwise-finished `#define` must not pull in the next declaration).
     """
     end = value.end_byte
-    while source[value.start_byte:end].rstrip().endswith(b"\\"):
+    while True:
         newline = source.find(b"\n", end)
         if newline < 0:
+            # No further newline at all: the rest of the file is one final,
+            # unterminated line and there is nothing more to pull in either
+            # way.
             return value.start_byte, len(source)
+        if not source[end:newline].rstrip(b" \t\r").endswith(b"\\"):
+            return value.start_byte, newline + 1
         end = newline + 1
-    return value.start_byte, end
 
 
 def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:

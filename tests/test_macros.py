@@ -1,3 +1,4 @@
+from simde_lint.extract import extract_units
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import (
     build_alias_map,
@@ -170,3 +171,116 @@ def test_a_genuinely_two_statement_body_is_still_rejected():
     # rejected even after empty artifact statements are dropped.
     source = b"#define M(a) f(a); g(a);\n"
     assert is_forwarding_alias(_macros(source)[0]) is None
+
+
+# C2: a stray trailing backslash whose continuation target is blank (or
+# whitespace-only) must not pull the following source into the macro body.
+# `rstrip()` over the whole accumulated range strips whitespace *across*
+# newlines, so it cannot tell "the line right after the backslash has no
+# content" from "there is more real continuation ahead" -- both fixtures
+# below are structural reproductions of the review's repro (a `TRAILING`
+# macro whose last content line ends in `\`, followed by a blank line and a
+# function containing `_mm_shuffle_epi8`/`_mm_loadl_epi64`).
+_TRAILING_BODY = b"#define TRAILING(a) x = _mm_loadl_epi64(a); \\\n"
+# Single physical line, matching the review's exact reproduction: the old
+# `rstrip()`-over-the-whole-range bug greedily absorbs whatever follows the
+# blank continuation target one line at a time, and a one-line function here
+# is exactly what turns that into a *duplicate finding* (both units parse
+# ok) rather than a body that merely fails to reparse.
+_AFTER_TRAILING = (
+    b"__m128i after_trailing(const __m128i *p) { "
+    b"return _mm_shuffle_epi8(_mm_loadl_epi64(p), "
+    b"_mm_setr_epi8(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)); }\n"
+)
+
+TRAILING_BLANK_LINE = _TRAILING_BODY + b"\n" + _AFTER_TRAILING
+TRAILING_WHITESPACE_LINE = _TRAILING_BODY + b"   \t  \n" + _AFTER_TRAILING
+NO_CONTINUATION = (
+    b"#define PLAIN(a) _mm_loadl_epi64(a)\n"
+    b"__m128i after_plain(const __m128i *p) { return _mm_loadl_epi64(p); }\n"
+)
+CONTINUATION_TO_EOF = b"#define TRAILING_EOF(a) x = _mm_loadl_epi64(a); \\"
+
+
+def test_a_blank_continuation_target_does_not_pull_in_the_next_line():
+    macro = _macros(TRAILING_BLANK_LINE)[0]
+    assert macro.ok
+    assert macro.name == "TRAILING"
+    calls = [
+        macro.source[c.child_by_field_name("function").start_byte : c.child_by_field_name("function").end_byte]
+        for c in iter_nodes(macro.root, "call_expression")
+    ]
+    # Only the one call the macro body itself writes -- nothing from the
+    # blank line, and nothing from the function that follows it.
+    assert calls == [b"_mm_loadl_epi64"]
+
+
+def test_a_whitespace_only_continuation_target_does_not_pull_in_the_next_line():
+    macro = _macros(TRAILING_WHITESPACE_LINE)[0]
+    assert macro.ok
+    assert macro.name == "TRAILING"
+    calls = [
+        macro.source[c.child_by_field_name("function").start_byte : c.child_by_field_name("function").end_byte]
+        for c in iter_nodes(macro.root, "call_expression")
+    ]
+    assert calls == [b"_mm_loadl_epi64"]
+
+
+def test_a_genuine_multi_line_continuation_still_reparses_in_full():
+    # Regression guard for the fix's own risk: tightening the continuation
+    # check to "only the last physical line" must not stop following a real
+    # continuation across several lines. `MACRO` is exactly that shape --
+    # every physical line but the last ends in `\`, none of them blank.
+    macro = reparse_macros(parse_source(MACRO).root_node, MACRO)[0]
+    assert macro.ok
+    assert len(list(iter_nodes(macro.root, "call_expression"))) == 3
+
+
+def test_no_continuation_leaves_the_body_at_a_single_line():
+    macro = _macros(NO_CONTINUATION)[0]
+    assert macro.ok
+    assert macro.name == "PLAIN"
+    calls = [
+        macro.source[c.child_by_field_name("function").start_byte : c.child_by_field_name("function").end_byte]
+        for c in iter_nodes(macro.root, "call_expression")
+    ]
+    assert calls == [b"_mm_loadl_epi64"]
+
+
+def test_a_continuation_that_runs_to_end_of_file_does_not_crash():
+    # Closes the deferred `newline < 0` branch in `_body_range`: the last
+    # line ends in `\` and the file simply ends there, with no newline at
+    # all after it -- `source.find(b"\n", end)` returns -1.
+    macro = _macros(CONTINUATION_TO_EOF)[0]
+    assert macro.ok
+    assert macro.name == "TRAILING_EOF"
+    calls = [
+        macro.source[c.child_by_field_name("function").start_byte : c.child_by_field_name("function").end_byte]
+        for c in iter_nodes(macro.root, "call_expression")
+    ]
+    assert calls == [b"_mm_loadl_epi64"]
+
+
+def test_the_same_call_is_never_attributed_to_both_a_macro_and_a_function():
+    # End-to-end reproduction of the review's exact defect report: before the
+    # fix, `_mm_shuffle_epi8`/`_mm_loadl_epi64` in `after_trailing` were
+    # counted once under the function and a second time under `TRAILING`, a
+    # macro whose own body never contains either call.
+    knowledge = load_knowledge()
+    units = extract_units("probe.c", TRAILING_BLANK_LINE, knowledge)
+
+    macro_unit = next(u for u in units if u.scope == "macro" and u.name == "TRAILING")
+    function_unit = next(u for u in units if u.scope == "function" and u.name == "after_trailing")
+
+    assert [c.name for c in macro_unit.calls] == ["_mm_loadl_epi64"]
+    assert {c.name for c in function_unit.calls} == {"_mm_shuffle_epi8", "_mm_loadl_epi64", "_mm_setr_epi8"}
+
+    # No call site (identified by its own start_byte, the position tests
+    # elsewhere in this file already trust) is shared between the two units.
+    macro_bytes = {c.start_byte for c in macro_unit.calls}
+    function_bytes = {c.start_byte for c in function_unit.calls}
+    assert macro_bytes.isdisjoint(function_bytes)
+
+    # And the macro unit's one call is the `a` argument inside the #define,
+    # strictly before the function even starts in the source.
+    assert max(macro_bytes) < min(function_bytes)
