@@ -6,7 +6,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import AnalysisUnit
-from .base import Context, raw_name_if_aliased
+from .base import Context, location_fields, raw_name_if_aliased
 
 
 class RedundantRule:
@@ -27,9 +27,7 @@ class RedundantRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
-                function=unit.function_name,
-                scope=unit.scope,
-                macro=unit.macro_name,
+                **location_fields(unit),
                 intrinsic=call.name,
                 rationale=(
                     f"SIMDe {ctx.knowledge.simde_version} expands {call.name} to "

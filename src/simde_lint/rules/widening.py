@@ -11,7 +11,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
-from .base import Context, own_availability, raw_name_if_aliased
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
 
@@ -76,9 +76,7 @@ class WideningRule:
                 impact=Impact.CONFIRMED,
                 file=unit.file,
                 line=lo.line,
-                function=unit.function_name,
-                scope=unit.scope,
-                macro=unit.macro_name,
+                **location_fields(unit),
                 intrinsic="_mm_mullo_epi16",
                 rationale=(
                     f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at line "

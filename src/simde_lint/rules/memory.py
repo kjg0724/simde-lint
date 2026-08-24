@@ -21,7 +21,7 @@ from typing import Iterator
 from ..finding import Evidence, Finding, Impact
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
-from .base import Context, own_availability, raw_name_if_aliased
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
 _DEFAULT_THRESHOLD = 3
@@ -96,9 +96,7 @@ class MemoryRule:
             impact=Impact.DIAGNOSTIC,
             file=unit.file,
             line=first.line,
-            function=unit.function_name,
-            scope=unit.scope,
-            macro=unit.macro_name,
+            **location_fields(unit),
             intrinsic=first.name,
             rationale=(
                 f"{len(calls)} scalar inserts assemble {target} between lines "
@@ -166,9 +164,7 @@ class ScalarSetBuildRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
-                function=unit.function_name,
-                scope=unit.scope,
-                macro=unit.macro_name,
+                **location_fields(unit),
                 intrinsic=call.name,
                 rationale=(
                     f"{call.name} assembles {len(call.args)} runtime scalars into a "

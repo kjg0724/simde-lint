@@ -16,6 +16,32 @@ from ..knowledge import Knowledge
 from ..symbols import SymbolIndex
 
 
+def location_fields(unit: AnalysisUnit) -> dict[str, str | None]:
+    """The three `Finding` fields every rule must copy from its unit, together.
+
+    `CONTRIBUTING.md`'s enumeration of what a rule reads from `AnalysisUnit`
+    once omitted `function_name`/`macro_name` — the two members every rule
+    actually needs, because every `Finding` construction site hand-writes
+    `function=unit.function_name, scope=unit.scope, macro=unit.macro_name`.
+    A rule that instead reached for `unit.name` (following the shorter list
+    literally) silently produced `scope='function', function=<macro name>,
+    macro=None` on a macro unit — indistinguishable from a real function
+    finding in the text report, and `Finding.__post_init__` does not catch
+    it (it enforces internal consistency between `scope`/`function`/`macro`,
+    not correspondence with the unit that produced them).
+
+    Splatting this into every `Finding(...)` call makes the omission
+    structurally impossible instead of merely undocumented: there is no
+    "unit.name" to reach for by mistake once these three always travel
+    together.
+    """
+    return {
+        "function": unit.function_name,
+        "scope": unit.scope,
+        "macro": unit.macro_name,
+    }
+
+
 @dataclass
 class Context:
     symbols: SymbolIndex

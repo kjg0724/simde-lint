@@ -180,11 +180,37 @@ Type S, for example).
 
    **A unit is a function body or a `#define` body**, and a rule cannot tell
    them apart unless it asks. `AnalysisUnit` (`ir.py`) is the protocol every
-   rule reads: `name`, `file`, `scope`, `calls`, `definitions`,
-   `definition_before`, `redefined_between`, `call_by_id`. `FunctionUnit` and
-   `MacroUnit` both satisfy it and share one def-use implementation, so a new
-   rule needs no macro special-case — take `AnalysisUnit` in `match()`, and
-   macro bodies come for free.
+   rule reads: `name`, `file`, `scope`, `function_name`, `macro_name`,
+   `calls`, `definitions`, `definition_before`, `redefined_between`,
+   `call_by_id`. `FunctionUnit` and `MacroUnit` both satisfy it and share one
+   def-use implementation, so a new rule needs no macro special-case — take
+   `AnalysisUnit` in `match()`, and macro bodies come for free.
+
+   **Every `Finding` a rule constructs must copy `function_name`, `scope` and
+   `macro_name` from the unit** — every rule module does this, because a
+   `Finding`'s `function`/`scope`/`macro` fields are how a reader tells a
+   function-scoped finding from a macro-scoped one, and nothing else sets
+   them. Use `location_fields(unit)` from `rules/base.py` and splat it:
+
+   ```python
+   yield Finding(
+       ...,
+       file=unit.file,
+       line=call.line,
+       **location_fields(unit),
+       intrinsic=call.name,
+       ...,
+   )
+   ```
+
+   Reaching for `unit.name` instead — the more obvious-looking member — has
+   the exact wrong effect on a `MacroUnit`: it silently produces
+   `scope="function", function=<the macro's name>, macro=None`, which reads
+   as a real function finding in every reporter, and `Finding.__post_init__`
+   does not catch it (it enforces internal consistency between `scope`/
+   `function`/`macro`, not correspondence with the unit that produced them).
+   `location_fields` exists so this is structurally impossible rather than
+   merely documented here.
 
    Macro bodies get there by being reparsed: tree-sitter leaves a `#define`
    body as an opaque `preproc_arg` with no children, so `macros.py` copies

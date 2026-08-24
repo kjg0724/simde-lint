@@ -15,7 +15,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact, Reason
 from ..ir import AnalysisUnit, ValueKind, ValueRef
-from .base import Context, raw_name_if_aliased
+from .base import Context, location_fields, raw_name_if_aliased
 
 _TARGETS = frozenset({"_mm_shuffle_epi8", "_mm256_shuffle_epi8"})
 
@@ -72,9 +72,7 @@ class SuboptimalRule:
                 impact=Impact.CONFIRMED,
                 file=unit.file,
                 line=call.line,
-                function=unit.function_name,
-                scope=unit.scope,
-                macro=unit.macro_name,
+                **location_fields(unit),
                 intrinsic=call.name,
                 rationale=f"{rationale} ({cost.source})",
                 simde_insns=cost.simde_insns if supported else None,

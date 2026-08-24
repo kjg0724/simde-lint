@@ -12,7 +12,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import AnalysisUnit, ValueKind
-from .base import Context, own_availability, raw_name_if_aliased
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _COMPARES = {
     "_mm_cmpgt_epi64",
@@ -32,7 +32,7 @@ class PipelineRule:
     mechanism = "compare consumed by the next call"
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
-        ordered = sorted(unit.calls, key=lambda c: (c.line, c.column))
+        ordered = sorted(unit.calls, key=lambda c: c.start_byte)
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:
                 continue
@@ -58,9 +58,7 @@ class PipelineRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=current.line,
-                function=unit.function_name,
-                scope=unit.scope,
-                macro=unit.macro_name,
+                **location_fields(unit),
                 intrinsic=current.name,
                 rationale=(
                     f"{current.name} at line {current.line} is consumed by "

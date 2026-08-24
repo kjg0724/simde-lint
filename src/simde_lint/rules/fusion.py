@@ -11,7 +11,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Impact
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
-from .base import Context, own_availability, raw_name_if_aliased
+from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _MULTIPLIES = {
     "_mm_mullo_epi32",
@@ -64,9 +64,7 @@ class FusionRule:
                     impact=Impact.CONFIRMED,
                     file=unit.file,
                     line=mul.line,
-                    function=unit.function_name,
-                    scope=unit.scope,
-                    macro=unit.macro_name,
+                    **location_fields(unit),
                     intrinsic=mul.name,
                     rationale=(
                         f"{mul.name} at line {mul.line} reaches {add.name} at line "
