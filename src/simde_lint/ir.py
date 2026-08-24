@@ -37,6 +37,19 @@ class IntrinsicCall:
     column: int
     start_byte: int
     result_var: str | None = None
+    # True when `raw_name` was resolved to `name` through a file-local
+    # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
+    # `macros.build_alias_map`) — a macro whose *body* extraction never sees,
+    # so the call's recorded `args` are the call site's own, not necessarily
+    # what the macro's body actually forwards (see `rules/pipeline.py`/
+    # `rules/fusion.py`'s consumer-side abstention). False for a direct call
+    # and for a call whose spelling changed only through
+    # `knowledge/aliases.yaml` normalization (`simde_mm_shuffle_epi8` ->
+    # `_mm_shuffle_epi8`, for instance) — that correspondence is exact by
+    # SIMDe's own naming convention, not an opaque macro body, so `raw_name
+    # != name` alone must not be read as "came through a macro" (P1's P2
+    # finding: it conflates the two).
+    is_macro_alias: bool = False
 
 
 @dataclass(frozen=True)

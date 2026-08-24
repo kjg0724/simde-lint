@@ -207,6 +207,7 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
                 column=node.start_point[1] + 1,
                 start_byte=node.start_byte,
                 result_var=result_var,
+                is_macro_alias=raw_name in aliases,
             )
             unit.calls.append(call)
             if result_var:
@@ -298,6 +299,7 @@ def _extract_macro_unit(
             column=column,
             start_byte=start_byte,
             result_var=result_var,
+            is_macro_alias=raw_name in aliases,
         )
         calls.append(call)
         if result_var:

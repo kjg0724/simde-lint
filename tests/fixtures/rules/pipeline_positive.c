@@ -65,3 +65,16 @@ void xor_self_consumer(__m128i x, __m128i y) {
     __m128i sel = XOR_SELF(cmp, x);
     (void)sel;
 }
+
+// P2: `simde_mm_shuffle_epi8` changes spelling on resolution (raw_name !=
+// name, exactly like the wrapper-macro cases above), but NOT through a
+// macro -- it is a direct call whose canonical spelling
+// knowledge/aliases.yaml normalizes, with the identical signature to
+// `_mm_shuffle_epi8` by SIMDe's own naming convention. P must still fire
+// here: is_macro_alias is False for this call site, unlike DROP_VALUE/
+// XOR_SELF/DROP_FIRST above, all of which set it True.
+void simde_spelled_consumer(__m128i x, __m128i y, __m128i mask) {
+    __m128i cmp = _mm_cmpgt_epi64(x, y);
+    __m128i sel = simde_mm_shuffle_epi8(cmp, mask);
+    (void)sel;
+}

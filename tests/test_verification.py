@@ -252,8 +252,8 @@ def test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensit
 
 @requires_svt
 @requires_vvenc
-def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consumer():
-    """P1 round 3: what is actually enforced, stated at the narrowest scope that is true.
+def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_a_macro_resolved_consumer():
+    """P1 round 4: what is actually enforced, stated at the narrowest scope that is true.
 
     An earlier round of this predicate tried to make registration itself
     reject any alias that drops a parameter -- `is_forwarding_alias`
@@ -262,31 +262,53 @@ def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consum
     (b)), (b))` still mentions `a`, inside a `(void)`-cast comma operand
     whose value never reaches the forwarded call, so a text-appearance
     check confirms it as an alias anyway. `(a) ^ (a)` is accepted the same
-    way. Both are live false positives at rule level before this round's
-    fix, reproduced in `tests/test_rule_pipeline.py`/
-    `tests/test_rule_fusion.py`.
+    way. Both are live false positives at rule level, reproduced in
+    `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py`.
 
     **What is actually enforced, not approximated:** `PipelineRule.match`
     and `FusionRule._path` decline to read a *consumer* call's args at all
-    once that call carries a `raw_name` (was itself resolved through any
-    macro, faithful or not) -- see `rules/pipeline.py`/`rules/fusion.py`.
-    This is unconditional and does not depend on what `is_forwarding_alias`
-    decided about the alias; it is sound for any corpus, not only these
-    two, because it is enforced in the rule's own control flow rather than
-    approximated from the alias's syntax. The registration predicate
-    (`macros.py`) is unchanged from before this round and makes no claim
-    about parameter usage that this test or any other relies on.
+    once that call was resolved through a **file-local `#define` wrapper
+    macro** (`IntrinsicCall.is_macro_alias`, set at extraction from
+    `macros.build_alias_map`'s file-local `aliases` map) -- see
+    `rules/pipeline.py`/`rules/fusion.py`. This is unconditional and does
+    not depend on what `is_forwarding_alias` decided about the alias; it is
+    sound for any corpus, not only these two, because it is enforced in the
+    rule's own control flow rather than approximated from the alias's
+    syntax.
+
+    **What this guard explicitly does NOT cover, and why that is correct
+    (P2):** a call whose spelling changed only through
+    `knowledge/aliases.yaml` normalization -- `simde_mm_shuffle_epi8`
+    resolving to `_mm_shuffle_epi8`, for instance -- also has `raw_name !=
+    name`, exactly like a macro alias does, but carries none of the macro
+    alias's risk: SIMDe exposes every intrinsic under a `simde_` prefix
+    with the identical signature to its native spelling by its own naming
+    convention (verified directly: `ssse3.h:388` is `#define
+    _mm_shuffle_epi8(a, b) simde_mm_shuffle_epi8(a, b)`, `ssse3.h:336` is
+    `simde_mm_shuffle_epi8(simde__m128i a, simde__m128i b)` -- same arity,
+    same order), so there is no macro body to drop, duplicate or discard a
+    parameter's value in. Guarding on `raw_name != name` abstained on this
+    too, for zero soundness gain, discarding a true positive. `is_macro_alias`
+    is False for this case, so the guard fires only where the risk actually
+    is. `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py` pin both
+    directions in one fixture file each: a wrapper-macro consumer abstains,
+    a direct `simde_`-spelled consumer does not.
 
     **What this test measures, and what it does not:** it is a fact about
     these two corpora, not a proof of anything general. Over every P
     "compare consumed" candidate and F "multiply reaches an add" candidate
     actually realized in SVT-AV1 `Source` and VVenC `CommonLib/x86`, zero
-    have a consumer call that is itself resolved through a macro -- the
+    have a consumer call resolved through a file-local wrapper macro -- the
     shape the abstention exists for does not occur at the consumer position
-    in either reference codebase. A codebase that does have this shape will
-    produce fewer F/P findings under this tool than a version without the
-    abstention would have (see the release notes' known limitations) --
-    that loss is not visible here because neither reference corpus pays it.
+    in either reference codebase (confirmed separately: the only `simde_mm_`
+    spelling anywhere in either corpus is VVenC's `_my_cmpgt_epi64`
+    macro's own *body*, `#define _my_cmpgt_epi64(a, b)
+    simde_mm_cmpgt_epi64(a, b)` -- a producer-side alias, never a consumer,
+    and irrelevant to this guard either way). A codebase that does have a
+    wrapper-macro consumer will produce fewer F/P findings under this tool
+    than a version without the abstention would have (see the release
+    notes' known limitations) -- that loss is not visible here because
+    neither reference corpus pays it.
     """
     from simde_lint.extract import extract_units
     from simde_lint.ir import ValueKind
@@ -294,9 +316,11 @@ def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consum
     from simde_lint.rules.pipeline import _COMPARES
 
     knowledge = load_knowledge()
-    p_aliased_consumers = 0
+    p_macro_consumers = 0
+    p_direct_alias_consumers = 0
     p_total_consumers = 0
-    f_aliased_adds = 0
+    f_macro_adds = 0
+    f_direct_alias_adds = 0
     f_total_adds = 0
     for path, source in read_sources([SVT_AV1, VVENC_X86]):
         for unit in extract_units(path, source, knowledge):
@@ -310,23 +334,38 @@ def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consum
                 )
                 if consumed:
                     p_total_consumers += 1
-                    if following.raw_name != following.name:
-                        p_aliased_consumers += 1
+                    if following.is_macro_alias:
+                        p_macro_consumers += 1
+                    elif following.raw_name != following.name:
+                        # A knowledge-table normalization, not a macro --
+                        # the case P2 recovers. Counted separately so a
+                        # nonzero value here is visible as a gain
+                        # opportunity, not folded into the macro count above.
+                        p_direct_alias_consumers += 1
             for add in unit.calls:
                 if add.name in _ADDS:
                     f_total_adds += 1
-                    if add.raw_name != add.name:
-                        f_aliased_adds += 1
+                    if add.is_macro_alias:
+                        f_macro_adds += 1
+                    elif add.raw_name != add.name:
+                        f_direct_alias_adds += 1
 
     assert p_total_consumers > 0 and f_total_adds > 0, (
         "expected at least one P consumer candidate and one F add call across "
         "both checkouts -- an empty corpus would make the zero below meaningless"
     )
-    assert p_aliased_consumers == 0, (
-        f"{p_aliased_consumers} of {p_total_consumers} P consumer candidates are "
-        "aliased -- the abstention now has something real to discard in this corpus"
+    assert p_macro_consumers == 0, (
+        f"{p_macro_consumers} of {p_total_consumers} P consumer candidates are "
+        "macro-resolved -- the abstention now has something real to discard in this corpus"
     )
-    assert f_aliased_adds == 0, (
-        f"{f_aliased_adds} of {f_total_adds} F add calls are aliased -- the "
+    assert f_macro_adds == 0, (
+        f"{f_macro_adds} of {f_total_adds} F add calls are macro-resolved -- the "
         "abstention now has something real to discard in this corpus"
     )
+    # P2's fix recovers a finding only where a direct simde_-spelled call
+    # was a P/F consumer; both are zero in these two corpora too, which is
+    # the measured reason the fix's finding-set diff over both sweeps is
+    # exactly empty, not merely why the old, broader guard happened not to
+    # discard anything.
+    assert p_direct_alias_consumers == 0
+    assert f_direct_alias_adds == 0

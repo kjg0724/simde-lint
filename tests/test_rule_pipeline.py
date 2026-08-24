@@ -67,9 +67,9 @@ def test_abstains_when_the_consumer_call_drops_a_parameters_value(run_rule):
     comma expression's value is its *last* operand and `(void)` explicitly
     discards the other, but neither position is pruned by scanning for
     identifiers. The real fix is that P declines to read `sel`'s args at
-    all once `sel`'s call carries a `raw_name` (`PipelineRule.match`'s
-    `following.raw_name != following.name` check) -- it does not matter
-    whether registration would have accepted or rejected this shape.
+    all once `sel`'s call was resolved through a file-local macro alias
+    (`PipelineRule.match`'s `following.is_macro_alias` check) -- it does not
+    matter whether registration would have accepted or rejected this shape.
     """
     findings = [f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "drop_value_consumer"]
     assert findings == []
@@ -82,12 +82,37 @@ def test_abstains_when_the_consumer_call_combines_a_parameter_with_itself(run_ru
     "genuinely used" -- `XOR_SELF`'s `a` is confirmed as used by every
     identifier-appearance check, precisely because it does appear, just in
     a position whose combined value happens to always come out the same
-    regardless of `a`. P's abstention on an aliased consumer call
-    (`following.raw_name != following.name`) does not depend on this
-    distinction at all, which is why it catches this case too.
+    regardless of `a`. P's abstention on a macro-resolved consumer call
+    (`following.is_macro_alias`) does not depend on this distinction at
+    all, which is why it catches this case too.
     """
     findings = [f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "xor_self_consumer"]
     assert findings == []
+
+
+def test_reports_when_the_consumer_is_a_direct_simde_spelled_call(run_rule):
+    """P2: `raw_name != name` is not the same as "resolved through a macro".
+
+    `IntrinsicCall.raw_name` differs from `.name` for two distinct reasons:
+    a file-local `#define` forwarding alias (`DROP_VALUE`/`XOR_SELF` above,
+    where the correspondence between the macro's parameters and the
+    forwarded call's operands is opaque), and a direct call under its
+    `simde_`-prefixed spelling, normalized through
+    `knowledge/aliases.yaml` (`simde_mm_shuffle_epi8` -> `_mm_shuffle_epi8`
+    here, with the identical signature by SIMDe's own naming convention --
+    no macro body, no possibility of a dropped, duplicated or discarded
+    parameter). Guarding on `raw_name != name` would abstain on both
+    identically; guarding on `is_macro_alias` -- which extraction sets only
+    for the first kind -- correctly still reports this one. This is the
+    live P2 counterexample: identical code shape to `drop_value_consumer`
+    above, opposite verdict, because the provenance differs.
+    """
+    findings = [
+        f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "simde_spelled_consumer"
+    ]
+    assert len(findings) == 1
+    assert findings[0].intrinsic == "_mm_cmpgt_epi64"
+    assert findings[0].evidence is Evidence.A
 
 
 def test_reports_nothing_when_an_independent_call_separates_them(run_rule):

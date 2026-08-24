@@ -293,11 +293,16 @@ in the safety argument there. `_my_cmpgt_epi64` is the *producer* here, and P
 decides by operand membership, not position or arity, so it cannot be misled
 by however that particular alias forwards its own operands. That is the
 whole of why this specific finding is sound — it says nothing about a
-*consuming* alias immediately following a compare, which is a separate case
-P protects against a different way: `PipelineRule.match` declines to read a
-consumer call's args at all once that call carries a `raw_name`, regardless
-of what the registration predicate decided about it. See §5 for what that
-predicate does and does not guarantee.
+*consuming* call resolved through a file-local wrapper macro immediately
+following a compare, which is a separate case P protects against a
+different way: `PipelineRule.match` declines to read such a consumer's args
+at all once `IntrinsicCall.is_macro_alias` is set on it, regardless of what
+the registration predicate decided about it. It does *not* decline for a
+consumer whose only change is a `knowledge/aliases.yaml` spelling
+normalization (`simde_mm_shuffle_epi8` → `_mm_shuffle_epi8`, for instance) —
+that case is not covered by `is_macro_alias` and does not need to be, since
+no macro body sits between the call site and the resolved name. See §5 for
+what the guard does and does not cover.
 
 ### Zeros where the paper reports instances
 
@@ -627,31 +632,71 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   registration change at all:
 
   **`PipelineRule.match` and `FusionRule._path` decline to read a consumer
-  call's args at all once that call carries a `raw_name`** (was resolved
-  through any macro, faithful or not), unconditionally and regardless of
-  what the registration predicate decided about that macro. This is sound
-  for any corpus, not only these two, because it is enforced in the rule's
-  own control flow rather than approximated from the alias's syntax — F and
-  P make no operand claim about such a call rather than approximate one.
+  call's args at all once that call was resolved through a file-local
+  `#define` wrapper macro**, unconditionally and regardless of what the
+  registration predicate decided about that macro. This is sound for any
+  corpus, not only these two, because it is enforced in the rule's own
+  control flow rather than approximated from the alias's syntax — F and P
+  make no operand claim about such a call rather than approximate one.
   `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py` reproduce both
   `DROP_VALUE` and `(a) ^ (a)` in both F and P shapes and confirm zero
   findings; each fails without the abstention.
 
+  **The guard's first implementation tested `raw_name != name`, which is
+  broader than "resolved through a macro" and cost a true positive for no
+  soundness gain (P2).** `IntrinsicCall.raw_name` differs from `.name` for
+  two distinct reasons that a name comparison alone cannot tell apart: a
+  file-local wrapper macro (the risk above), and a direct call under its
+  `simde_`-prefixed spelling, normalized through `knowledge/aliases.yaml`.
+  The second carries none of the first's risk — SIMDe exposes every
+  intrinsic under a `simde_` prefix with the identical signature to its
+  native spelling by its own naming convention (`ssse3.h:388` is `#define
+  _mm_shuffle_epi8(a, b) simde_mm_shuffle_epi8(a, b)`; `ssse3.h:336` is
+  `simde_mm_shuffle_epi8(simde__m128i a, simde__m128i b)` — same arity,
+  same order) — so there is no macro body for a parameter's value to be
+  dropped, duplicated, or discarded in. Reproduced live: `_mm_cmpgt_epi64`
+  followed directly by `simde_mm_shuffle_epi8(cmp, mask)` produced no P
+  finding under the `raw_name != name` guard, while the identical code
+  calling `_mm_shuffle_epi8` directly did.
+
+  The fix moved the distinction to where the two resolutions are actually
+  told apart — extraction, not the guard. `IntrinsicCall.is_macro_alias`
+  (`ir.py`) is set at both `extract_units` call-construction sites
+  (`extract.py`) from whether the call's `raw_name` is a key in the
+  file-local `aliases` map `macros.build_alias_map` returns for that file;
+  a `knowledge/aliases.yaml` normalization with no matching file-local
+  macro leaves it `False`. All three consumption checks — `pipeline.py`'s
+  direct consumer, and *both* of `fusion.py`'s paths, the direct add at
+  `fusion.py:103` and the widening hop at `fusion.py:125` (easy to miss,
+  since it guards the intermediate call rather than the add itself) — read
+  this flag and nothing else.
+
   **This is a user-visible behaviour change, not a free fix.** A codebase
-  whose F/P consumer call *is* itself a macro alias will get fewer F/P
-  findings under this tool than a version without the abstention would have
-  produced — the tool declines the claim rather than approximating it. Over
-  both reference checkouts, this costs nothing measurable: every P "compare
-  consumed" candidate and F "multiply reaches an add" candidate actually
-  realized in SVT-AV1 `Source` and VVenC `CommonLib/x86` has a consumer
-  call that is *not* itself an alias, so the abstention never actually
-  discards anything in either corpus today
-  (`tests/test_verification.py::test_no_pipeline_or_fusion_finding_over_both_checkouts_has_an_aliased_consumer`).
+  whose F/P consumer call is itself resolved through a file-local wrapper
+  macro will get fewer F/P findings under this tool than a version without
+  the abstention would have produced — the tool declines the claim rather
+  than approximating it. It does **not** lose a finding merely because the
+  consumer is spelled with a `simde_` prefix; that case is recovered by
+  this round's fix and confirmed by
+  `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py`'s
+  `simde_spelled_consumer`/`widening_simde_intermediate` tests, which
+  assert the finding IS produced. Over both reference checkouts, the
+  narrower guard costs nothing measurable and the P2 fix recovers nothing
+  measurable either — not because the fix has no effect, but because
+  neither shape occurs in either corpus: every P "compare consumed"
+  candidate and F "multiply reaches an add" candidate actually realized in
+  SVT-AV1 `Source` and VVenC `CommonLib/x86` has a consumer call that is
+  neither a wrapper-macro alias nor a direct `simde_`-spelled call
+  (`tests/test_verification.py::
+  test_no_pipeline_or_fusion_finding_over_both_checkouts_has_a_macro_resolved_consumer`,
+  which counts both categories separately and confirms both are zero). The
+  finding-set diff over both full sweeps, before this round's fix and
+  after, is empty: 0 lost, 0 gained, in either corpus.
   **That is a fact about these two corpora, not a bound on the general
-  case** — a codebase where a compare or a multiply's result flows through
-  a wrapper macro before reaching its add/consumer would lose real findings
-  here, and this tool has no way to recover them without reading through
-  the wrapper, which is exactly the re-projection deferred below.
+  case** — a codebase where a compare's or a multiply's result flows
+  through a wrapper macro before reaching its consumer would lose real
+  findings here, and this tool has no way to recover them without reading
+  through the wrapper, which is exactly the re-projection deferred below.
 
   The registration predicate (`macros.py`'s `is_forwarding_alias`) is
   unchanged from the naive "parameter name appears anywhere in the

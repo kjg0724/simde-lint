@@ -120,9 +120,10 @@ def test_abstains_when_the_consumer_call_drops_a_parameters_value(run_rule):
     -- `a` (bound to `prod`) appears in the argument subtree, inside a
     `(void)`-cast comma operand, so a text-appearance registration check
     still confirms this as an alias. The real fix is that F declines to
-    read `sum`'s args at all once `sum`'s call carries a `raw_name`
-    (`FusionRule._path`'s `add.raw_name != add.name` check) -- it does not
-    matter whether registration would have accepted or rejected this shape.
+    read `sum`'s args at all once `sum`'s call was resolved through a
+    file-local macro alias (`FusionRule._path`'s `add.is_macro_alias`
+    check) -- it does not matter whether registration would have accepted
+    or rejected this shape.
     """
     findings = [f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "drop_value_consumer"]
     assert findings == []
@@ -139,6 +140,48 @@ def test_abstains_when_the_consumer_call_combines_a_parameter_with_itself(run_ru
     """
     findings = [f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "xor_self_consumer"]
     assert findings == []
+
+
+def test_reports_when_the_consumer_is_a_direct_simde_spelled_call(run_rule):
+    """P2: `raw_name != name` is not the same as "resolved through a macro".
+
+    `simde_mm_add_epi32` is a direct call under its `simde_`-prefixed
+    spelling, normalized through `knowledge/aliases.yaml` to
+    `_mm_add_epi32` -- with the identical signature by SIMDe's own naming
+    convention, no macro body, no possibility of a dropped, duplicated or
+    discarded parameter. `FusionRule._path` guards on `add.is_macro_alias`,
+    which extraction sets only for a file-local `#define` forwarding alias,
+    not for this. Identical code shape to `drop_value_consumer`, opposite
+    verdict, because the provenance differs.
+    """
+    findings = [
+        f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "simde_spelled_consumer"
+    ]
+    assert len(findings) == 1
+    assert findings[0].intrinsic == "_mm_mullo_epi32"
+    assert findings[0].evidence is Evidence.A
+
+
+def test_widening_hop_abstains_only_for_a_macro_resolved_intermediate(run_rule):
+    """P2: the widening-hop guard (`fusion.py:125`) must use provenance too.
+
+    Easy to overlook because it guards the intermediate widening call, not
+    the add itself. `WRAP_WIDEN` is a real file-local macro alias for
+    `_mm_cvtepi32_epi64` -- faithful or not does not matter, since the
+    abstention is unconditional on any macro-resolved consumer -- so F must
+    not claim the widening path through `widening_wrapper_intermediate`.
+    `simde_mm_cvtepi32_epi64` in `widening_simde_intermediate` changes
+    spelling the same way but not through a macro, so F must still claim it.
+    """
+    findings = {
+        f.function: f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function in ("widening_wrapper_intermediate", "widening_simde_intermediate")
+    }
+    assert set(findings) == {"widening_simde_intermediate"}
+    finding = findings["widening_simde_intermediate"]
+    assert finding.evidence is Evidence.B
+    assert "_mm_cvtepi32_epi64" in finding.rationale
 
 
 def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):

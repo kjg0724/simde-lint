@@ -87,6 +87,48 @@ void xor_self_consumer(const int *a, const int *b, __m128i acc) {
     (void)sum;
 }
 
+// P2: `simde_mm_add_epi32` changes spelling on resolution (raw_name !=
+// name, exactly like DROP_FIRST_MUL/DROP_VALUE_MUL/XOR_SELF_MUL above), but
+// NOT through a macro -- it is a direct call whose canonical spelling
+// knowledge/aliases.yaml normalizes, with the identical signature to
+// `_mm_add_epi32` by SIMDe's own naming convention. F must still fire
+// here: is_macro_alias is False for this call site.
+void simde_spelled_consumer(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_mullo_epi32(va, vb);
+    __m128i sum = simde_mm_add_epi32(acc, prod);
+    (void)sum;
+}
+
+// P2: the widening-hop guard (fusion.py:125) must apply the same
+// provenance distinction as the direct add path above, not `raw_name !=
+// name`. WRAP_WIDEN is a real file-local macro alias for
+// _mm_cvtepi32_epi64 -- faithful or not does not matter, since the
+// abstention is unconditional on any macro-resolved consumer -- so F must
+// not claim the widening path through it.
+#define WRAP_WIDEN(a) _mm_cvtepi32_epi64(a)
+
+void widening_wrapper_intermediate(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i pair = _mm_madd_epi16(va, vb);
+    __m128i wide = WRAP_WIDEN(pair);
+    __m128i sum = _mm_add_epi64(acc, wide);
+    (void)sum;
+}
+
+// P2: `simde_mm_cvtepi32_epi64` changes spelling on resolution but NOT
+// through a macro. F must still claim the widening path here.
+void widening_simde_intermediate(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i pair = _mm_madd_epi16(va, vb);
+    __m128i wide = simde_mm_cvtepi32_epi64(pair);
+    __m128i sum = _mm_add_epi64(acc, wide);
+    (void)sum;
+}
+
 void reused_name(const int *a, const int *b, __m128i acc) {
     __m128i va = _mm_loadu_si128((const __m128i *)a);
     __m128i vb = _mm_loadu_si128((const __m128i *)b);

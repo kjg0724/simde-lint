@@ -36,17 +36,26 @@ class PipelineRule:
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:
                 continue
-            if following.raw_name != following.name:
-                # P1: `following` was resolved through a macro. Its recorded
-                # args are the call site's own -- built from the macro's
-                # parameter positions, with no mapping back to which of the
-                # body's operands each parameter actually reached (a body
-                # can drop, duplicate, or discard a parameter's value in a
-                # comma expression, a (void) cast, either branch of a
-                # ternary, and more that no syntactic check can enumerate).
-                # Membership here would be a claim about the *forwarded*
-                # call's operands that extraction cannot support, so P makes
-                # no claim at all rather than approximate one.
+            if following.is_macro_alias:
+                # P1: `following` was resolved through a file-local `#define`
+                # forwarding alias. Its recorded args are the call site's own
+                # -- built from the macro's parameter positions, with no
+                # mapping back to which of the body's operands each
+                # parameter actually reached (a body can drop, duplicate, or
+                # discard a parameter's value in a comma expression, a
+                # (void) cast, either branch of a ternary, and more that no
+                # syntactic check can enumerate). Membership here would be a
+                # claim about the *forwarded* call's operands that
+                # extraction cannot support, so P makes no claim at all
+                # rather than approximate one.
+                #
+                # This is deliberately narrower than `following.raw_name !=
+                # following.name`: a `simde_`-prefixed direct call (P2) also
+                # changes spelling on resolution, through
+                # `knowledge/aliases.yaml`, not a macro body -- SIMDe's own
+                # naming convention keeps that correspondence exact (same
+                # arity, same argument order), so it carries none of the
+                # above risk and must not abstain here.
                 continue
             cost = ctx.knowledge.cost(self.rule_id, current.name)
             consumed = any(
