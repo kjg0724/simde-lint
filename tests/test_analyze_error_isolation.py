@@ -28,16 +28,22 @@ from simde_lint.rules.redundant import RedundantRule
 
 FIXTURE_A = Path(__file__).parent / "fixtures" / "analyze" / "error_isolation_a.c"
 FIXTURE_B = Path(__file__).parent / "fixtures" / "analyze" / "error_isolation_b.c"
+FIXTURE_DUPLICATE_MACRO = (
+    Path(__file__).parent / "fixtures" / "analyze" / "error_isolation_duplicate_macro.c"
+)
 
 
 class _AlwaysMalformedRule:
     """Constructs a `Finding` that violates the scope/function/macro invariant.
 
     Every real rule sets exactly one of `function`/`macro`, matching `scope`
-    (see `rules/base.py`'s `location_fields`). This one sets both on purpose,
-    on every function-scoped call it sees, so `Finding.__post_init__` raises
-    `ValueError` mid-materialization -- the exact failure shape Task 5
-    introduced and this rule reproduces deliberately.
+    (see `rules/base.py`'s `location_fields`). This one sets both, always,
+    regardless of the unit's actual scope: `Finding.__post_init__` raises on
+    a function-scoped finding whenever `macro` is also set, and on a
+    macro-scoped one whenever `function` is also set, so setting both
+    unconditionally raises `ValueError` mid-materialization on either kind
+    of unit -- the exact failure shape Task 5 introduced, reproduced on both
+    scopes rather than only the function-scoped one.
     """
 
     type = "R"
@@ -56,7 +62,7 @@ class _AlwaysMalformedRule:
                 impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
-                function=unit.function_name,
+                function="deliberately set alongside macro to break __post_init__",
                 scope=unit.scope,
                 macro="deliberately set alongside function to break __post_init__",
                 intrinsic=call.name,
@@ -98,8 +104,30 @@ def test_error_messages_name_the_rule_unit_and_file_and_the_run_is_not_a_clean_s
     assert str(FIXTURE_A) in message
     assert "R.broken_for_test" in message
     assert "loads_in_a" in message  # the function the rule failed on
-    assert "line 2" in message  # where the failing call sits
+    assert "line 1" in message  # the function's own start line
     assert "ValueError" in message or "must set function" in message  # the exception itself
+
+
+def test_error_messages_distinguish_two_same_named_units_by_position(monkeypatch):
+    # I2's own docs (docs/verification.md) describe exactly this shape:
+    # VVenC's RdCostX86.h defines UNPACKX twice, once per #ifdef branch, and
+    # both are read. Two macro-scoped units share scope AND name here -- if
+    # the warning dropped position, the two error messages would be
+    # byte-for-byte identical and there would be no way to tell which #if
+    # branch actually failed.
+    monkeypatch.setattr(analyze_module, "ALL_RULES", [_AlwaysMalformedRule()])
+
+    _, _, errors = analyze([FIXTURE_DUPLICATE_MACRO])
+
+    assert len(errors) == 2
+    assert all("macro 'UNPACKX'" in message for message in errors)
+    assert all("R.broken_for_test" in message for message in errors)
+    # Same scope, same name -- the messages must still differ, and they can
+    # only differ by position (macro units carry no other identifying data
+    # here; both come from the same file).
+    assert errors[0] != errors[1]
+    assert "line 3" in errors[0] and "line 3" not in errors[1]
+    assert "line 6" in errors[1] and "line 6" not in errors[0]
 
 
 def test_cli_exit_code_distinguishes_an_incomplete_run_from_success(monkeypatch, capsys):

@@ -44,18 +44,32 @@ def read_sources(
 
 
 def _unit_location(unit: AnalysisUnit) -> str:
-    """Identify a unit in a warning: its scope, name, and roughly where it is.
+    """Identify a unit in a warning: its scope, name, and a start position.
 
-    `AnalysisUnit` carries no position of its own (only `FunctionUnit` has
-    `start_line`, and it is not part of the protocol every rule sees), so the
-    first call's line stands in for "where" — every unit a rule can fail on
-    has at least one call, or the rule would have nothing to iterate over in
-    the first place.
+    Scope and name alone are not enough to tell two units apart: a macro
+    name redefined under separate `#if` branches (VVenC's `RdCostX86.h`
+    `UNPACKX`, see docs/verification.md) yields two units sharing both, and
+    a warning without a position would be two identical, unattributable
+    lines.
+
+    `FunctionUnit.start_line` is the real thing — the function_definition
+    node's own line — read here via `getattr` since it is not part of the
+    `AnalysisUnit` protocol every rule sees (rules have no need for a
+    unit's own position, only its calls' and definitions'). `MacroUnit`
+    carries no position of its own — extraction never stored the `#define`
+    line, only its calls' — so the first call's line is the closest honest
+    anchor available, labelled as such rather than presented as the
+    macro's own start.
     """
     name = unit.function_name or unit.macro_name or unit.name
-    if unit.calls:
-        return f"{unit.scope} {name!r} (first call at line {unit.calls[0].line})"
-    return f"{unit.scope} {name!r}"
+    start_line = getattr(unit, "start_line", None)
+    if start_line:
+        position = f"line {start_line}"
+    elif unit.calls:
+        position = f"first call at line {unit.calls[0].line}"
+    else:
+        position = "no calls recorded"
+    return f"{unit.scope} {name!r} ({position})"
 
 
 def _run_rule(
