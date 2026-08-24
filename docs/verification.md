@@ -16,8 +16,9 @@ treated as failures.
 Every command in this document was re-run on the day this file was last
 updated (v1.2: intrinsic calls inside `#define` bodies are analysed; see
 Section 5). Reference checkouts are given through the `SIMDE_LINT_SVT_AV1`
-and `SIMDE_LINT_VVENC` environment variables (see CONTRIBUTING.md), which
-fall back to a local checkout path when unset.
+and `SIMDE_LINT_VVENC` environment variables (see CONTRIBUTING.md); the
+checkout-dependent tests skip cleanly when they are unset, the same as for a
+contributor with neither clone.
 
 **Two counting units appear below and are never mixed.** Sections 1 and 2
 count call sites inside function bodies, which is what every measurement
@@ -288,8 +289,16 @@ unregistered call name and report 0.
 This reaches P through a confirmed forwarding alias whose target,
 `_mm_cmpgt_epi64`, sits inside `pipeline._COMPARES` — §5's "The
 forwarding-alias argument list" explains why that is sound rather than a gap
-in the safety argument there: P decides by operand membership, not position
-or arity, so it cannot be misled by however the alias forwards its operands.
+in the safety argument there. Two things make it sound, not one: `_my_cmpgt_epi64`
+is the *producer* here, and P decides by operand membership, not position or
+arity, so it cannot be misled by however that particular alias forwards its
+own operands — but that alone was an incomplete argument (P1: it says
+nothing about a *consuming* alias immediately following the compare, which
+would present its own call site's argument list rather than the forwarded
+call's real one). What actually closes the gap is `is_forwarding_alias`
+refusing to register any alias whose body drops one of its parameters, which
+holds regardless of whether the alias is acting as producer or consumer at a
+given call site — see §5 for the corpus measurement.
 
 ### Zeros where the paper reports instances
 
@@ -567,19 +576,51 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   `tests/test_extract.py::test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor`
   is the fast, fixture-based companion to that corpus test, over the same
   narrowed anchor union.
-- **F and P never read a call's own args at all.** Both decide by operand
-  *membership* (`arg.text == result_var`), which an operand reversal or an
-  arity mismatch inside the macro body cannot change — so an unfaithful
-  forward cannot mislead them regardless of whether its target happens to be
-  one of their anchors. §2's "DepQuant P: 3 vs 3" is exactly this case, not
-  an exception to it: `_mm_cmpgt_epi64` is the confirmed target of VVenC's
-  `_my_cmpgt_epi64`, and is a member of `pipeline._COMPARES`, and rule P's
-  three DepQuant findings are sound anyway, precisely because their
-  judgment is invariant to how that alias forwards its operands.
+- **F and P never read a call's own args at all — as the producer.** Both
+  decide by operand *membership* (`arg.text == result_var`): P checks
+  whether a compare's result is a member of the *following* call's args, F
+  checks whether a multiply's result is a member of a *following* add's
+  args. An operand reversal or arity mismatch inside the *producer*
+  alias's own body cannot change that judgment. §2's "DepQuant P: 3 vs 3"
+  is this case: `_mm_cmpgt_epi64` is the confirmed target of VVenC's
+  `_my_cmpgt_epi64`, a member of `pipeline._COMPARES`, and rule P's three
+  DepQuant findings are sound because the compare's own operand order
+  cannot affect whether its result is later consumed.
   `tests/test_rule_pipeline.py::test_verdict_is_invariant_to_how_the_alias_forwards_its_operands`
   and the equivalent test in `tests/test_rule_fusion.py` demonstrate this
   directly: a macro that forwards its operands faithfully and one that
   reverses them produce the identical verdict.
+
+  **That was an incomplete argument on its own (P1).** Membership is read
+  from the *following* call's args, and if that following call is itself a
+  forwarding alias, its args are the call site's own — built from the
+  macro's parameter positions, with no mapping back to which of the body's
+  operands each parameter actually reached. A macro that *drops* a
+  parameter (writes it in its own parameter list but never passes it to the
+  forwarded call) therefore made a phantom operand look consumed:
+  `#define DROP_FIRST(a, b) _mm_add_epi32((b), (b))` called as
+  `DROP_FIRST(cmp, x)` used to resolve to `_mm_add_epi32` with args
+  `(cmp, x)`, and P reported `cmp` consumed even though the real
+  `_mm_add_epi32(x, x)` never receives it — a live false positive, not a
+  latent risk, reproduced in `tests/test_rule_pipeline.py`/
+  `tests/test_rule_fusion.py`'s `dropped_parameter` fixtures.
+
+  `is_forwarding_alias` (`macros.py`) now refuses to register any alias
+  whose body does not use every one of its parameters at least once, which
+  closes this regardless of whether the alias sits at the producer or the
+  consumer call site. Reordering, duplication, and inserting non-parameter
+  operands all leave every parameter present, so none of those are
+  rejected — measured over both checkouts, this predicate changes nothing:
+  the same 16 confirmed alias entries, the same targets, as an
+  unconstrained predicate found. No real alias in either corpus drops a
+  parameter.
+  `tests/test_verification.py::test_every_confirmed_alias_over_both_checkouts_forwards_every_parameter`
+  checks the predicate holds against both checkouts directly, and
+  `tests/test_extract.py::test_a_body_that_drops_a_macro_parameter_is_never_registered_as_an_alias`
+  is the fixture-level regression test for the predicate's own correctness
+  — the corpus test alone would not catch a regression here, since no real
+  alias in either corpus currently exercises it (see that test's own
+  docstring).
 
 See the release notes for why the underlying re-projection (making a forward
 faithful, or reading through it) is deferred rather than fixed.
@@ -588,8 +629,7 @@ faithful, or reading through it) is deferred rather than fixed.
 
 Export `SIMDE_LINT_SVT_AV1` and `SIMDE_LINT_VVENC` to point at your own
 checkouts before running any of the commands in this document (see
-CONTRIBUTING.md); without them the tests fall back to a local checkout path
-and the commands below need the paths substituted by hand.
+CONTRIBUTING.md); the commands below need the paths substituted by hand.
 
 ```
 uv run pytest tests/test_verification.py -v

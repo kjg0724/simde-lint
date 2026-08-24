@@ -3,7 +3,7 @@ from pathlib import Path
 from simde_lint.extract import extract_units
 from simde_lint.ir import ValueKind
 from simde_lint.knowledge import load_knowledge
-from simde_lint.macros import build_alias_map, reparse_macros
+from simde_lint.macros import build_alias_map, is_forwarding_alias, reparse_macros
 from simde_lint.parser import parse_source
 from simde_lint.rules import memory, suboptimal, widening
 
@@ -424,8 +424,20 @@ def test_function_and_macro_paths_agree_on_the_same_body():
 _ALIAS_SHAPES = (
     b"#define WRAP_REVERSED(lo, hi) _mm256_set_m128i((hi), (lo))\n"
     b"#define WRAP_ARITY(a, b, c) _mm256_setr_epi32((a), (b), (c), 0, 0, 0, 0, 0)\n"
-    b"#define WRAP_NARROWED(a, b) _mm_set1_epi32((a))\n"
 )
+
+# P1: a body that drops a parameter -- writes it in the macro's own parameter
+# list but never passes it to the forwarded call. `WRAP_NARROWED`'s `b` is
+# exactly this. This must NOT resolve as an alias at all (see
+# `is_forwarding_alias`'s docstring in `macros.py`): a rule that decides by
+# checking whether a producer's result is a *member* of a following call's
+# args -- F and P -- would otherwise see a phantom operand the forwarded
+# intrinsic never actually receives, and report a finding on a call that
+# never happened. This shape used to be included in `_ALIAS_SHAPES` above as
+# a third "safe unfaithful forward"; it was not safe, it was a live false
+# positive (see docs/verification.md and `tests/test_rule_pipeline.py`/
+# `tests/test_rule_fusion.py` for the reproduction).
+_DROPPED_PARAMETER_SHAPE = b"#define WRAP_NARROWED(a, b) _mm_set1_epi32((a))\n"
 
 
 def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor():
@@ -437,44 +449,50 @@ def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor()
     written inside the macro body. Spec Section 4 makes no requirement that a
     forwarding body pass its parameters through faithfully, and real macros
     do not: SVT-AV1's `_mm256_setr_m128i` reverses two operands; its
-    `LOAD8_S`/`pair_set_epi16`-shaped macros record an arity that is not the
-    forwarded intrinsic's real one. A rule that reads operand *position* or
-    *arity* would be misled by such a call if the alias's confirmed target
-    were ever one of that rule's anchors.
+    `LOAD8_S`-shaped macros record an arity that is not the forwarded
+    intrinsic's real one. A rule that reads operand *position* or *arity*
+    would be misled by such a call if the alias's confirmed target were ever
+    one of that rule's anchors.
 
     `operand_sensitive_anchors` here is deliberately narrower than "every
     rule this alias's target could match": it is `suboptimal._TARGETS
     (S) | memory._SCALAR_SETS | memory._INSERTS (M) | widening._UNPACK
     | {_mm_mullo_epi16, _mm_mulhi_epi16} (W)` -- the three rules that
     actually read `call.args[N]` or `len(call.args)`. `fusion._*` and
-    `pipeline._COMPARES` (F and P) are excluded on purpose: both read only
-    operand *membership* (`arg.text == result_var`), which neither a reversed
-    operand nor a mismatched arity can affect, so an unfaithful forward
-    cannot mislead them. `_mm_cmpgt_epi64` -- the confirmed target of VVenC's
-    `_my_cmpgt_epi64`, which reaches rule P (see
-    docs/verification.md's "DepQuant P: 3 vs 3") -- is exactly this case: its
-    presence in `pipeline._COMPARES` is safe for the stated membership-only
-    reason, not because no alias happens to target it.
+    `pipeline._COMPARES` (F and P) are excluded on purpose, but not merely
+    because an operand reversal or arity mismatch cannot mislead a
+    membership check (that alone was the P1 gap: it is true of the
+    *producer* call, but a rule decides membership by checking a *following*
+    call's args, and if that following call is itself a forwarding alias
+    that DROPPED a parameter, the call site still carries an operand for it
+    -- see `_DROPPED_PARAMETER_SHAPE` and `is_forwarding_alias`'s docstring
+    in `macros.py`). F and P are excluded here because `is_forwarding_alias`
+    now refuses to register any alias that drops a parameter, which is the
+    property that actually keeps their membership judgment sound; that
+    refusal is what the assertion below on `_DROPPED_PARAMETER_SHAPE`
+    checks, and `_mm_cmpgt_epi64` -- the confirmed target of VVenC's
+    `_my_cmpgt_epi64`, which reaches rule P (see docs/verification.md's
+    "DepQuant P: 3 vs 3") -- is a real alias that keeps every parameter, not
+    an example of "safe regardless."
 
-    This test only checks the three hand-picked shapes in `_ALIAS_SHAPES`
-    against the narrowed anchor set using the real
-    `is_forwarding_alias`/`build_alias_map` machinery, so it runs without an
-    external checkout and stays fast. It is NOT a cross-check against the
-    reference codebases -- `test_verification.py::
+    This test only checks the hand-picked shapes here against the narrowed
+    anchor set using the real `is_forwarding_alias`/`build_alias_map`
+    machinery, so it runs without an external checkout and stays fast. It is
+    NOT a cross-check against the reference codebases -- `test_verification.py::
     test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensitive_anchor`
     is the real tripwire, run over SVT-AV1 and VVenC directly, and is what
     the release notes' safety claim is backed by.
 
     A failure here does not mean new code is wrong: it means one of these
-    three fixture shapes now resolves to a name inside the narrowed anchor
-    set, which would mean S, M or W could be misled by an unfaithfully
-    forwarded operand at that call site.
+    fixture shapes now resolves to a name inside the narrowed anchor set,
+    which would mean S, M or W could be misled by an unfaithfully forwarded
+    operand at that call site.
     """
     knowledge = load_knowledge()
     root = parse_source(_ALIAS_SHAPES).root_node
     macros = reparse_macros(root, _ALIAS_SHAPES)
     alias_targets = set(build_alias_map(macros, knowledge).values())
-    assert alias_targets == {"_mm256_set_m128i", "_mm256_setr_epi32", "_mm_set1_epi32"}
+    assert alias_targets == {"_mm256_set_m128i", "_mm256_setr_epi32"}
 
     operand_sensitive_anchors = (
         suboptimal._TARGETS
@@ -484,3 +502,26 @@ def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor()
         | {"_mm_mullo_epi16", "_mm_mulhi_epi16"}
     )
     assert alias_targets.isdisjoint(operand_sensitive_anchors)
+
+
+def test_a_body_that_drops_a_macro_parameter_is_never_registered_as_an_alias():
+    """P1: the predicate that keeps F and P's membership judgment sound.
+
+    `WRAP_NARROWED(a, b)` writes `b` in its own parameter list but never
+    passes it to `_mm_set1_epi32`. If this were registered as an alias, a
+    call site `WRAP_NARROWED(x, y)` would resolve to `_mm_set1_epi32` with
+    args `(x, y)` -- the call site's own argument list, in the macro's
+    parameter order -- even though the real forwarded call only ever
+    receives `x`. A consumer rule checking membership of `y` in that
+    resolved call's args would then see a phantom operand: this is exactly
+    how `tests/test_rule_pipeline.py::
+    test_reports_nothing_when_the_consuming_alias_dropped_the_producers_result`
+    and its `test_rule_fusion.py` counterpart reproduce a real false
+    positive at HEAD before this predicate existed.
+    """
+    knowledge = load_knowledge()
+    root = parse_source(_DROPPED_PARAMETER_SHAPE).root_node
+    macros = reparse_macros(root, _DROPPED_PARAMETER_SHAPE)
+    assert len(macros) == 1
+    assert is_forwarding_alias(macros[0]) is None
+    assert build_alias_map(macros, knowledge) == {}

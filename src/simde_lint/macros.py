@@ -129,11 +129,49 @@ def _unwrap(node: Node) -> Node:
     return node
 
 
+def _identifiers(node: Node, source: bytes) -> set[str]:
+    """Every name written as an identifier anywhere under `node`.
+
+    Includes `type_identifier`, not only `identifier`: tree-sitter's C/C++
+    grammar resolves `(BASE) + (0 * (S))`-shaped expressions as a cast —
+    `BASE` parsed as a `type_descriptor`'s `type_identifier`, not as a
+    parenthesized variable reference — whenever a parenthesized name is
+    immediately followed by something that could be a unary operand.
+    SVT-AV1's `LOAD8_S`/`LOAD4W_S` write exactly this shape with `BASE`, a
+    macro parameter that is never actually a type. Counting only
+    `identifier` would read `BASE` as unused and reject a macro that
+    forwards every parameter faithfully — a false rejection from a grammar
+    ambiguity, not a genuine dropped parameter.
+    """
+    names = {node_text(child, source) for child in iter_nodes(node, "identifier")}
+    names |= {node_text(child, source) for child in iter_nodes(node, "type_identifier")}
+    return names
+
+
 def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     """The single callee a body forwards to, or None if it does anything else.
 
     Only the written name is returned; resolving it through the knowledge
     tables and through other macros is `build_alias_map`'s job.
+
+    A body that drops a parameter — writes it in the macro's own parameter
+    list but never uses it in the forwarded call — is rejected here, not
+    merely recorded as unfaithful. The call site's *own* argument list
+    (built from the macro's parameter positions, since nothing here maps a
+    body's argument expressions back to the file) is what extraction
+    attributes to the resolved call; a dropped parameter would then attach
+    an operand to that call that the real forwarded call never receives.
+    Reordering (`_mm256_set_m128i((hi), (lo))`), duplication
+    (`f((b), (b))`), and inserting non-parameter operands (an 8-argument
+    `_mm256_setr_epi32` fed by a 3-parameter macro) all leave every
+    parameter present at least once, so none of those are rejected here —
+    only a parameter that never appears at all is. See
+    `docs/verification.md`'s forwarding-alias section for the corpus
+    measurement backing this predicate and for why it is what keeps F and
+    P's membership judgment sound at an aliased call site: a rule that
+    decides by checking whether a producer's result is a member of a
+    *following* call's args would otherwise see a phantom operand the
+    forwarded intrinsic was never actually given.
     """
     if not macro.ok:
         return None
@@ -151,6 +189,10 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
         return None
     callee = expression.child_by_field_name("function")
     if callee is None or callee.type != "identifier":
+        return None
+    arguments = expression.child_by_field_name("arguments")
+    used = _identifiers(arguments, macro.source) if arguments is not None else set()
+    if not set(macro.params) <= used:
         return None
     return macro.source[callee.start_byte : callee.end_byte].decode()
 

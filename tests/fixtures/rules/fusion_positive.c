@@ -37,6 +37,23 @@ void unfaithful_forward(const int *a, const int *b, __m128i acc) {
     (void)sum;
 }
 
+// P1: DROP_FIRST_MUL's body drops its own first parameter -- it forwards
+// only `b` (twice) to _mm_add_epi32, never `a`. If this were still
+// registered as an alias, the call site's own args (prod, acc) would attach
+// `prod` to the resolved call even though the real _mm_add_epi32(acc, acc)
+// never receives it, and F would report a false multiply-reaches-add
+// finding on a call that never happened. `is_forwarding_alias` must refuse
+// to register DROP_FIRST_MUL at all.
+#define DROP_FIRST_MUL(a, b) _mm_add_epi32((b), (b))
+
+void dropped_parameter(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_mullo_epi32(va, vb);
+    __m128i sum = DROP_FIRST_MUL(prod, acc);
+    (void)sum;
+}
+
 void reused_name(const int *a, const int *b, __m128i acc) {
     __m128i va = _mm_loadu_si128((const __m128i *)a);
     __m128i vb = _mm_loadu_si128((const __m128i *)b);

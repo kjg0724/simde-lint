@@ -41,6 +41,22 @@ def test_verdict_is_invariant_to_how_the_alias_forwards_its_operands(run_rule):
     assert unfaithful.raw_name == "_reversed_cmpgt_epi64"
 
 
+def test_reports_nothing_when_the_consuming_alias_dropped_the_producers_result(run_rule):
+    """P1: a dropped parameter on the *consumer* side, not the producer's.
+
+    `DROP_FIRST(a, b)` never uses `a` -- it forwards only `b` (twice) to
+    `_mm_add_epi32`. Before `is_forwarding_alias` rejected this shape,
+    `DROP_FIRST(cmp, x)` resolved to `_mm_add_epi32` with args `(cmp, x)` --
+    the call site's own args, in macro-parameter order -- so `cmp` still
+    looked consumed even though the real `_mm_add_epi32(x, x)` never
+    receives it. `DROP_FIRST` must not be registered as an alias at all, so
+    this call site is not recognized as an intrinsic call and there is no
+    following call for P to see.
+    """
+    findings = [f for f in run_rule(PipelineRule(), "pipeline_positive.c") if f.function == "dropped_parameter"]
+    assert findings == []
+
+
 def test_reports_nothing_when_an_independent_call_separates_them(run_rule):
     findings = [f for f in run_rule(PipelineRule(), "pipeline_negative.c") if f.function == "kernel"]
     assert findings == []

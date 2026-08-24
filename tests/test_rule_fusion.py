@@ -97,6 +97,22 @@ def test_verdict_is_invariant_to_how_the_alias_forwards_its_operands(run_rule):
     assert unfaithful.raw_name == "_my_mullo_epi32"
 
 
+def test_reports_nothing_when_the_consuming_alias_dropped_the_producers_result(run_rule):
+    """P1: a dropped parameter on the *consumer* side, not the producer's.
+
+    `DROP_FIRST_MUL(a, b)` never uses `a` -- it forwards only `b` (twice) to
+    `_mm_add_epi32`. Before `is_forwarding_alias` rejected this shape,
+    `DROP_FIRST_MUL(prod, acc)` resolved to `_mm_add_epi32` with args
+    `(prod, acc)` -- the call site's own args, in macro-parameter order --
+    so `prod` still looked consumed even though the real
+    `_mm_add_epi32(acc, acc)` never receives it. `DROP_FIRST_MUL` must not be
+    registered as an alias at all, so this call site is not recognized as an
+    intrinsic call and F's `adds` list never includes it.
+    """
+    findings = [f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "dropped_parameter"]
+    assert findings == []
+
+
 def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     # The widening conversion runs before the second multiply, so only the
     # first can own it. Attributing it to the second would invert the interval
