@@ -170,7 +170,7 @@ def _call_is_recognized_intrinsic(
 def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[AnalysisUnit]:
     root = parse_source(source).root_node
     macros = reparse_macros(root, source)
-    aliases = build_alias_map(macros, knowledge)
+    aliases = build_alias_map(root, source, macros, knowledge)
 
     units: list[AnalysisUnit] = []
     for definition in _iter_function_definitions(root):
@@ -240,24 +240,27 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
     for macro in macros:
         if not macro.ok:
             continue
-        if macro.body_start_byte in aliases.definitions:
+        if macro.start_byte in aliases.definitions:
             # A confirmed forwarding alias's use sites are already covered by
             # normalization (its callee resolves to the intrinsic it forwards
             # to). Building a unit for it too would report the same call
             # twice: once as the alias's normalized use, once as a call
             # inside the macro body.
             #
-            # Keyed by this specific definition's `body_start_byte`, not by
-            # `macro.name`: a name can have several definitions in this file
-            # (different `#if` branches), and only the ones that actually
-            # agreed with each other and were registered by
-            # `build_alias_map` belong to `aliases.definitions` — a
-            # same-named sibling that disagreed still needs its own unit
-            # built below. `body_start_byte` identifies a definition
-            # uniquely within one file, which is the scope `aliases` is
-            # built at; if that scope ever widens to span multiple files,
-            # this key must be paired with a file identifier too, since byte
-            # offsets alone would then collide across files.
+            # Keyed by this specific definition's `start_byte` (the
+            # `#define` construct's own position — see `ReparsedMacro`), not
+            # by `macro.name` and not by `macro.body_start_byte`: a name can
+            # have several definitions in this file (different `#if`
+            # branches), and only the ones that actually agreed with each
+            # other and were registered by `build_alias_map` belong to
+            # `aliases.definitions` — a same-named sibling that disagreed
+            # still needs its own unit built below. `start_byte` identifies
+            # a definition uniquely within one file (unlike
+            # `body_start_byte`, which an empty-bodied sibling definition
+            # would not even have), which is the scope `aliases` is built
+            # at; if that scope ever widens to span multiple files, this key
+            # must be paired with a file identifier too, since byte offsets
+            # alone would then collide across files.
             continue
         unit = _extract_macro_unit(macro, source, path, aliases, knowledge)
         if unit is not None:

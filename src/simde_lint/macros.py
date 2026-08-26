@@ -9,7 +9,9 @@ original file by one constant offset.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from tree_sitter import Node
 
@@ -30,6 +32,16 @@ def _is_intrinsic(name: str) -> bool:
 class ReparsedMacro:
     name: str
     params: tuple[str, ...]
+    # Start of the whole `#define` construct (the `preproc_function_def`
+    # node itself) — a stable, always-present per-*definition* key, unlike
+    # `body_start_byte` below, which only exists when the definition has a
+    # body at all. `build_alias_map`'s `AliasMap.definitions` and
+    # `extract.py`'s unit skip are both keyed on this field, not on
+    # `body_start_byte`, precisely so an empty-bodied definition (which
+    # never reaches this dataclass — see `reparse_macros`, and
+    # `macros._definition_positions` for the count that catches it anyway)
+    # cannot be conflated with one that does.
+    start_byte: int
     body_start_byte: int
     root: Node
     source: bytes
@@ -87,7 +99,14 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
     """Reparse every function-like macro body in one file.
 
     A body that does not parse is returned with `ok=False` and is not guessed
-    at from its text; callers treat it as neither an alias nor a unit.
+    at from its text; callers treat it as neither an alias nor a unit. A
+    definition with **no** body at all (`#define LD(p)`, nothing after the
+    parameter list — tree-sitter's `value` field is `None`, not an empty
+    node) is skipped entirely, same as before: there is no body byte range to
+    reparse. It is not, however, invisible to `build_alias_map` — see
+    `_definition_positions`, which enumerates `preproc_function_def` nodes
+    directly rather than relying on this function's output, specifically to
+    catch this case.
     """
     macros: list[ReparsedMacro] = []
     for define in iter_nodes(root, "preproc_function_def"):
@@ -108,6 +127,7 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
             ReparsedMacro(
                 name=name,
                 params=params,
+                start_byte=define.start_byte,
                 body_start_byte=value.start_byte,
                 root=tree.root_node,
                 source=synthetic,
@@ -115,6 +135,34 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
             )
         )
     return macros
+
+
+def _definition_positions(root: Node, source: bytes) -> dict[str, list[int]]:
+    """Every function-like macro *definition*'s own start position, by name.
+
+    Unlike `reparse_macros`, this counts every `preproc_function_def` node
+    regardless of whether it has a body. `#define LD(p)` — nothing after the
+    parameter list — has `value=None`, and `reparse_macros` skips it: there
+    is no body to reparse. If `build_alias_map` only ever saw
+    `reparse_macros`'s output, a name with an alias-shaped definition in one
+    `#if` branch and this kind of empty definition in another would never
+    learn the empty one exists, and would register the name as if every
+    definition agreed — vacuously, over a definition it never saw. This
+    function exists so `build_alias_map` can compare "how many definitions
+    does this name really have" against "how many did `reparse_macros`
+    reparse" and refuse to register when the two counts differ.
+
+    Keyed by the *definition* node's own `start_byte` (see `ReparsedMacro`),
+    not any measure of its body — an empty definition still gets a stable,
+    distinct position this way.
+    """
+    positions: dict[str, list[int]] = {}
+    for define in iter_nodes(root, "preproc_function_def"):
+        name = node_text(define.child_by_field_name("name"), source)
+        if not name:
+            continue
+        positions.setdefault(name, []).append(define.start_byte)
+    return positions
 
 
 _TRANSPARENT = {"parenthesized_expression", "cast_expression"}
@@ -166,8 +214,9 @@ def _forwarding_call(macro: ReparsedMacro) -> Node | None:
     """The body's single top-level `call_expression`, or None otherwise.
 
     Shared by `is_forwarding_alias` (which reads only the callee's name) and
-    `_parameter_mapping` (which reads that same call's argument list) so the
-    "single statement, single call, no nested call" shape is checked once.
+    `_resolve_alias` (which reads that same call's argument list, through
+    `_call_shape`) so the "single statement, single call, no nested call"
+    shape is checked once.
     """
     if not macro.ok:
         return None
@@ -228,48 +277,286 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     return macro.source[callee.start_byte : callee.end_byte].decode()
 
 
-_IDENTIFIER_TOKEN = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*")
+def _splice_lines(text: bytes) -> bytes:
+    r"""Delete backslash-newline sequences, mirroring C's own phase-2 splicing.
 
+    A `\` immediately followed by an end-of-line — optionally with trailing
+    spaces/tabs/`\r` between the `\` and the newline, matching this file's
+    own continuation tolerance in `_body_range` — is deleted along with the
+    newline, joining the two physical lines into one logical line. Without
+    this, a call written with its argument list split across a
+    backslash-continued macro body (the reparsed body still contains the raw
+    `\` and newline bytes verbatim — tree-sitter does not splice them) would
+    tokenize with a stray `\` token that the same call written on one
+    physical line does not have, and the two would compare unequal for a
+    reason that has nothing to do with what either macro forwards.
 
-def _parameter_mapping(macro: ReparsedMacro) -> str | None:
-    """Normalized parameter-to-argument correspondence of a forwarding body.
-
-    Meaningful only once `is_forwarding_alias` has already confirmed the
-    body forwards to a single call (returns None otherwise, same as that
-    function). Reads that call's argument-list source text and rewrites
-    every token that spells one of the macro's own parameter names into a
-    positional marker for that parameter's index in `macro.params` — plain
-    text substitution over the argument list, not a value-flow analysis:
-    `T((a), (b))` and `T((b), (a))` produce different strings (the markers
-    swap position), and `T((a) + 1, (b))` differs from `T((a), (b))` (the
-    `+ 1` has no counterpart on the other side). Every occurrence of a
-    parameter name is rewritten, including a repeated one (`f((b), (b))`
-    becomes two occurrences of the same marker), so a duplicated parameter
-    and a single one used once are never mistaken for each other. The
-    marker is `\x00<index>\x00` — a byte that cannot appear in C source —
-    so it cannot collide with a real identifier or with an adjacent marker.
-
-    Two definitions of the same name compare equal here exactly when they
-    forward every parameter to the same position(s) of the same argument
-    list shape, including argument count: a 1-parameter body that duplicates
-    its single argument (`f(a, a)`) and a 2-parameter body that does not
-    (`f(a, b)`) produce different marker sequences even though both are
-    otherwise-faithful forwards, because the marker sequences themselves
-    differ (`\x000\x00, \x000\x00` vs `\x000\x00, \x001\x00`).
+    A `\` that is not immediately (mod that trailing whitespace) followed by
+    a newline — including one that opens a string escape like `"\n"` — is
+    left untouched; this only ever fires on an actual line-continuation.
     """
-    expression = _forwarding_call(macro)
-    if expression is None:
+    out = bytearray()
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == 0x5C:  # \
+            j = i + 1
+            while j < n and text[j] in (0x20, 0x09, 0x0D):  # space, tab, CR
+                j += 1
+            if j < n and text[j] == 0x0A:  # \n
+                i = j + 1
+                continue
+        out.append(text[i])
+        i += 1
+    return bytes(out)
+
+
+def _byteset(text: bytes) -> frozenset[bytes]:
+    """A frozenset of the single-byte slices `text` contains.
+
+    Not `frozenset(text)`: iterating a `bytes` object directly yields
+    `int`s, not length-1 `bytes`, and every membership test in this
+    tokenizer compares against a `text[i : i + 1]` slice — a `bytes` object.
+    An `int`-keyed set would silently never match any of them.
+    """
+    return frozenset(text[i : i + 1] for i in range(len(text)))
+
+
+_WHITESPACE = _byteset(b" \t\n\r\v\f")
+_IDENT_START = _byteset(bytes(range(0x41, 0x5B)) + bytes(range(0x61, 0x7B)) + b"_")
+_DIGITS = _byteset(bytes(range(0x30, 0x3A)))
+_IDENT_CONTINUE = _IDENT_START | _DIGITS
+_EXPONENT_LETTERS = _byteset(b"eEpP")
+_SIGNS = _byteset(b"+-")
+_STRING_PREFIXES = (b"u8", b"u", b"U", b"L")
+
+
+def _literal_start(text: bytes, i: int) -> int | None:
+    """Byte offset of the opening quote at `i`, honoring an encoding prefix.
+
+    Returns the offset of the `"` or `'` itself (which may be `i` with no
+    prefix, or a few bytes past it for `u8"..."`/`u'...'`/`U"..."`/`L"..."`),
+    or None if `text[i]` does not begin a string or character literal.
+    """
+    n = len(text)
+    if text[i : i + 1] in (b'"', b"'"):
+        return i
+    for prefix in _STRING_PREFIXES:
+        end = i + len(prefix)
+        if text[i:end] == prefix and end < n and text[end : end + 1] in (b'"', b"'"):
+            return end
+    return None
+
+
+def _scan_literal(text: bytes, quote_at: int) -> int | None:
+    r"""End offset (exclusive) of the literal opening at `quote_at`, or None.
+
+    `quote_at` is the position of the opening quote itself. A `\` inside the
+    literal always escapes the next byte, whatever it is — including a
+    second `\` or a matching quote — so an escaped quote never terminates
+    the literal early. None means the literal runs off the end of `text`
+    without a closing quote: malformed, unlexable input, which callers must
+    treat as a hard failure rather than guess at.
+    """
+    quote = text[quote_at : quote_at + 1]
+    n = len(text)
+    j = quote_at + 1
+    while j < n:
+        c = text[j : j + 1]
+        if c == b"\\":
+            j += 2
+            continue
+        if c == quote:
+            return j + 1
+        j += 1
+    return None
+
+
+def _scan_block_comment_end(text: bytes, start: int) -> int | None:
+    """End offset (exclusive) of a `/*` comment opening at `start`, or None."""
+    end = text.find(b"*/", start + 2)
+    return None if end < 0 else end + 2
+
+
+def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
+    """Lex already-spliced `text` into `(kind, bytes)` tokens, or None if malformed.
+
+    `kind` is `"ident"` for an identifier (a candidate for parameter
+    substitution), or `"other"` for everything else that is kept
+    (string/character literals as one opaque token each, pp-numbers, and
+    individual punctuator characters). Whitespace and comments are dropped
+    entirely — neither carries meaning for comparing two forwarded call
+    shapes.
+
+    This is a plain byte-level lexer, deliberately independent of
+    tree-sitter's own CST node classification: `(BASE) + (0 * (S))` parses
+    as a cast in this project's grammar, with `BASE` read as a
+    `type_identifier` rather than a parenthesized variable reference (see
+    `_identifiers`'s docstring) — a distinction that would matter if
+    substitution keyed off node type, but does not here, because `BASE`'s
+    *lexical spelling* is the same identifier either way.
+
+    A string or character literal (with an optional `u8`/`u`/`U`/`L` prefix)
+    is kept as a single token covering its entire spelling, quotes included,
+    and its *contents* are never inspected: `sizeof("a")` and `sizeof("x")`
+    tokenize to different literal tokens, not to the same substituted
+    parameter, even though `a` alone would otherwise be one of this macro's
+    parameter names. An escaped quote (`"\""`) does not end the literal
+    early, so `"\""` is one token, not a truncated one.
+
+    Returns None when a string literal, character literal, or block comment
+    is left unterminated at the end of `text` — malformed input fails
+    closed: it can never make two definitions compare as agreeing.
+    """
+    tokens: list[tuple[str, bytes]] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i : i + 1]
+        if c in _WHITESPACE:
+            i += 1
+            continue
+        if c == b"/" and text[i + 1 : i + 2] == b"/":
+            end = text.find(b"\n", i)
+            i = n if end < 0 else end
+            continue
+        if c == b"/" and text[i + 1 : i + 2] == b"*":
+            end = _scan_block_comment_end(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
+        quote_at = _literal_start(text, i)
+        if quote_at is not None:
+            end = _scan_literal(text, quote_at)
+            if end is None:
+                return None
+            tokens.append(("other", text[i:end]))
+            i = end
+            continue
+        if c in _IDENT_START:
+            j = i + 1
+            while j < n and text[j : j + 1] in _IDENT_CONTINUE:
+                j += 1
+            tokens.append(("ident", text[i:j]))
+            i = j
+            continue
+        if c in _DIGITS or (c == b"." and text[i + 1 : i + 2] in _DIGITS):
+            j = i + 1
+            while j < n:
+                d = text[j : j + 1]
+                if d in _EXPONENT_LETTERS and text[j + 1 : j + 2] in _SIGNS:
+                    j += 2
+                    continue
+                if d in _IDENT_CONTINUE or d == b".":
+                    j += 1
+                    continue
+                break
+            tokens.append(("other", text[i:j]))
+            i = j
+            continue
+        tokens.append(("other", c))
+        i += 1
+    return tokens
+
+
+def _marker(index: int) -> bytes:
+    return f"\x00{index}\x00".encode()
+
+
+_MARKER = re.compile(rb"\x00([0-9]+)\x00")
+
+
+def _marker_index(token: bytes) -> int | None:
+    match = _MARKER.fullmatch(token)
+    return int(match.group(1)) if match else None
+
+
+def _normalized_tokens(text: bytes, params: tuple[str, ...]) -> tuple[bytes, ...] | None:
+    """One argument's token sequence, its own macro's parameters marked.
+
+    Splices backslash-newlines, lexes the result, and rewrites every
+    `"ident"` token that exactly spells one of `params` into `_marker(index)`
+    — a byte sequence (`\x00<index>\x00`) that cannot appear in C source, so
+    it cannot collide with a real identifier or with an adjacent marker.
+    Every occurrence is rewritten, including a repeated one, so `f(b, b)`
+    keeps both markers distinct occurrences rather than being conflated with
+    `f(b)`. Non-parameter identifiers, literals, numbers and punctuators
+    pass through unchanged. Returns None when `text` fails to lex (see
+    `_tokenize`) — malformed input fails closed.
+    """
+    tokens = _tokenize(_splice_lines(text))
+    if tokens is None:
         return None
-    arguments = expression.child_by_field_name("arguments")
-    text = macro.source[arguments.start_byte : arguments.end_byte] if arguments is not None else b""
-    index_by_name = {name: index for index, name in enumerate(macro.params)}
+    index_by_name = {name: index for index, name in enumerate(params)}
+    out: list[bytes] = []
+    for kind, value in tokens:
+        if kind == "ident":
+            index = index_by_name.get(value.decode("ascii", errors="replace"))
+            out.append(_marker(index) if index is not None else value)
+        else:
+            out.append(value)
+    return tuple(out)
 
-    def _replace(match: re.Match[bytes]) -> bytes:
-        name = match.group(0).decode()
-        index = index_by_name.get(name)
-        return f"\x00{index}\x00".encode() if index is not None else match.group(0)
 
-    return _IDENTIFIER_TOKEN.sub(_replace, text).decode(errors="replace")
+def _call_shape(
+    macro: ReparsedMacro, arguments: Node | None
+) -> tuple[tuple[bytes, ...], ...] | None:
+    """Per-argument normalized token shape of one forwarded call.
+
+    One token tuple per positional argument (`arguments.named_children`),
+    each produced by `_normalized_tokens` against `macro.params` — so a
+    marker in position `k` of argument `i` means "wherever this macro's
+    parameter `k` is used inside its `i`th argument to the call it
+    forwards to." Comparing two calls' shapes for equality is exactly
+    comparing where each parameter lands, argument count included: `f(a, a)`
+    and `f(a, b)` (or `f(a)` and `f(a, b)`) have different shapes. Returns
+    None if any argument fails to lex (see `_normalized_tokens`) — malformed
+    input fails closed, same as everywhere else in this module.
+    """
+    if arguments is None:
+        return ()
+    shape = []
+    for arg in arguments.named_children:
+        tokens = _normalized_tokens(macro.source[arg.start_byte : arg.end_byte], macro.params)
+        if tokens is None:
+            return None
+        shape.append(tokens)
+    return tuple(shape)
+
+
+def _substitute_shape(
+    shape: tuple[tuple[bytes, ...], ...], replacements: tuple[tuple[bytes, ...], ...]
+) -> tuple[tuple[bytes, ...], ...] | None:
+    """Compose one call's shape with what an outer call actually supplies.
+
+    `shape` is one macro's own forwarded-call shape, its markers referring
+    to *that macro's* parameter positions. `replacements` is one token tuple
+    per parameter index of that same macro — what an outer, composing call
+    passes for each parameter, itself already expressed in the outer call's
+    own markers (or plain tokens, at the top of a chain). Every marker token
+    in `shape` is replaced, in place, by the *entire* multi-token sequence
+    `replacements` has for that index, so an intermediate that inserts
+    extra tokens around a parameter (`X(p, q) -> TGT(p + 1, q)`) keeps the
+    `+ 1` in the composed result rather than losing it to a plain
+    position-for-position swap.
+
+    Returns None when `shape` references a parameter index `replacements`
+    has no entry for — an arity mismatch between the outer call and this
+    macro's own parameter list, which the chain cannot resolve, and which
+    therefore must not be treated as agreement either way.
+    """
+    composed: list[tuple[bytes, ...]] = []
+    for arg_tokens in shape:
+        new_arg: list[bytes] = []
+        for token in arg_tokens:
+            index = _marker_index(token)
+            if index is None:
+                new_arg.append(token)
+                continue
+            if index >= len(replacements):
+                return None
+            new_arg.extend(replacements[index])
+        composed.append(tuple(new_arg))
+    return tuple(composed)
 
 
 def _statements(root: Node) -> list[Node]:
@@ -300,7 +587,7 @@ class AliasMap:
 
     `targets` is name -> resolved intrinsic, the map callers look up a call
     site's `raw_name` against — the same shape `build_alias_map` returned
-    before this type existed. `definitions` is the `body_start_byte` (see
+    before this type existed. `definitions` is the `start_byte` (see
     `ReparsedMacro`) of every specific macro *definition* that fed a
     registered name; `extract.py`'s unit skip needs this rather than the
     name alone, because one name can have several definitions in a file —
@@ -309,85 +596,157 @@ class AliasMap:
     same-named definition that disagreed is not in here even though its name
     is a key in `targets`, and keeps its own unit.
 
+    The two fields answer different questions at different granularity, and
+    it is worth being precise about which is which: *whether a name
+    registers at all* is decided over the whole set of that name's
+    definitions (every one of them has to agree — see `build_alias_map`),
+    but *which specific definitions are exempt from getting their own unit*
+    is then recorded per definition. A definition's membership in
+    `definitions` therefore always implies its name is a key in `targets`,
+    never the reverse in isolation.
+
     Both fields are produced by the same registration pass in
-    `build_alias_map` and must stay consistent with each other (every
-    `targets` entry has at least one definition in `definitions`, and vice
-    versa); splitting them across two functions is exactly what would let
-    them drift apart, so they are returned together here instead.
+    `build_alias_map` and are read-only from here — `targets` is a
+    `MappingProxyType` view over a dict private to that pass, not a plain
+    dict a caller could mutate out from under `definitions` — so the claim
+    that they cannot drift apart is enforced, not merely documented.
     """
 
-    targets: dict[str, str]
+    targets: Mapping[str, str]
     definitions: frozenset[int]
 
 
-def build_alias_map(macros: list[ReparsedMacro], knowledge: Knowledge) -> AliasMap:
+def _resolve_alias(
+    name: str,
+    seen: frozenset[str],
+    macros_by_name: dict[str, list[ReparsedMacro]],
+    definition_counts: dict[str, int],
+    knowledge: Knowledge,
+    cache: dict[str, tuple[str, tuple[tuple[bytes, ...], ...]] | None],
+) -> tuple[str, tuple[tuple[bytes, ...], ...]] | None:
+    """Resolve `name` to `(final intrinsic, composed shape)`, or None.
+
+    `seen` is the set of names on the *active* recursion path — used only
+    for cycle detection, and never written to `cache` while a name is in it,
+    because being "in `seen`" is true only for as long as this particular
+    call stack is inside it; caching that would wrongly answer an unrelated,
+    non-cyclic query about the same name later. `cache` instead holds each
+    name's final, path-independent outcome, written once its own resolution
+    (below) actually completes.
+
+    Registration is a per-*name* decision over the whole set of that name's
+    definitions: `name` resolves only if every one of its definitions does,
+    and all of them resolve to the *same* `(final intrinsic, composed
+    shape)` pair. A definition resolves when:
+
+    - it is a forwarding alias (`is_forwarding_alias` returns a callee), and
+    - its own forwarded-call shape lexes cleanly (`_call_shape`), and
+    - its callee is already a recognized intrinsic once put through
+      `knowledge.normalize` (chain ends here, this definition's own shape
+      *is* its composed shape) — or its callee is itself a name that
+      resolves (recursively, through this same function, with `name` added
+      to `seen`), in which case this definition's composed shape is that
+      inner result's shape with each of *its* markers substituted by this
+      definition's own per-argument shape (`_substitute_shape`) — i.e. what
+      this definition actually supplies for each of the inner macro's
+      parameters, still expressed in this definition's *own* parameter
+      markers, so it stays comparable against this same name's other
+      definitions.
+
+    `definition_counts[name]` must equal the number of `ReparsedMacro`
+    entries `macros_by_name` has for `name` — built from
+    `_definition_positions`, which counts every `preproc_function_def` node
+    regardless of whether it has a body, so a name with an empty-bodied
+    definition among its `#if` branches never resolves: that definition
+    never becomes a `ReparsedMacro` at all (see `reparse_macros`), and
+    without this count check its absence from `macros_by_name[name]` would
+    go unnoticed, registering the name as if every definition had agreed —
+    vacuously, over a definition never seen.
+
+    A cycle (a name that, through some chain, forwards back to itself), an
+    unresolved intermediate (a callee that is neither a recognized intrinsic
+    nor a name this function knows how to resolve), and an arity mismatch
+    during composition (`_substitute_shape` returning None) all resolve to
+    None — the alias is not registered, full stop; none of these is
+    distinguished from a plain disagreement between definitions.
+    """
+    if name in cache:
+        return cache[name]
+    if name in seen:
+        return None
+    defs = macros_by_name.get(name)
+    if not defs or len(defs) != definition_counts.get(name, -1):
+        cache[name] = None
+        return None
+
+    next_seen = seen | {name}
+    results: list[tuple[str, tuple[tuple[bytes, ...], ...]] | None] = []
+    for macro in defs:
+        callee = is_forwarding_alias(macro)
+        if callee is None:
+            results.append(None)
+            continue
+        arguments = _forwarding_call(macro).child_by_field_name("arguments")  # type: ignore[union-attr]
+        shape = _call_shape(macro, arguments)
+        if shape is None:
+            results.append(None)
+            continue
+        normalized = knowledge.normalize(callee)
+        if _is_intrinsic(normalized):
+            results.append((normalized, shape))
+            continue
+        inner = _resolve_alias(callee, next_seen, macros_by_name, definition_counts, knowledge, cache)
+        if inner is None:
+            results.append(None)
+            continue
+        inner_target, inner_shape = inner
+        composed = _substitute_shape(inner_shape, shape)
+        results.append(None if composed is None else (inner_target, composed))
+
+    if any(result is None for result in results) or len(set(results)) != 1:
+        cache[name] = None
+        return None
+    cache[name] = results[0]
+    return results[0]
+
+
+def build_alias_map(root: Node, source: bytes, macros: list[ReparsedMacro], knowledge: Knowledge) -> AliasMap:
     """Resolve forwarding aliases to the intrinsic at the end of their chain.
 
     A macro name can have more than one definition in a file — different
     `#if` branches, all read regardless of which one a real build would take
-    (see `reparse_macros`). Pass 1 groups a name's definitions together and
-    registers that name as a candidate only when *every* one of its
-    definitions is itself a forwarding alias (`is_forwarding_alias` returns a
-    callee for each), all of those callees agree once each is put through
-    `knowledge.normalize` — the same single-step SIMDe-spelling resolution
-    the final chain lookup below applies, so `simde_mm_cmpgt_epi64` and
-    `_mm_cmpgt_epi64` count as the same target intrinsic even though they are
-    different written names (a real case: VVenC's `DepQuantX86.h` defines
-    `_my_cmpgt_epi64` this way, guarded by `#if USE_SSE41 &&
-    defined(REAL_TARGET_X86)`) — and all of them have the same
-    `_parameter_mapping`, the same normalized correspondence between the
-    macro's own parameters and the forwarded call's argument positions. A
-    name that fails any of those checks is not a candidate at all: none of
-    its definitions register, all of them keep their own macro unit, and —
-    since it is absent from `candidates` — a chain passing through it
-    (another macro forwarding to this name) stops there rather than
-    resolving past it. This agreement check is deliberately narrower than
-    full chain resolution: two branches whose callees are different macro
-    names that would themselves later resolve to the same intrinsic are
-    *not* recognized as agreeing here, only a shared intrinsic or a shared
-    `knowledge.normalize` result is.
+    (see `reparse_macros`). Every name that has at least one `ReparsedMacro`
+    entry is attempted through `_resolve_alias`, which is where the actual
+    per-name agreement decision and chain composition live; see its
+    docstring. Every name that resolves is registered under its resolved
+    intrinsic, and *all* of its own definitions' `start_byte`s are recorded
+    in `definitions` — including a name reached only as an intermediate step
+    of some other name's chain (VVenC's `INNER`/`OUTER` shape: both register
+    independently, `OUTER` by composing through `INNER`), since that name's
+    own direct use sites and its own macro unit are governed by its own
+    registration, not by whichever outer chain happened to reach it first.
 
-    Pass 2 is unchanged from before this per-definition check existed: each
-    candidate's callee is followed through the knowledge aliases and through
-    other candidates. A chain that revisits a name is abandoned — a
-    self-referential macro is legal C — and only chains ending at a
-    recognized intrinsic are confirmed. Which of an agreeing name's several
-    (already-agreeing) raw callees is stored as `candidates[name]` does not
-    matter for this pass: `knowledge.normalize` maps every one of them to
-    the same result by construction of the agreement check above.
+    **What this does not know:** comparison throughout `_resolve_alias` is
+    over each definition's *written token structure*, never over macro
+    expansion. Two intermediates whose bodies are textually identical will
+    always compare equal here even if one of them contains a further,
+    separately-`#if`-redefined object-like macro that would make the two
+    expand differently at compile time — this module has no model of the
+    preprocessor beyond the one function-like macro layer it reparses.
     """
-    by_name: dict[str, list[ReparsedMacro]] = {}
+    macros_by_name: dict[str, list[ReparsedMacro]] = {}
     for macro in macros:
-        by_name.setdefault(macro.name, []).append(macro)
+        macros_by_name.setdefault(macro.name, []).append(macro)
+    definition_counts = {name: len(positions) for name, positions in _definition_positions(root, source).items()}
 
-    candidates: dict[str, str] = {}
-    definitions_by_name: dict[str, frozenset[int]] = {}
-    for name, defs in by_name.items():
-        callees = [is_forwarding_alias(macro) for macro in defs]
-        if any(callee is None for callee in callees):
+    cache: dict[str, tuple[str, tuple[tuple[bytes, ...], ...]] | None] = {}
+    targets: dict[str, str] = {}
+    definitions: set[int] = set()
+    for name in macros_by_name:
+        result = _resolve_alias(name, frozenset(), macros_by_name, definition_counts, knowledge, cache)
+        if result is None:
             continue
-        normalized_targets = {knowledge.normalize(callee) for callee in callees}
-        mappings = [_parameter_mapping(macro) for macro in defs]
-        if len(normalized_targets) != 1 or len(set(mappings)) != 1:
-            continue
-        candidates[name] = callees[0]
-        definitions_by_name[name] = frozenset(macro.body_start_byte for macro in defs)
+        targets[name] = result[0]
+        definitions.update(macro.start_byte for macro in macros_by_name[name])
 
-    resolved: dict[str, str] = {}
-    for name in candidates:
-        seen = {name}
-        current = candidates[name]
-        while True:
-            normalized = knowledge.normalize(current)
-            if _is_intrinsic(normalized):
-                resolved[name] = normalized
-                break
-            if current in seen or current not in candidates:
-                break
-            seen.add(current)
-            current = candidates[current]
-
-    definitions = frozenset(
-        byte for name in resolved for byte in definitions_by_name[name]
-    )
-    return AliasMap(targets=resolved, definitions=definitions)
+    return AliasMap(targets=MappingProxyType(targets), definitions=frozenset(definitions))

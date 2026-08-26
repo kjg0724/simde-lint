@@ -543,15 +543,29 @@ gaps to be closed later:
   VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two separate `#ifdef
   USE_AVX2` blocks; both are read, as all `#if` branches are, and — since
   neither body is a forwarding alias — both become units of three calls
-  each. Neither produces a finding today. Registration and the unit skip
-  are both keyed per definition, not per name: a name's several definitions
-  are registered, and skip building a unit, only when every one of them is a
-  forwarding alias to the same target intrinsic with the same parameter
-  mapping. A name whose definitions disagree — a genuinely different
-  multi-call `#if` branch sharing an alias-shaped sibling's name, or two
-  alias-shaped branches that forward to different intrinsics — registers
-  nothing: none of its definitions are skipped, and none of its call sites
-  are recognized as the intrinsic either. SVT-AV1's
+  each. Neither produces a finding today.
+
+  Whether a name registers at all is a decision made over the *whole set*
+  of that name's definitions, not per definition: every one of them must be
+  a forwarding alias, must resolve — following through other already-
+  registered names, when the immediate callee is itself a macro rather than
+  a recognized intrinsic directly — to the same final target intrinsic, and
+  must compose to the same parameter-to-argument mapping (each definition's
+  own forwarded-call shape, with any intermediate macro's own forwarding
+  substituted in). A different immediate callee name between two of a
+  name's definitions is not itself disagreement, provided both routes
+  resolve and compose to the same result; an intermediate that reorders or
+  otherwise reshapes the operands it forwards is. Once a name registers,
+  the resulting unit skip *is* applied per definition: every one of that
+  name's own definitions is exempt from getting its own macro unit, and a
+  same-named sibling that shares no relationship to a *different*,
+  disagreeing name is unaffected.
+
+  A name whose definitions disagree — a genuinely different multi-call
+  `#if` branch sharing an alias-shaped sibling's name, or alias-shaped
+  branches that resolve to different intrinsics or compose to different
+  mappings — registers nothing: none of its definitions are skipped, and
+  none of its call sites are recognized as the intrinsic either. SVT-AV1's
   `MM256_BROADCASTSI128_SI256` in `aom_subpixel_8t_intrin_avx2.c` is exactly
   this: six definitions across nested `#if`/`#elif` branches, forwarding to
   either `_mm_broadcastsi128_si256` or `_mm256_broadcastsi128_si256`
@@ -562,6 +576,17 @@ gaps to be closed later:
   two possible targets is anchored by a rule, so this changes which macros
   register as aliases without moving any finding — the same shape as Task
   3 below.
+
+  **One honesty boundary, stated rather than implied:** this comparison is
+  over each definition's *written token structure* — string/character
+  literal contents are opaque and never inspected, and every other token is
+  compared byte-for-byte once whitespace, comments and backslash-newline
+  continuations are normalized away — never over macro *expansion*. Two
+  forwarding bodies whose written text is identical are treated as
+  agreeing even if one of them contains a further, separately
+  `#if`-redefined object-like macro that would make the two expand to
+  different values at compile time; this module has no model of the
+  preprocessor beyond the one function-like macro layer it reparses.
 
 ### The forwarding-alias argument list
 
