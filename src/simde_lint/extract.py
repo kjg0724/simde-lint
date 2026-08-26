@@ -23,7 +23,7 @@ from .ir import (
     ValueRef,
 )
 from .knowledge import Knowledge
-from .macros import ReparsedMacro, _is_intrinsic, build_alias_map, line_column, original_byte, reparse_macros
+from .macros import AliasMap, ReparsedMacro, _is_intrinsic, build_alias_map, line_column, original_byte, reparse_macros
 from .parser import iter_nodes, node_text, parse_source
 from .symbols import parse_int_literal
 
@@ -160,10 +160,10 @@ def _unwrap_cast(node: Node) -> Node:
 
 
 def _call_is_recognized_intrinsic(
-    node: Node, source: bytes, aliases: dict[str, str], knowledge: Knowledge
+    node: Node, source: bytes, aliases: AliasMap, knowledge: Knowledge
 ) -> bool:
     raw_name = node_text(node.child_by_field_name("function"), source)
-    resolved = knowledge.normalize(aliases.get(raw_name, raw_name))
+    resolved = knowledge.normalize(aliases.targets.get(raw_name, raw_name))
     return _is_intrinsic(resolved)
 
 
@@ -189,7 +189,7 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
 
         for node in call_nodes:
             raw_name = node_text(node.child_by_field_name("function"), source)
-            resolved = knowledge.normalize(aliases.get(raw_name, raw_name))
+            resolved = knowledge.normalize(aliases.targets.get(raw_name, raw_name))
             if not _is_intrinsic(resolved):
                 continue
             arguments = node.child_by_field_name("arguments")
@@ -207,7 +207,7 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
                 column=node.start_point[1] + 1,
                 start_byte=node.start_byte,
                 result_var=result_var,
-                is_macro_alias=raw_name in aliases,
+                is_macro_alias=raw_name in aliases.targets,
             )
             unit.calls.append(call)
             if result_var:
@@ -240,12 +240,24 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
     for macro in macros:
         if not macro.ok:
             continue
-        if macro.name in aliases:
+        if macro.body_start_byte in aliases.definitions:
             # A confirmed forwarding alias's use sites are already covered by
             # normalization (its callee resolves to the intrinsic it forwards
             # to). Building a unit for it too would report the same call
             # twice: once as the alias's normalized use, once as a call
             # inside the macro body.
+            #
+            # Keyed by this specific definition's `body_start_byte`, not by
+            # `macro.name`: a name can have several definitions in this file
+            # (different `#if` branches), and only the ones that actually
+            # agreed with each other and were registered by
+            # `build_alias_map` belong to `aliases.definitions` — a
+            # same-named sibling that disagreed still needs its own unit
+            # built below. `body_start_byte` identifies a definition
+            # uniquely within one file, which is the scope `aliases` is
+            # built at; if that scope ever widens to span multiple files,
+            # this key must be paired with a file identifier too, since byte
+            # offsets alone would then collide across files.
             continue
         unit = _extract_macro_unit(macro, source, path, aliases, knowledge)
         if unit is not None:
@@ -257,7 +269,7 @@ def _extract_macro_unit(
     macro: ReparsedMacro,
     source: bytes,
     path: str,
-    aliases: dict[str, str],
+    aliases: AliasMap,
     knowledge: Knowledge,
 ) -> MacroUnit | None:
     """Build a `MacroUnit` from one reparsed macro body.
@@ -279,7 +291,7 @@ def _extract_macro_unit(
     definitions: list[Definition] = []
     for node in call_nodes:
         raw_name = node_text(node.child_by_field_name("function"), macro.source)
-        resolved = knowledge.normalize(aliases.get(raw_name, raw_name))
+        resolved = knowledge.normalize(aliases.targets.get(raw_name, raw_name))
         if not _is_intrinsic(resolved):
             continue
         arguments = node.child_by_field_name("arguments")
@@ -299,7 +311,7 @@ def _extract_macro_unit(
             column=column,
             start_byte=start_byte,
             result_var=result_var,
-            is_macro_alias=raw_name in aliases,
+            is_macro_alias=raw_name in aliases.targets,
         )
         calls.append(call)
         if result_var:
@@ -332,7 +344,7 @@ def _extract_macro_unit(
 
 
 def _record_plain_assignments(
-    scope: Node, source: bytes, unit: MutableAnalysisUnit, aliases: dict[str, str], knowledge: Knowledge
+    scope: Node, source: bytes, unit: MutableAnalysisUnit, aliases: AliasMap, knowledge: Knowledge
 ) -> None:
     """Record assignments whose right side is not a recognized intrinsic call.
 
@@ -396,7 +408,7 @@ def _record_macro_plain_assignments(
     macro: ReparsedMacro,
     source: bytes,
     unit: MutableAnalysisUnit,
-    aliases: dict[str, str],
+    aliases: AliasMap,
     knowledge: Knowledge,
 ) -> None:
     """Macro-body counterpart of `_record_plain_assignments`.

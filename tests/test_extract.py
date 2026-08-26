@@ -491,7 +491,7 @@ def test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor()
     knowledge = load_knowledge()
     root = parse_source(_ALIAS_SHAPES).root_node
     macros = reparse_macros(root, _ALIAS_SHAPES)
-    alias_targets = set(build_alias_map(macros, knowledge).values())
+    alias_targets = set(build_alias_map(macros, knowledge).targets.values())
     assert alias_targets == {"_mm256_set_m128i", "_mm256_setr_epi32"}
 
     operand_sensitive_anchors = (
@@ -524,4 +524,4 @@ def test_a_body_that_drops_a_macro_parameter_is_never_registered_as_an_alias():
     macros = reparse_macros(root, _DROPPED_PARAMETER_SHAPE)
     assert len(macros) == 1
     assert is_forwarding_alias(macros[0]) is None
-    assert build_alias_map(macros, knowledge) == {}
+    assert build_alias_map(macros, knowledge).targets == {}

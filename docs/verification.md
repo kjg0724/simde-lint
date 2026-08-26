@@ -539,16 +539,29 @@ gaps to be closed later:
   `tmp` in a function are unrelated and neither satisfies the other's def-use
   query.
 - **A macro name defined more than once in a file yields one unit per
-  definition.** VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two
-  separate `#ifdef USE_AVX2` blocks; both are read, as all `#if` branches
-  are, and both become units of three calls each. Neither produces a finding
-  today. This is the only such case in either codebase. This drops to zero
-  units for every one of that name's definitions when any one of them is a
-  forwarding alias: the alias skip is keyed on the macro's name, not on
-  the specific definition, so a same-named `#if` branch whose body is a
-  genuinely different, multi-call sequence is skipped too, and its calls
-  become invisible. Known limitation, not fixed in v1.2 (see the release
-  notes).
+  definition, except definitions registered as forwarding aliases.**
+  VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two separate `#ifdef
+  USE_AVX2` blocks; both are read, as all `#if` branches are, and — since
+  neither body is a forwarding alias — both become units of three calls
+  each. Neither produces a finding today. Registration and the unit skip
+  are both keyed per definition, not per name: a name's several definitions
+  are registered, and skip building a unit, only when every one of them is a
+  forwarding alias to the same target intrinsic with the same parameter
+  mapping. A name whose definitions disagree — a genuinely different
+  multi-call `#if` branch sharing an alias-shaped sibling's name, or two
+  alias-shaped branches that forward to different intrinsics — registers
+  nothing: none of its definitions are skipped, and none of its call sites
+  are recognized as the intrinsic either. SVT-AV1's
+  `MM256_BROADCASTSI128_SI256` in `aom_subpixel_8t_intrin_avx2.c` is exactly
+  this: six definitions across nested `#if`/`#elif` branches, forwarding to
+  either `_mm_broadcastsi128_si256` or `_mm256_broadcastsi128_si256`
+  depending on the branch — a genuine disagreement, previously collapsed
+  into a single, arbitrary "last definition wins" registration before this
+  fix (see the release notes' "Alias registration and the unit skip are now
+  keyed per definition" for the underlying defect). Neither of that name's
+  two possible targets is anchored by a rule, so this changes which macros
+  register as aliases without moving any finding — the same shape as Task
+  3 below.
 
 ### The forwarding-alias argument list
 

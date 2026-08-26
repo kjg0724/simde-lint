@@ -137,19 +137,19 @@ def test_a_multi_call_body_is_not_an_alias():
 
 
 def test_alias_map_resolves_a_chain_to_its_end():
-    assert build_alias_map(_macros(CHAIN), load_knowledge()) == {
+    assert build_alias_map(_macros(CHAIN), load_knowledge()).targets == {
         "INNER": "_mm_cmpgt_epi64",
         "OUTER": "_mm_cmpgt_epi64",
     }
 
 
 def test_a_cycle_resolves_to_nothing():
-    assert build_alias_map(_macros(CYCLE), load_knowledge()) == {}
+    assert build_alias_map(_macros(CYCLE), load_knowledge()).targets == {}
 
 
 def test_a_body_whose_callee_is_not_an_intrinsic_is_not_an_alias():
     source = b"#define WRAP(x) helper_fn(x)\n"
-    assert build_alias_map(_macros(source), load_knowledge()) == {}
+    assert build_alias_map(_macros(source), load_knowledge()).targets == {}
 
 
 def test_a_trailing_semicolon_still_resolves_as_a_single_call_alias():
@@ -284,3 +284,166 @@ def test_the_same_call_is_never_attributed_to_both_a_macro_and_a_function():
     # And the macro unit's one call is the `a` argument inside the #define,
     # strictly before the function even starts in the source.
     assert max(macro_bytes) < min(function_bytes)
+
+
+# --- v1.3: alias registration keyed per definition, not per macro name -----
+#
+# A macro name can have several definitions under different `#if` branches,
+# and `reparse_macros` reads all of them regardless of which branch a real
+# build would actually take (see the `UNPACKX` fixture below, and the
+# existing "known limitation" note in README.md/docs/verification.md).
+# Before this fix, `build_alias_map` folded every definition of one name
+# into a single `candidates[name]` entry -- last definition in the file
+# silently wins -- and `extract.py`'s unit skip dropped a *name*, not a
+# specific definition, so a single alias-shaped `#if` branch made every
+# other same-named branch's calls invisible, whether or not that branch was
+# itself an alias. These fixtures each define one name twice in one file to
+# reproduce that.
+
+_DUP_ALIAS_SAME_TARGET_SAME_MAPPING = (
+    b"#ifdef A\n"
+    b"#define LD(p) _mm_loadl_epi64(p)\n"
+    b"#else\n"
+    b"#define LD(p) _mm_loadl_epi64(p)\n"
+    b"#endif\n"
+    b"__m128i use(const __m128i *p) { return LD(p); }\n"
+)
+
+_DUP_ALIAS_DIFFERENT_TARGETS = (
+    b"#ifdef A\n"
+    b"#define LD(p) _mm_loadl_epi64(p)\n"
+    b"#else\n"
+    b"#define LD(p) _mm_loadu_si128(p)\n"
+    b"#endif\n"
+    b"__m128i use(const __m128i *p) { return LD(p); }\n"
+)
+
+# Defect A's own reproduction: one branch is a forwarding alias, the other a
+# genuinely different, two-call body.
+_DUP_ALIAS_AND_MULTI_CALL_BODY = (
+    b"#ifdef A\n"
+    b"#define LD(p) _mm_loadl_epi64(p)\n"
+    b"#else\n"
+    b"#define LD(p) _mm_loadl_epi64(p); _mm_loadu_si128(p);\n"
+    b"#endif\n"
+)
+
+_DUP_ALIAS_DIFFERENT_PARAM_COUNT = (
+    b"#ifdef A\n"
+    b"#define ADD(a) _mm_add_epi32(a, a)\n"
+    b"#else\n"
+    b"#define ADD(a, b) _mm_add_epi32(a, b)\n"
+    b"#endif\n"
+)
+
+_DUP_ALIAS_REVERSED_MAPPING = (
+    b"#ifdef A\n"
+    b"#define ADD(a, b) _mm_add_epi32(a, b)\n"
+    b"#else\n"
+    b"#define ADD(a, b) _mm_add_epi32(b, a)\n"
+    b"#endif\n"
+)
+
+# The real shape from VVenC's `Lib/CommonLib/x86/RdCostX86.h`: `UNPACKX`
+# defined twice, in separate `#ifdef USE_AVX2` blocks, neither body a single
+# forwarding call. Never registered as an alias before this fix either --
+# pinned here so per-definition keying cannot change this one's outcome.
+_DUP_NON_ALIAS = (
+    b"#ifdef USE_AVX2\n"
+    b"#define UNPACKX(a, b, c) do { c = _mm_unpacklo_epi8(a, b); } while (0)\n"
+    b"#else\n"
+    b"#define UNPACKX(a, b, c) do { c = _mm_unpackhi_epi8(a, b); } while (0)\n"
+    b"#endif\n"
+)
+
+
+def test_agreeing_duplicate_aliases_are_registered_and_produce_no_units():
+    knowledge = load_knowledge()
+    units = extract_units("dup.c", _DUP_ALIAS_SAME_TARGET_SAME_MAPPING, knowledge)
+    assert [u.scope for u in units] == ["function"]
+    (use,) = units
+    assert [c.name for c in use.calls] == ["_mm_loadl_epi64"]
+    assert use.calls[0].is_macro_alias
+
+
+def test_disagreeing_duplicate_alias_targets_are_not_registered():
+    knowledge = load_knowledge()
+    units = extract_units("dup.c", _DUP_ALIAS_DIFFERENT_TARGETS, knowledge)
+    macro_units = [u for u in units if u.scope == "macro"]
+    assert len(macro_units) == 2
+    (function_unit,) = [u for u in units if u.scope == "function"]
+    # Neither `LD` definition was registered, so the call site's raw name
+    # never normalizes to a recognized intrinsic and the function unit sees
+    # no call at all.
+    assert function_unit.calls == []
+
+
+def test_one_alias_shaped_and_one_multi_call_definition_are_not_registered():
+    knowledge = load_knowledge()
+    root = parse_source(_DUP_ALIAS_AND_MULTI_CALL_BODY).root_node
+    macros = reparse_macros(root, _DUP_ALIAS_AND_MULTI_CALL_BODY)
+    assert len(macros) == 2
+
+    units = extract_units("dup.c", _DUP_ALIAS_AND_MULTI_CALL_BODY, knowledge)
+    macro_units = [u for u in units if u.scope == "macro"]
+    # Defect A: both definitions must survive as units, including the
+    # multi-call `#else` branch that is not itself an alias.
+    assert len(macro_units) == 2
+
+
+def test_duplicate_aliases_with_different_parameter_counts_are_not_registered():
+    knowledge = load_knowledge()
+    units = extract_units("dup.c", _DUP_ALIAS_DIFFERENT_PARAM_COUNT, knowledge)
+    macro_units = [u for u in units if u.scope == "macro"]
+    assert len(macro_units) == 2
+
+
+def test_duplicate_aliases_with_a_reversed_parameter_mapping_are_not_registered():
+    knowledge = load_knowledge()
+    units = extract_units("dup.c", _DUP_ALIAS_REVERSED_MAPPING, knowledge)
+    macro_units = [u for u in units if u.scope == "macro"]
+    assert len(macro_units) == 2
+
+
+def test_non_alias_duplicate_definitions_are_unaffected():
+    knowledge = load_knowledge()
+    units = extract_units("dup.c", _DUP_NON_ALIAS, knowledge)
+    macro_units = [u for u in units if u.scope == "macro"]
+    assert len(macro_units) == 2
+    assert {u.name for u in macro_units} == {"UNPACKX"}
+
+
+# A real corpus case, found while verifying this fix against VVenC:
+# `DepQuantX86.h` defines `_my_cmpgt_epi64` twice, guarded by
+# `#if USE_SSE41 && defined(REAL_TARGET_X86)` -- one branch's callee is
+# spelled `simde_mm_cmpgt_epi64`, the other `_mm_cmpgt_epi64`. Different
+# written names, but `knowledge.normalize` maps the first to the second, so
+# they are the *same* target intrinsic under SIMDe's own naming convention,
+# not a genuine disagreement -- see `knowledge/aliases.yaml`. Comparing raw
+# callee text here (rather than each callee's own `knowledge.normalize`
+# result) would reject this and regress a real, previously-confirmed alias.
+_DUP_ALIAS_SAME_TARGET_DIFFERENT_SPELLING = (
+    b"#ifdef A\n"
+    b"#define CMP(a, b) simde_mm_cmpgt_epi64(a, b)\n"
+    b"#else\n"
+    b"#define CMP(a, b) _mm_cmpgt_epi64(a, b)\n"
+    b"#endif\n"
+    b"__m128i use(__m128i a, __m128i b) { return CMP(a, b); }\n"
+)
+
+
+def test_duplicate_aliases_agreeing_only_after_simde_spelling_normalization_are_registered():
+    knowledge = load_knowledge()
+    units = extract_units("dup.c", _DUP_ALIAS_SAME_TARGET_DIFFERENT_SPELLING, knowledge)
+    assert [u.scope for u in units] == ["function"]
+    (use,) = units
+    assert [c.name for c in use.calls] == ["_mm_cmpgt_epi64"]
+
+
+def test_a_single_definition_alias_is_still_registered_and_keyed_by_its_own_definition():
+    # Regression pin for the ordinary, single-definition path once
+    # registration moves from per-name to per-definition agreement.
+    macros = reparse_macros(parse_source(FORWARDING).root_node, FORWARDING)
+    alias_map = build_alias_map(macros, load_knowledge())
+    assert alias_map.targets == {"_my_cmpgt_epi64": "_mm_cmpgt_epi64"}
+    assert alias_map.definitions == frozenset({macros[0].body_start_byte})

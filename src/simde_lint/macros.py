@@ -8,6 +8,7 @@ original file by one constant offset.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from tree_sitter import Node
@@ -161,6 +162,30 @@ def _identifiers(node: Node, source: bytes) -> set[str]:
     return names
 
 
+def _forwarding_call(macro: ReparsedMacro) -> Node | None:
+    """The body's single top-level `call_expression`, or None otherwise.
+
+    Shared by `is_forwarding_alias` (which reads only the callee's name) and
+    `_parameter_mapping` (which reads that same call's argument list) so the
+    "single statement, single call, no nested call" shape is checked once.
+    """
+    if not macro.ok:
+        return None
+    body = [
+        child
+        for child in _statements(macro.root)
+        if child.type not in ("comment",)
+    ]
+    if len(body) != 1:
+        return None
+    expression = _unwrap(body[0])
+    if expression.type != "call_expression":
+        return None
+    if len(list(iter_nodes(expression, "call_expression"))) != 1:
+        return None
+    return expression
+
+
 def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     """The single callee a body forwards to, or None if it does anything else.
 
@@ -190,19 +215,8 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     a name that never appears at all is a stronger sign of a body that does
     something other than forward than one that does.
     """
-    if not macro.ok:
-        return None
-    body = [
-        child
-        for child in _statements(macro.root)
-        if child.type not in ("comment",)
-    ]
-    if len(body) != 1:
-        return None
-    expression = _unwrap(body[0])
-    if expression.type != "call_expression":
-        return None
-    if len(list(iter_nodes(expression, "call_expression"))) != 1:
+    expression = _forwarding_call(macro)
+    if expression is None:
         return None
     callee = expression.child_by_field_name("function")
     if callee is None or callee.type != "identifier":
@@ -212,6 +226,50 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     if not set(macro.params) <= used:
         return None
     return macro.source[callee.start_byte : callee.end_byte].decode()
+
+
+_IDENTIFIER_TOKEN = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _parameter_mapping(macro: ReparsedMacro) -> str | None:
+    """Normalized parameter-to-argument correspondence of a forwarding body.
+
+    Meaningful only once `is_forwarding_alias` has already confirmed the
+    body forwards to a single call (returns None otherwise, same as that
+    function). Reads that call's argument-list source text and rewrites
+    every token that spells one of the macro's own parameter names into a
+    positional marker for that parameter's index in `macro.params` — plain
+    text substitution over the argument list, not a value-flow analysis:
+    `T((a), (b))` and `T((b), (a))` produce different strings (the markers
+    swap position), and `T((a) + 1, (b))` differs from `T((a), (b))` (the
+    `+ 1` has no counterpart on the other side). Every occurrence of a
+    parameter name is rewritten, including a repeated one (`f((b), (b))`
+    becomes two occurrences of the same marker), so a duplicated parameter
+    and a single one used once are never mistaken for each other. The
+    marker is `\x00<index>\x00` — a byte that cannot appear in C source —
+    so it cannot collide with a real identifier or with an adjacent marker.
+
+    Two definitions of the same name compare equal here exactly when they
+    forward every parameter to the same position(s) of the same argument
+    list shape, including argument count: a 1-parameter body that duplicates
+    its single argument (`f(a, a)`) and a 2-parameter body that does not
+    (`f(a, b)`) produce different marker sequences even though both are
+    otherwise-faithful forwards, because the marker sequences themselves
+    differ (`\x000\x00, \x000\x00` vs `\x000\x00, \x001\x00`).
+    """
+    expression = _forwarding_call(macro)
+    if expression is None:
+        return None
+    arguments = expression.child_by_field_name("arguments")
+    text = macro.source[arguments.start_byte : arguments.end_byte] if arguments is not None else b""
+    index_by_name = {name: index for index, name in enumerate(macro.params)}
+
+    def _replace(match: re.Match[bytes]) -> bytes:
+        name = match.group(0).decode()
+        index = index_by_name.get(name)
+        return f"\x00{index}\x00".encode() if index is not None else match.group(0)
+
+    return _IDENTIFIER_TOKEN.sub(_replace, text).decode(errors="replace")
 
 
 def _statements(root: Node) -> list[Node]:
@@ -236,20 +294,84 @@ def _statements(root: Node) -> list[Node]:
     return []
 
 
-def build_alias_map(macros: list[ReparsedMacro], knowledge: Knowledge) -> dict[str, str]:
+@dataclass(frozen=True)
+class AliasMap:
+    """Registered forwarding aliases, from one file's macros.
+
+    `targets` is name -> resolved intrinsic, the map callers look up a call
+    site's `raw_name` against — the same shape `build_alias_map` returned
+    before this type existed. `definitions` is the `body_start_byte` (see
+    `ReparsedMacro`) of every specific macro *definition* that fed a
+    registered name; `extract.py`'s unit skip needs this rather than the
+    name alone, because one name can have several definitions in a file —
+    different `#if` branches — and only the definitions that actually agreed
+    with each other and got registered may have their unit skipped. A
+    same-named definition that disagreed is not in here even though its name
+    is a key in `targets`, and keeps its own unit.
+
+    Both fields are produced by the same registration pass in
+    `build_alias_map` and must stay consistent with each other (every
+    `targets` entry has at least one definition in `definitions`, and vice
+    versa); splitting them across two functions is exactly what would let
+    them drift apart, so they are returned together here instead.
+    """
+
+    targets: dict[str, str]
+    definitions: frozenset[int]
+
+
+def build_alias_map(macros: list[ReparsedMacro], knowledge: Knowledge) -> AliasMap:
     """Resolve forwarding aliases to the intrinsic at the end of their chain.
 
-    Pass 1 collects single-call bodies as candidates; each candidate's callee
-    is then followed through the knowledge aliases and through other
-    candidates. A chain that revisits a name is abandoned — a self-referential
-    macro is legal C — and only chains ending at a recognized intrinsic are
-    confirmed.
+    A macro name can have more than one definition in a file — different
+    `#if` branches, all read regardless of which one a real build would take
+    (see `reparse_macros`). Pass 1 groups a name's definitions together and
+    registers that name as a candidate only when *every* one of its
+    definitions is itself a forwarding alias (`is_forwarding_alias` returns a
+    callee for each), all of those callees agree once each is put through
+    `knowledge.normalize` — the same single-step SIMDe-spelling resolution
+    the final chain lookup below applies, so `simde_mm_cmpgt_epi64` and
+    `_mm_cmpgt_epi64` count as the same target intrinsic even though they are
+    different written names (a real case: VVenC's `DepQuantX86.h` defines
+    `_my_cmpgt_epi64` this way, guarded by `#if USE_SSE41 &&
+    defined(REAL_TARGET_X86)`) — and all of them have the same
+    `_parameter_mapping`, the same normalized correspondence between the
+    macro's own parameters and the forwarded call's argument positions. A
+    name that fails any of those checks is not a candidate at all: none of
+    its definitions register, all of them keep their own macro unit, and —
+    since it is absent from `candidates` — a chain passing through it
+    (another macro forwarding to this name) stops there rather than
+    resolving past it. This agreement check is deliberately narrower than
+    full chain resolution: two branches whose callees are different macro
+    names that would themselves later resolve to the same intrinsic are
+    *not* recognized as agreeing here, only a shared intrinsic or a shared
+    `knowledge.normalize` result is.
+
+    Pass 2 is unchanged from before this per-definition check existed: each
+    candidate's callee is followed through the knowledge aliases and through
+    other candidates. A chain that revisits a name is abandoned — a
+    self-referential macro is legal C — and only chains ending at a
+    recognized intrinsic are confirmed. Which of an agreeing name's several
+    (already-agreeing) raw callees is stored as `candidates[name]` does not
+    matter for this pass: `knowledge.normalize` maps every one of them to
+    the same result by construction of the agreement check above.
     """
-    candidates = {}
+    by_name: dict[str, list[ReparsedMacro]] = {}
     for macro in macros:
-        callee = is_forwarding_alias(macro)
-        if callee is not None:
-            candidates[macro.name] = callee
+        by_name.setdefault(macro.name, []).append(macro)
+
+    candidates: dict[str, str] = {}
+    definitions_by_name: dict[str, frozenset[int]] = {}
+    for name, defs in by_name.items():
+        callees = [is_forwarding_alias(macro) for macro in defs]
+        if any(callee is None for callee in callees):
+            continue
+        normalized_targets = {knowledge.normalize(callee) for callee in callees}
+        mappings = [_parameter_mapping(macro) for macro in defs]
+        if len(normalized_targets) != 1 or len(set(mappings)) != 1:
+            continue
+        candidates[name] = callees[0]
+        definitions_by_name[name] = frozenset(macro.body_start_byte for macro in defs)
 
     resolved: dict[str, str] = {}
     for name in candidates:
@@ -264,4 +386,8 @@ def build_alias_map(macros: list[ReparsedMacro], knowledge: Knowledge) -> dict[s
                 break
             seen.add(current)
             current = candidates[current]
-    return resolved
+
+    definitions = frozenset(
+        byte for name in resolved for byte in definitions_by_name[name]
+    )
+    return AliasMap(targets=resolved, definitions=definitions)
