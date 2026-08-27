@@ -1240,13 +1240,13 @@ _VARIADIC_SEVERAL_EXTRA_ARGS_MATCHES_DIRECT = (
 
 
 def test_composing_through_a_variadic_intermediate_with_several_extra_arguments_matches_the_direct_call():
-    """Pins that the excess arguments are comma-joined in the composed
-    shape, not merely concatenated or otherwise malformed: `B(x, y, z)`
-    must compose to the same three-argument shape as `_mm_add_epi32(x, y,
-    z)` written directly, which only holds if the join between `y` and `z`
-    inside the pack's expansion is exactly one comma token, matching what
-    the direct call's own parser produced for the boundary between its own
-    second and third arguments.
+    """Pins that a multi-argument pack expands into one argument slot per
+    pack argument, not into a single slot holding them all: a call shape is
+    one token tuple per positional argument, so `B(x, y, z)` composes to
+    three top-level entries and equals `_mm_add_epi32(x, y, z)` written
+    directly. Joining `y` and `z` into one entry — by a comma token or by
+    plain concatenation — would leave the composed shape two entries long
+    and it would not match the direct call.
     """
     knowledge = load_knowledge()
     alias_map = _alias_map(_VARIADIC_SEVERAL_EXTRA_ARGS_MATCHES_DIRECT, knowledge)
