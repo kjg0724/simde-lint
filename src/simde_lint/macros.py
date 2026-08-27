@@ -723,10 +723,32 @@ def _substitute_shape(
     intermediate that inserts extra tokens around a parameter
     (`X(p, q) -> TGT(p + 1, q)`) keeps the `+ 1` in the composed result
     rather than losing it to a plain position-for-position swap.
-    `_VARIADIC_MARKER` is replaced by `replacements[variadic_start:]`
-    joined with literal comma tokens between each argument — exactly what
-    real macro expansion writes at that position, including nothing at all
-    when the outer call supplies no excess arguments.
+    An argument slot written as *only* the pack — its token tuple is
+    exactly `(_VARIADIC_MARKER,)`, nothing else alongside it — expands to
+    however many top-level argument slots `replacements[variadic_start:]`
+    (the outer call's excess arguments) actually has: zero slots (the
+    argument vanishes entirely — not kept as one empty-token argument),
+    one slot (that single excess argument's own tokens, verbatim), or
+    several slots, each its own separate entry in the composed result —
+    never joined into one slot with a literal comma token stitched inside
+    it, because that would not match how `_call_shape` itself represents a
+    direct call's own top-level arguments (one tuple per argument, split
+    at the syntactic top level, not by scanning for comma bytes inside a
+    single argument's text). This is what makes
+    `#define V(...) f(__VA_ARGS__)` called as `V()` compose to the same
+    shape as `f()` written directly (zero arguments either way — see
+    `_EMPTY_ARGS`'s resolution in `_resolve_alias`), and
+    `#define B(x, ...) f(x, __VA_ARGS__)` called as `B(x, y, z)` compose to
+    the same shape as `f(x, y, z)` written directly (three separate
+    argument slots either way, not one slot holding `y, z` joined inline).
+
+    A pack that shares its slot with other written tokens is different: a
+    single-token comma-joined expansion *inside* that slot's own text is
+    the correct behavior there — `target((__VA_ARGS__))`'s one argument
+    stays one argument, whatever the pack expands to — since splitting a
+    slot that also has its own surrounding tokens into several top-level
+    arguments would not correspond to anything a direct call could have
+    written.
 
     Returns None when `shape` references a parameter index `replacements`
     has no entry for (an arity mismatch the chain cannot resolve), or when
@@ -736,6 +758,9 @@ def _substitute_shape(
     """
     composed: list[tuple[bytes, ...]] = []
     for arg_tokens in shape:
+        if variadic_start is not None and arg_tokens == (_VARIADIC_MARKER,):
+            composed.extend(replacements[variadic_start:])
+            continue
         new_arg: list[bytes] = []
         for token in arg_tokens:
             if token == _VARIADIC_MARKER:

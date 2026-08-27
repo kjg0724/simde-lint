@@ -1170,30 +1170,139 @@ def test_a_comma_inside_nested_parentheses_is_not_an_argument_separator():
 
 # --- Variadic packs: standard `...` and GNU named (`args...`), zero/one/ ---
 # --- several arguments, and composition through an intermediate -----------
+#
+# Each of the three shapes below is a `#if`-duplicate pair: one branch
+# reaches the target *through* the variadic intermediate, the other writes
+# the equivalent call *directly*. Registration itself is the shape-equality
+# proof — two branches whose composed shapes differ are rejected — so
+# "the pair registers" pins the actual claim ("this composition produces
+# the same shape as the equivalent hand-written call"), not merely "some
+# composition happened without erroring." A bare
+# `alias_map.targets["A"] == target` check (what this section originally
+# had) cannot tell a correct composed shape apart from a differently-wrong
+# one when there is no sibling definition to disagree with it — exactly
+# the gap that made the zero-argument case below inert until this round:
+# it passed even under the pre-round-4 implementation, where `__VA_ARGS__`
+# was an ordinary, unsubstituted literal token that never expanded to
+# anything at all, because `A0` had no `#if` sibling to catch the wrong
+# shape.
 
-_VARIADIC_TARGET = b"#define B(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+_VARIADIC_ZERO_EXTRA_ARGS_MATCHES_DIRECT = (
+    b"#define V(...) _mm_setzero_si128(__VA_ARGS__)\n"
+    b"#ifdef X\n"
+    b"#define A() _mm_setzero_si128()\n"
+    b"#else\n"
+    b"#define A() V()\n"
+    b"#endif\n"
+)
 
-_VARIADIC_ZERO_EXTRA_ARGS = _VARIADIC_TARGET + b"#define A0(x) B(x)\n"
-_VARIADIC_ONE_EXTRA_ARG = _VARIADIC_TARGET + b"#define A1(x, y) B(x, y)\n"
-_VARIADIC_SEVERAL_EXTRA_ARGS = _VARIADIC_TARGET + b"#define A2(x, y, z) B(x, y, z)\n"
 
-
-def test_composing_through_a_variadic_intermediate_with_zero_extra_arguments_registers():
+def test_composing_through_a_variadic_intermediate_with_zero_extra_arguments_matches_the_direct_call():
+    """Also the exact reproduction of the review's own repro: before this
+    round's fix, an argument slot written as *only* the pack
+    (`_mm_setzero_si128(__VA_ARGS__)`) composed to one argument with empty
+    tokens when the pack was empty, rather than to zero arguments — so
+    `V()`'s composed shape (one empty-token argument) disagreed with
+    `_mm_setzero_si128()` written directly (zero arguments, per
+    `_EMPTY_ARGS`'s own resolution), and this pair did not register.
+    """
     knowledge = load_knowledge()
-    alias_map = _alias_map(_VARIADIC_ZERO_EXTRA_ARGS, knowledge)
-    assert alias_map.targets["A0"] == "_mm_add_epi32"
+    alias_map = _alias_map(_VARIADIC_ZERO_EXTRA_ARGS_MATCHES_DIRECT, knowledge)
+    assert alias_map.targets["A"] == "_mm_setzero_si128"
+    assert alias_map.targets["V"] == "_mm_setzero_si128"
 
 
-def test_composing_through_a_variadic_intermediate_with_one_extra_argument_registers():
+_VARIADIC_ONE_EXTRA_ARG_MATCHES_DIRECT = (
+    b"#define B(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+    b"#ifdef X\n"
+    b"#define A1(x, y) _mm_add_epi32(x, y)\n"
+    b"#else\n"
+    b"#define A1(x, y) B(x, y)\n"
+    b"#endif\n"
+)
+
+
+def test_composing_through_a_variadic_intermediate_with_one_extra_argument_matches_the_direct_call():
     knowledge = load_knowledge()
-    alias_map = _alias_map(_VARIADIC_ONE_EXTRA_ARG, knowledge)
+    alias_map = _alias_map(_VARIADIC_ONE_EXTRA_ARG_MATCHES_DIRECT, knowledge)
     assert alias_map.targets["A1"] == "_mm_add_epi32"
+    assert alias_map.targets["B"] == "_mm_add_epi32"
 
 
-def test_composing_through_a_variadic_intermediate_with_several_extra_arguments_registers():
+_VARIADIC_SEVERAL_EXTRA_ARGS_MATCHES_DIRECT = (
+    b"#define B(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+    b"#ifdef X\n"
+    b"#define A2(x, y, z) _mm_add_epi32(x, y, z)\n"
+    b"#else\n"
+    b"#define A2(x, y, z) B(x, y, z)\n"
+    b"#endif\n"
+)
+
+
+def test_composing_through_a_variadic_intermediate_with_several_extra_arguments_matches_the_direct_call():
+    """Pins that the excess arguments are comma-joined in the composed
+    shape, not merely concatenated or otherwise malformed: `B(x, y, z)`
+    must compose to the same three-argument shape as `_mm_add_epi32(x, y,
+    z)` written directly, which only holds if the join between `y` and `z`
+    inside the pack's expansion is exactly one comma token, matching what
+    the direct call's own parser produced for the boundary between its own
+    second and third arguments.
+    """
     knowledge = load_knowledge()
-    alias_map = _alias_map(_VARIADIC_SEVERAL_EXTRA_ARGS, knowledge)
+    alias_map = _alias_map(_VARIADIC_SEVERAL_EXTRA_ARGS_MATCHES_DIRECT, knowledge)
     assert alias_map.targets["A2"] == "_mm_add_epi32"
+    assert alias_map.targets["B"] == "_mm_add_epi32"
+
+
+_VARIADIC_EMPTY_PACK_THROUGH_TWO_HOPS_MATCHES_DIRECT = (
+    b"#define V(...) _mm_setzero_si128(__VA_ARGS__)\n"
+    b"#define V2(...) V(__VA_ARGS__)\n"
+    b"#ifdef X\n"
+    b"#define A() _mm_setzero_si128()\n"
+    b"#else\n"
+    b"#define A() V2()\n"
+    b"#endif\n"
+)
+
+
+def test_composing_through_two_variadic_hops_with_an_empty_pack_matches_the_direct_call():
+    """The empty-pack slot collapse must hold at every hop, not only a
+    single one: `A` reaches the target through *two* variadic
+    intermediates (`V2` forwards its own empty pack to `V`, which forwards
+    its own — now composed — empty pack to the target), and each hop's own
+    composition must independently collapse the vanished slot for the next
+    hop to see a clean, already-empty pack rather than a leftover
+    empty-token argument.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_VARIADIC_EMPTY_PACK_THROUGH_TWO_HOPS_MATCHES_DIRECT, knowledge)
+    assert alias_map.targets["A"] == "_mm_setzero_si128"
+    assert alias_map.targets["V"] == "_mm_setzero_si128"
+    assert alias_map.targets["V2"] == "_mm_setzero_si128"
+
+
+_VARIADIC_SEVERAL_ARGS_THROUGH_TWO_HOPS_MATCHES_DIRECT = (
+    b"#define V(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+    b"#define V2(x, ...) V(x, __VA_ARGS__)\n"
+    b"#ifdef X\n"
+    b"#define A(x, y, z) _mm_add_epi32(x, y, z)\n"
+    b"#else\n"
+    b"#define A(x, y, z) V2(x, y, z)\n"
+    b"#endif\n"
+)
+
+
+def test_composing_through_two_variadic_hops_with_several_arguments_matches_the_direct_call():
+    """The mirror case: several excess arguments must still land as
+    separate argument slots (not one slot joined by an internal comma
+    token) after passing through *two* variadic hops, each of which
+    re-packs its own pack into the next.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_VARIADIC_SEVERAL_ARGS_THROUGH_TWO_HOPS_MATCHES_DIRECT, knowledge)
+    assert alias_map.targets["A"] == "_mm_add_epi32"
+    assert alias_map.targets["V"] == "_mm_add_epi32"
+    assert alias_map.targets["V2"] == "_mm_add_epi32"
 
 
 _DUP_VARIADIC_STANDARD_AND_GNU_NAMED_AGREE = (
