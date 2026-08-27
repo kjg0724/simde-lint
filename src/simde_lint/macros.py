@@ -336,6 +336,11 @@ def _literal_start(text: bytes, i: int) -> int | None:
     Returns the offset of the `"` or `'` itself (which may be `i` with no
     prefix, or a few bytes past it for `u8"..."`/`u'...'`/`U"..."`/`L"..."`),
     or None if `text[i]` does not begin a string or character literal.
+
+    Deliberately does not recognize a raw string (`R"..."`, optionally
+    prefixed) — `_raw_string_start` below owns that, and must run first: a
+    raw string's `R` would otherwise be lexed as a bare identifier, with
+    the literal itself starting only at the quote that follows it.
     """
     n = len(text)
     if text[i : i + 1] in (b'"', b"'"):
@@ -345,6 +350,59 @@ def _literal_start(text: bytes, i: int) -> int | None:
         if text[i:end] == prefix and end < n and text[end : end + 1] in (b'"', b"'"):
             return end
     return None
+
+
+_RAW_STRING_PREFIXES = (b"u8", b"u", b"U", b"L", b"")
+
+
+def _raw_string_start(text: bytes, i: int) -> int | None:
+    """Byte offset right after the opening `R"` of a raw string at `i`.
+
+    Honors an optional encoding prefix (`u8R"`, `uR"`, `UR"`, `LR"`, or bare
+    `R"`), tried longest-first so `u8R"..."` is not mistaken for prefix `u`
+    followed by a stray `8R"...`. Returns None if no raw string starts at
+    `i` — including when `text[i]` is `R` immediately followed by anything
+    other than `"` (an ordinary identifier that happens to start with `R`,
+    which is by far the common case and must tokenize as a plain
+    identifier, substitutable like any other).
+    """
+    n = len(text)
+    for prefix in _RAW_STRING_PREFIXES:
+        end = i + len(prefix)
+        if text[i:end] == prefix and text[end : end + 2] == b'R"':
+            return end + 2
+    return None
+
+
+def _scan_raw_string(text: bytes, delimiter_start: int) -> int | None:
+    r"""End offset (exclusive) of a raw string, or None if malformed.
+
+    `delimiter_start` is the byte right after the opening `R"`. A raw
+    string's delimiter is every byte from there up to (not including) the
+    first `(`; its closing sequence is `)` + that same delimiter + `"`,
+    wherever it next occurs — not merely the first `)"`, since the
+    delimiter can be non-empty specifically so the raw content can contain
+    `)"` sequences of its own without ending the literal early (real C++
+    restricts which bytes may appear in a delimiter; this scanner does not
+    enforce that, which only means it might accept something a compiler
+    would reject — never the reverse, and never a false *agreement* between
+    two definitions, so it is not a soundness gap for this module's
+    purpose). No escape processing happens inside a raw string — that is
+    the entire point of "raw" — so a `\` here is only ever a literal
+    backslash, never an escape.
+
+    Returns None when no `(` is found at all (not a raw string's delimiter
+    section, malformed) or when the matching closing sequence never
+    occurs (unterminated) — both fail closed, same as every other literal
+    kind this lexer handles.
+    """
+    paren = text.find(b"(", delimiter_start)
+    if paren < 0:
+        return None
+    delimiter = text[delimiter_start:paren]
+    closer = b")" + delimiter + b'"'
+    end = text.find(closer, paren + 1)
+    return None if end < 0 else end + len(closer)
 
 
 def _scan_literal(text: bytes, quote_at: int) -> int | None:
@@ -401,11 +459,18 @@ def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
     tokenize to different literal tokens, not to the same substituted
     parameter, even though `a` alone would otherwise be one of this macro's
     parameter names. An escaped quote (`"\""`) does not end the literal
-    early, so `"\""` is one token, not a truncated one.
+    early, so `"\""` is one token, not a truncated one. A raw string
+    (`R"..."`, optionally prefixed the same way) is handled the same way,
+    through `_raw_string_start`/`_scan_raw_string` — checked *before* a
+    plain identifier could claim its leading `R`, or `R"(x)"` would lex as
+    an identifier `R` (substituted whenever some macro's own parameter
+    happens to be named `R`) immediately followed by an unrelated literal
+    `"(x)"`, corrupting the raw string's own spelling.
 
-    Returns None when a string literal, character literal, or block comment
-    is left unterminated at the end of `text` — malformed input fails
-    closed: it can never make two definitions compare as agreeing.
+    Returns None when a string literal, character literal, raw string, or
+    block comment is left unterminated at the end of `text` — malformed
+    input fails closed: it can never make two definitions compare as
+    agreeing.
     """
     tokens: list[tuple[str, bytes]] = []
     i, n = 0, len(text)
@@ -422,6 +487,14 @@ def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
             end = _scan_block_comment_end(text, i)
             if end is None:
                 return None
+            i = end
+            continue
+        raw_delimiter_start = _raw_string_start(text, i)
+        if raw_delimiter_start is not None:
+            end = _scan_raw_string(text, raw_delimiter_start)
+            if end is None:
+                return None
+            tokens.append(("other", text[i:end]))
             i = end
             continue
         quote_at = _literal_start(text, i)
@@ -606,14 +679,24 @@ class AliasMap:
     never the reverse in isolation.
 
     Both fields are produced by the same registration pass in
-    `build_alias_map` and are read-only from here — `targets` is a
-    `MappingProxyType` view over a dict private to that pass, not a plain
-    dict a caller could mutate out from under `definitions` — so the claim
-    that they cannot drift apart is enforced, not merely documented.
+    `build_alias_map` and are read-only from here — so the claim that they
+    cannot drift apart is enforced, not merely documented. That enforcement
+    lives in `__post_init__`, not only in what `build_alias_map` happens to
+    pass in: any caller can construct an `AliasMap` directly with a plain,
+    mutable dict, so the defensive copy has to be this class's own
+    invariant, not a courtesy `build_alias_map` extends to itself. Passing
+    an already-immutable `MappingProxyType`/`frozenset` (as `build_alias_map`
+    does) still goes through the same copy — a `dict(mapping_proxy)` before
+    re-wrapping — which costs a little and buys not having two code paths
+    to keep in sync.
     """
 
     targets: Mapping[str, str]
     definitions: frozenset[int]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "targets", MappingProxyType(dict(self.targets)))
+        object.__setattr__(self, "definitions", frozenset(self.definitions))
 
 
 def _resolve_alias(
@@ -695,6 +778,21 @@ def _resolve_alias(
         if _is_intrinsic(normalized):
             results.append((normalized, shape))
             continue
+        # Arity at this step of the chain: how many arguments this
+        # definition's call actually supplies to `callee` must match how
+        # many parameters every one of `callee`'s own definitions declares
+        # -- in *both* directions. `_substitute_shape` below only ever
+        # catches a deficit (a marker `callee`'s own body references with no
+        # corresponding argument here); it has no way to notice a *surplus*
+        # argument, since nothing in `callee`'s own shape would ever
+        # reference the extra marker in the first place, so the extra
+        # argument would otherwise be silently discarded during
+        # composition rather than rejected. Checked before recursing so it
+        # applies at every step of a chain, not only the outermost call.
+        callee_defs = macros_by_name.get(callee)
+        if callee_defs and any(len(shape) != len(callee_macro.params) for callee_macro in callee_defs):
+            results.append(None)
+            continue
         inner = _resolve_alias(callee, next_seen, macros_by_name, definition_counts, knowledge, cache)
         if inner is None:
             results.append(None)
@@ -749,4 +847,4 @@ def build_alias_map(root: Node, source: bytes, macros: list[ReparsedMacro], know
         targets[name] = result[0]
         definitions.update(macro.start_byte for macro in macros_by_name[name])
 
-    return AliasMap(targets=MappingProxyType(targets), definitions=frozenset(definitions))
+    return AliasMap(targets=targets, definitions=definitions)

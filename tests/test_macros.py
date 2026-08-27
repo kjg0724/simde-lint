@@ -3,6 +3,7 @@ import pytest
 from simde_lint.extract import extract_units
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import (
+    AliasMap,
     _call_shape,
     _forwarding_call,
     _marker,
@@ -904,3 +905,138 @@ def test_duplicate_aliases_where_one_definition_omits_and_duplicates_a_parameter
     units = extract_units("dup.c", _DUP_ALIAS_PARAMETER_OMITTED_AND_DUPLICATED, knowledge)
     macro_units = [u for u in units if u.scope == "macro"]
     assert len(macro_units) == 2
+
+
+# --- Round 3: arity at a chain step, raw string literals, AliasMap's own ---
+# --- constructor invariant ---------------------------------------------
+
+_SURPLUS_ARITY_CHAIN = (
+    b"#define INNER(p) _mm_loadl_epi64(p)\n"
+    b"#define OUTER(a, b) INNER(a, b)\n"
+)
+
+
+def test_a_chain_step_passing_more_arguments_than_the_intermediate_declares_is_rejected():
+    """`INNER` takes one parameter; `OUTER`'s forwarding call passes two.
+
+    Before this fix, `_substitute_shape` only checked for a *missing*
+    operand (a marker index with no corresponding entry in `replacements`)
+    -- it never compared the number of arguments a definition actually
+    supplies against the callee's own declared parameter count, so the
+    surplus second argument was silently discarded during composition and
+    `OUTER` registered as though it faithfully forwarded to
+    `_mm_loadl_epi64`. `INNER` is a perfectly good alias on its own and
+    still registers; only `OUTER`, whose call to it is malformed, must not.
+    """
+    assert _alias_map(_SURPLUS_ARITY_CHAIN).targets == {"INNER": "_mm_loadl_epi64"}
+
+
+_DEFICIT_ARITY_CHAIN = (
+    b"#define INNER(p, q) _mm_add_epi32(p, q)\n"
+    b"#define OUTER(a) INNER(a, a)\n"
+    b"#define ALSO_OUTER(a) INNER(a)\n"
+)
+
+
+def test_a_chain_step_passing_fewer_arguments_than_the_intermediate_declares_is_rejected():
+    """The mirror direction: `INNER` takes two parameters, `ALSO_OUTER`'s
+    call supplies only one. `OUTER`, which supplies two (both `a`), is the
+    control -- it must still register, so the fix is arity-checking, not
+    merely rejecting any call to `INNER`.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_DEFICIT_ARITY_CHAIN, knowledge)
+    assert alias_map.targets["OUTER"] == "_mm_add_epi32"
+    assert "ALSO_OUTER" not in alias_map.targets
+
+
+_ARITY_MISMATCH_AT_AN_INNER_CHAIN_STEP = (
+    b"#define C(p) _mm_loadl_epi64(p)\n"
+    b"#define B(a, b) C(a, b)\n"
+    b"#define A(x, y) B(x, y)\n"
+)
+
+
+def test_arity_mismatch_two_chain_steps_away_from_the_final_target_is_still_rejected():
+    """The arity check must apply at *every* step of a chain, not only the
+    call a name makes directly: `A` calls `B` with matching arity (two
+    arguments, `B` declares two parameters) -- the mismatch is one level
+    further in, at `B`'s own call to `C`. `B` must not register (so
+    `A`'s chain through it cannot resolve either), while `C` is fine on
+    its own.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_ARITY_MISMATCH_AT_AN_INNER_CHAIN_STEP, knowledge)
+    assert alias_map.targets == {"C": "_mm_loadl_epi64"}
+
+
+# Raw string literals: a bare or prefixed `R"..."` must tokenize as one
+# opaque literal token, never as an identifier `R` (or `u8R`/`uR`/`UR`/`LR`)
+# immediately followed by a separate literal starting at the quote.
+
+def test_raw_string_literals_are_tokenized_as_a_single_opaque_token():
+    assert _tokenize(b'R"(x)"') == [("other", b'R"(x)"')]
+
+
+def test_prefixed_raw_string_literals_are_tokenized_as_a_single_opaque_token():
+    assert _tokenize(b'u8R"(x)"') == [("other", b'u8R"(x)"')]
+
+
+def test_a_raw_string_with_a_named_delimiter_terminates_at_the_matching_delimiter_only():
+    # The delimiter is "foo"; the raw string's own content contains a `)bar`
+    # that is not the closing sequence and must not be mistaken for one.
+    text = b'R"foo(a)bar)foo"'
+    assert _tokenize(text) == [("other", text)]
+
+
+def test_an_unterminated_raw_string_fails_closed():
+    assert _tokenize(b'R"(unterminated') is None
+
+
+_DUP_ALIAS_RAW_STRING_PREFIX_COLLIDES_WITH_PARAM_NAME = (
+    b'#ifdef A\n'
+    b'#define M(R) _mm_add_epi32(R, R"(x)")\n'
+    b"#else\n"
+    b'#define M(a) _mm_add_epi32(a, R"(x)")\n'
+    b"#endif\n"
+)
+
+
+def test_duplicate_aliases_whose_raw_string_argument_shares_a_letter_with_a_parameter_name_register():
+    """The exact reproduction from review: one branch's own parameter is
+    named `R`, the same letter as the raw-string prefix in its second
+    argument, `R"(x)"`. Before this fix, `_tokenize` split `R"(x)"` into an
+    `ident` token `R` (which this branch's substitution then rewrote into a
+    marker, because its parameter really is named `R`) followed by a
+    separate literal token `"(x)"` -- corrupting the raw string's own
+    spelling and making two branches that forward identically compare as
+    disagreeing.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_DUP_ALIAS_RAW_STRING_PREFIX_COLLIDES_WITH_PARAM_NAME, knowledge)
+    assert alias_map.targets["M"] == "_mm_add_epi32"
+
+
+# --- AliasMap's own constructor must be immutable, not only the factory ---
+
+
+def test_alias_map_takes_a_defensive_copy_of_a_caller_supplied_mapping():
+    """`test_alias_map_targets_cannot_be_mutated_by_a_caller` (above) only
+    proves `build_alias_map`'s own `MappingProxyType` wrapping is immutable
+    -- it says nothing about `AliasMap`'s own constructor, which any caller
+    can invoke directly with a plain, mutable dict. `AliasMap.__post_init__`
+    must take its own defensive copy so mutating the dict a caller passed in
+    cannot change `targets` (or `definitions`) after construction.
+    """
+    mutable_targets = {"A": "_mm_loadl_epi64"}
+    mutable_definitions = {10, 20}
+    alias_map = AliasMap(targets=mutable_targets, definitions=mutable_definitions)
+
+    mutable_targets["A"] = "tampered"
+    mutable_targets["B"] = "also tampered"
+    mutable_definitions.add(30)
+
+    assert alias_map.targets == {"A": "_mm_loadl_epi64"}
+    assert alias_map.definitions == frozenset({10, 20})
+    with pytest.raises(TypeError):
+        alias_map.targets["A"] = "tampered again"
