@@ -31,7 +31,17 @@ def _is_intrinsic(name: str) -> bool:
 @dataclass(frozen=True)
 class ReparsedMacro:
     name: str
+    # Fixed (non-variadic) parameter names only — see `variadic` below for
+    # the pack, which is deliberately not one of these even when it has its
+    # own written name (a GNU named variadic).
     params: tuple[str, ...]
+    # The name a variadic pack is referenced by *inside the body*, or None
+    # if this macro takes no variadic parameter. `"__VA_ARGS__"` for the
+    # standard `#define F(x, ...)` form; the macro's own given name for the
+    # GNU named form, `#define F(x, args...)` — that form lets the body
+    # refer to the pack as `args`, never as `__VA_ARGS__`. See
+    # `_variadic_pack` for how this is read off the parameter list.
+    variadic: str | None
     # Start of the whole `#define` construct (the `preproc_function_def`
     # node itself) — a stable, always-present per-*definition* key, unlike
     # `body_start_byte` below, which only exists when the definition has a
@@ -95,6 +105,54 @@ def _body_range(source: bytes, value: Node) -> tuple[int, int]:
         end = newline + 1
 
 
+def _variadic_pack(parameters: Node | None, source: bytes) -> tuple[tuple[str, ...], str | None]:
+    """Fixed parameter names and the variadic pack's own reference name.
+
+    Reads the *raw* `preproc_params` child sequence, not the flattened,
+    identifier-only view `reparse_macros` used to build `.params` from —
+    that flattened view cannot tell a GNU named variadic's pack name apart
+    from an ordinary fixed parameter, since both are plain `identifier`
+    nodes; only the raw child sequence carries the trailing `...` that
+    distinguishes them.
+
+    Two forms, both measured directly against this project's grammar:
+
+    - Standard `#define F(x, ...)`: the parameter list has a literal `...`
+      child (node type `"..."`, unnamed). The pack has no name of its own —
+      the body always refers to it as the reserved identifier
+      `__VA_ARGS__`.
+    - GNU named `#define F(x, args...)`: this grammar does not parse `...`
+      immediately after a parameter name as part of any clean node type —
+      it parses `args` as an ordinary `identifier` parameter and then hits
+      an `ERROR` node for the trailing `...` (confirmed directly: the
+      *file's* `root.has_error` is True for this form, though the
+      individual macro's own body still reparses fine, since the error is
+      confined to the parameter list). Detected here by finding the last
+      `identifier` child and checking whether the very next non-`)` sibling
+      spells exactly `...` — whatever node type tree-sitter gave it. That
+      identifier is then the pack's own name, not a fixed parameter.
+
+    A macro with no variadic parameter at all returns `(fixed_names, None)`,
+    unchanged from before this distinction existed.
+    """
+    if parameters is None:
+        return (), None
+    children = parameters.children
+    idents = [child for child in children if child.type == "identifier"]
+    names = tuple(node_text(child, source) for child in idents)
+    if any(child.type == "..." for child in children):
+        return names, "__VA_ARGS__"
+    if idents:
+        last = idents[-1]
+        last_index = next(i for i, child in enumerate(children) if child is last)
+        for child in children[last_index + 1 :]:
+            if child.type == ")":
+                break
+            if node_text(child, source).strip() == "...":
+                return names[:-1], names[-1]
+    return names, None
+
+
 def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
     """Reparse every function-like macro body in one file.
 
@@ -114,11 +172,7 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
         value = define.child_by_field_name("value")
         if not name or value is None:
             continue
-        params = tuple(
-            node_text(child, source)
-            for child in (define.child_by_field_name("parameters") or define).named_children
-            if child.type == "identifier"
-        )
+        params, variadic = _variadic_pack(define.child_by_field_name("parameters") or define, source)
         body_start, body_end = _body_range(source, value)
         body = source[body_start:body_end]
         synthetic = _PREFIX + body + _SUFFIX
@@ -127,6 +181,7 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
             ReparsedMacro(
                 name=name,
                 params=params,
+                variadic=variadic,
                 start_byte=define.start_byte,
                 body_start_byte=value.start_byte,
                 root=tree.root_node,
@@ -537,19 +592,33 @@ def _marker(index: int) -> bytes:
 
 _MARKER = re.compile(rb"\x00([0-9]+)\x00")
 
+# The variadic pack's own marker — deliberately not `_marker(index)`-shaped
+# (no digits), so `_marker_index` never confuses it with a fixed-parameter
+# position and `_substitute_shape` can tell "substitute one argument" apart
+# from "substitute the whole, possibly-empty, comma-joined remainder."
+_VARIADIC_MARKER = b"\x00VA\x00"
+
 
 def _marker_index(token: bytes) -> int | None:
     match = _MARKER.fullmatch(token)
     return int(match.group(1)) if match else None
 
 
-def _normalized_tokens(text: bytes, params: tuple[str, ...]) -> tuple[bytes, ...] | None:
+def _normalized_tokens(
+    text: bytes, params: tuple[str, ...], variadic: str | None = None
+) -> tuple[bytes, ...] | None:
     """One argument's token sequence, its own macro's parameters marked.
 
     Splices backslash-newlines, lexes the result, and rewrites every
     `"ident"` token that exactly spells one of `params` into `_marker(index)`
     — a byte sequence (`\x00<index>\x00`) that cannot appear in C source, so
-    it cannot collide with a real identifier or with an adjacent marker.
+    it cannot collide with a real identifier or with an adjacent marker. An
+    `"ident"` token spelling `variadic` (the macro's own variadic pack
+    reference — `"__VA_ARGS__"` or a GNU named pack's own name; see
+    `ReparsedMacro.variadic`) is rewritten to `_VARIADIC_MARKER` instead,
+    never to a positional marker: the pack is not one parameter at one
+    position, it is "whatever arguments an outer call supplies beyond the
+    fixed ones," resolved only at composition time (`_substitute_shape`).
     Every occurrence is rewritten, including a repeated one, so `f(b, b)`
     keeps both markers distinct occurrences rather than being conflated with
     `f(b)`. Non-parameter identifiers, literals, numbers and punctuators
@@ -562,34 +631,74 @@ def _normalized_tokens(text: bytes, params: tuple[str, ...]) -> tuple[bytes, ...
     index_by_name = {name: index for index, name in enumerate(params)}
     out: list[bytes] = []
     for kind, value in tokens:
-        if kind == "ident":
-            index = index_by_name.get(value.decode("ascii", errors="replace"))
-            out.append(_marker(index) if index is not None else value)
-        else:
+        if kind != "ident":
             out.append(value)
+            continue
+        name = value.decode("ascii", errors="replace")
+        if variadic is not None and name == variadic:
+            out.append(_VARIADIC_MARKER)
+            continue
+        index = index_by_name.get(name)
+        out.append(_marker(index) if index is not None else value)
     return tuple(out)
+
+
+class _EmptyArgs:
+    """Sentinel type for `_call_shape`'s ambiguous-empty-argument-list result.
+
+    A single instance (`_EMPTY_ARGS`, below) is the only value of this type
+    ever created; callers compare against it with `is`, never `==`, so it
+    can never be mistaken for a real (possibly also empty) shape tuple —
+    unlike a sentinel built from an ordinary tuple or string, which risks
+    exactly that confusion if a caller ever slips and uses `==`.
+    """
+
+    __slots__ = ()
+
+
+# Sentinel result of `_call_shape` for a call whose argument list is
+# syntactically empty (`f()`) — distinct from `()` (also "no arguments," but
+# only once the ambiguity is resolved). C gives `f()` no fixed meaning: it is
+# how many argument slots the *callee's own* declared parameter list makes
+# it into, not something the call site's own text can decide alone. A
+# zero-parameter callee reads it as zero arguments; a one-parameter callee
+# reads it as exactly one argument whose own spelling is empty. This is a
+# real function call's own syntax that resolves it (unambiguously zero
+# arguments) only for a callee that is a recognized intrinsic, never for a
+# callee that is itself a macro — see `_resolve_alias`, the only place this
+# sentinel is interpreted.
+_EMPTY_ARGS = _EmptyArgs()
 
 
 def _call_shape(
     macro: ReparsedMacro, arguments: Node | None
-) -> tuple[tuple[bytes, ...], ...] | None:
+) -> tuple[tuple[bytes, ...], ...] | _EmptyArgs | None:
     """Per-argument normalized token shape of one forwarded call.
 
     One token tuple per positional argument (`arguments.named_children`),
-    each produced by `_normalized_tokens` against `macro.params` — so a
-    marker in position `k` of argument `i` means "wherever this macro's
-    parameter `k` is used inside its `i`th argument to the call it
-    forwards to." Comparing two calls' shapes for equality is exactly
-    comparing where each parameter lands, argument count included: `f(a, a)`
-    and `f(a, b)` (or `f(a)` and `f(a, b)`) have different shapes. Returns
-    None if any argument fails to lex (see `_normalized_tokens`) — malformed
-    input fails closed, same as everywhere else in this module.
+    each produced by `_normalized_tokens` against `macro.params`/
+    `macro.variadic` — so a marker in position `k` of argument `i` means
+    "wherever this macro's parameter `k` is used inside its `i`th argument
+    to the call it forwards to," and `_VARIADIC_MARKER` means "wherever its
+    variadic pack is used there." Comparing two calls' shapes for equality
+    is exactly comparing where each parameter (and the pack, as a whole)
+    lands, argument count included: `f(a, a)` and `f(a, b)` (or `f(a)` and
+    `f(a, b)`) have different shapes.
+
+    Returns the `_EMPTY_ARGS` sentinel (see its own docstring) when the
+    argument list is syntactically empty (`arguments.named_children` is
+    empty) — this is ambiguous without knowing the callee's own arity, which
+    only the caller (`_resolve_alias`) has. Returns None if any argument
+    fails to lex (see `_normalized_tokens`) — malformed input fails closed,
+    same as everywhere else in this module.
     """
     if arguments is None:
         return ()
+    if not arguments.named_children:
+        return _EMPTY_ARGS
     shape = []
     for arg in arguments.named_children:
-        tokens = _normalized_tokens(macro.source[arg.start_byte : arg.end_byte], macro.params)
+        tokens = _normalized_tokens(macro.source[arg.start_byte : arg.end_byte], macro.params, macro.variadic)
         if tokens is None:
             return None
         shape.append(tokens)
@@ -597,30 +706,46 @@ def _call_shape(
 
 
 def _substitute_shape(
-    shape: tuple[tuple[bytes, ...], ...], replacements: tuple[tuple[bytes, ...], ...]
+    shape: tuple[tuple[bytes, ...], ...],
+    replacements: tuple[tuple[bytes, ...], ...],
+    variadic_start: int | None = None,
 ) -> tuple[tuple[bytes, ...], ...] | None:
     """Compose one call's shape with what an outer call actually supplies.
 
     `shape` is one macro's own forwarded-call shape, its markers referring
-    to *that macro's* parameter positions. `replacements` is one token tuple
-    per parameter index of that same macro — what an outer, composing call
-    passes for each parameter, itself already expressed in the outer call's
-    own markers (or plain tokens, at the top of a chain). Every marker token
-    in `shape` is replaced, in place, by the *entire* multi-token sequence
-    `replacements` has for that index, so an intermediate that inserts
-    extra tokens around a parameter (`X(p, q) -> TGT(p + 1, q)`) keeps the
-    `+ 1` in the composed result rather than losing it to a plain
-    position-for-position swap.
+    to *that macro's* parameter positions (and, possibly, its variadic
+    pack). `replacements` is one token tuple per argument the outer,
+    composing call actually passes — the first `variadic_start` of them
+    (all of them, if `variadic_start` is None) line up with `shape`'s
+    positional markers; the rest, if any, are what flows into the pack.
+    Every positional marker token in `shape` is replaced, in place, by the
+    *entire* multi-token sequence `replacements` has for that index, so an
+    intermediate that inserts extra tokens around a parameter
+    (`X(p, q) -> TGT(p + 1, q)`) keeps the `+ 1` in the composed result
+    rather than losing it to a plain position-for-position swap.
+    `_VARIADIC_MARKER` is replaced by `replacements[variadic_start:]`
+    joined with literal comma tokens between each argument — exactly what
+    real macro expansion writes at that position, including nothing at all
+    when the outer call supplies no excess arguments.
 
     Returns None when `shape` references a parameter index `replacements`
-    has no entry for — an arity mismatch between the outer call and this
-    macro's own parameter list, which the chain cannot resolve, and which
-    therefore must not be treated as agreement either way.
+    has no entry for (an arity mismatch the chain cannot resolve), or when
+    it uses `_VARIADIC_MARKER` but `variadic_start` is None (this macro's
+    own forwarded call has no variadic pack for the marker to mean anything
+    against) — neither is treated as agreement either way.
     """
     composed: list[tuple[bytes, ...]] = []
     for arg_tokens in shape:
         new_arg: list[bytes] = []
         for token in arg_tokens:
+            if token == _VARIADIC_MARKER:
+                if variadic_start is None:
+                    return None
+                for position, excess in enumerate(replacements[variadic_start:]):
+                    if position:
+                        new_arg.append(b",")
+                    new_arg.extend(excess)
+                continue
             index = _marker_index(token)
             if index is None:
                 new_arg.append(token)
@@ -697,6 +822,32 @@ class AliasMap:
     def __post_init__(self) -> None:
         object.__setattr__(self, "targets", MappingProxyType(dict(self.targets)))
         object.__setattr__(self, "definitions", frozenset(self.definitions))
+
+
+def _callee_arity(callee_defs: list[ReparsedMacro]) -> tuple[int, int | None] | None:
+    """`(fixed parameter count, variadic pack start index)` for one name.
+
+    `variadic_start` is `None` when the name takes no variadic pack, or
+    equal to the fixed count when it does (the pack begins right after the
+    last fixed parameter) — passed straight through to `_substitute_shape`.
+
+    Returns None when `callee_defs` (every `ReparsedMacro` for one name)
+    does not unanimously agree on both the fixed parameter count and
+    whether a variadic pack is present at all. This can only happen for a
+    name with more than one `#if` definition; a name whose definitions
+    disagree this concretely is certain to fail the composed-shape equality
+    check in `_resolve_alias` anyway, but checking here first means a
+    caller never has to pick one arbitrary definition's arity to resolve an
+    ambiguous empty argument list (`f()`) against, which an unfaithful
+    choice could resolve the wrong way.
+    """
+    fixed_counts = {len(macro.params) for macro in callee_defs}
+    has_variadic = {macro.variadic is not None for macro in callee_defs}
+    if len(fixed_counts) != 1 or len(has_variadic) != 1:
+        return None
+    fixed_count = next(iter(fixed_counts))
+    variadic_start = fixed_count if next(iter(has_variadic)) else None
+    return fixed_count, variadic_start
 
 
 def _resolve_alias(
@@ -776,29 +927,70 @@ def _resolve_alias(
             continue
         normalized = knowledge.normalize(callee)
         if _is_intrinsic(normalized):
-            results.append((normalized, shape))
+            # A real function call's own syntax settles `f()` unambiguously
+            # (zero arguments) -- unlike a macro invocation, an intrinsic
+            # has no parameter list on this side for `()` to be read
+            # against, and this project tracks no arity for intrinsics to
+            # consult even if it wanted to.
+            results.append((normalized, () if shape is _EMPTY_ARGS else shape))
             continue
-        # Arity at this step of the chain: how many arguments this
-        # definition's call actually supplies to `callee` must match how
-        # many parameters every one of `callee`'s own definitions declares
-        # -- in *both* directions. `_substitute_shape` below only ever
-        # catches a deficit (a marker `callee`'s own body references with no
-        # corresponding argument here); it has no way to notice a *surplus*
-        # argument, since nothing in `callee`'s own shape would ever
-        # reference the extra marker in the first place, so the extra
-        # argument would otherwise be silently discarded during
-        # composition rather than rejected. Checked before recursing so it
-        # applies at every step of a chain, not only the outermost call.
         callee_defs = macros_by_name.get(callee)
-        if callee_defs and any(len(shape) != len(callee_macro.params) for callee_macro in callee_defs):
+        if not callee_defs:
             results.append(None)
             continue
+        arity = _callee_arity(callee_defs)
+        if arity is None:
+            results.append(None)
+            continue
+        fixed_count, variadic_start = arity
+        if shape is _EMPTY_ARGS:
+            # `callee()`: how many arguments this represents depends on
+            # `callee`'s own declared parameter count, per C's macro
+            # invocation syntax (measured directly against this project's
+            # parser — see `_EmptyArgs`'s docstring). Handled for exactly
+            # the two unambiguous shapes: no parameters at all (zero
+            # arguments), or exactly one, no variadic pack (one argument,
+            # itself empty). Anything else -- two or more fixed parameters,
+            # or a variadic pack in the mix -- has no single agreed-on
+            # meaning worth guessing at, so it fails closed like every other
+            # uncertain case in this module.
+            if fixed_count == 0:
+                resolved_shape: tuple[tuple[bytes, ...], ...] = ()
+            elif fixed_count == 1 and variadic_start is None:
+                resolved_shape = ((),)
+            else:
+                results.append(None)
+                continue
+        else:
+            # Arity at this step of the chain: how many arguments this
+            # definition's call actually supplies to `callee` must match
+            # how many *fixed* parameters every one of `callee`'s own
+            # definitions declares -- at least that many when `callee` also
+            # takes a variadic pack (the rest becomes the pack), exactly
+            # that many otherwise, in *both* directions. `_substitute_shape`
+            # below only ever catches a deficit among the fixed positions (a
+            # marker `callee`'s own body references with no corresponding
+            # argument here); it has no way to notice a *surplus* argument
+            # to a non-variadic callee, since nothing in `callee`'s own
+            # shape would ever reference the extra marker in the first
+            # place, so the extra argument would otherwise be silently
+            # discarded during composition rather than rejected. Checked
+            # before recursing so it applies at every step of a chain, not
+            # only the outermost call.
+            if variadic_start is None:
+                if len(shape) != fixed_count:
+                    results.append(None)
+                    continue
+            elif len(shape) < fixed_count:
+                results.append(None)
+                continue
+            resolved_shape = shape
         inner = _resolve_alias(callee, next_seen, macros_by_name, definition_counts, knowledge, cache)
         if inner is None:
             results.append(None)
             continue
         inner_target, inner_shape = inner
-        composed = _substitute_shape(inner_shape, shape)
+        composed = _substitute_shape(inner_shape, resolved_shape, variadic_start)
         results.append(None if composed is None else (inner_target, composed))
 
     if any(result is None for result in results) or len(set(results)) != 1:

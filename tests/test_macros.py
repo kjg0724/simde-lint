@@ -510,15 +510,19 @@ def test_alias_map_targets_cannot_be_mutated_by_a_caller():
     """`AliasMap` claims its two fields cannot drift apart; this is the part
     of that claim that must be enforced, not merely documented — `targets`
     is a `MappingProxyType` view, not a plain dict a caller could edit out
-    from under `definitions`.
+    from under `definitions`. Checked every way a caller could try: item
+    assignment, item deletion, and every mutating dict method — `clear`,
+    `update`, `pop`, `popitem`, `setdefault` are not merely blocked, they do
+    not exist on the proxy at all, which is a stronger guarantee than one
+    that raises on the attempt.
     """
     alias_map = _alias_map(FORWARDING)
     with pytest.raises(TypeError):
         alias_map.targets["_my_cmpgt_epi64"] = "tampered"
-    # `MappingProxyType` does not even expose a mutating method to call --
-    # there is no `.clear()`/`.pop()`/etc. to invoke in the first place,
-    # which is a stronger guarantee than one that merely raises.
-    assert not hasattr(alias_map.targets, "clear")
+    with pytest.raises(TypeError):
+        del alias_map.targets["_my_cmpgt_epi64"]
+    for method in ("clear", "update", "pop", "popitem", "setdefault", "__setitem__", "__delitem__"):
+        assert not hasattr(alias_map.targets, method)
 
 
 # --- Critical: an empty-bodied sibling definition must never be invisible --
@@ -1028,15 +1032,265 @@ def test_alias_map_takes_a_defensive_copy_of_a_caller_supplied_mapping():
     must take its own defensive copy so mutating the dict a caller passed in
     cannot change `targets` (or `definitions`) after construction.
     """
-    mutable_targets = {"A": "_mm_loadl_epi64"}
+    mutable_targets = {"A": "_mm_loadl_epi64", "C": "_mm_loadu_si128"}
     mutable_definitions = {10, 20}
     alias_map = AliasMap(targets=mutable_targets, definitions=mutable_definitions)
 
     mutable_targets["A"] = "tampered"
     mutable_targets["B"] = "also tampered"
+    del mutable_targets["C"]
     mutable_definitions.add(30)
+    mutable_definitions.clear()
 
-    assert alias_map.targets == {"A": "_mm_loadl_epi64"}
+    assert alias_map.targets == {"A": "_mm_loadl_epi64", "C": "_mm_loadu_si128"}
     assert alias_map.definitions == frozenset({10, 20})
     with pytest.raises(TypeError):
         alias_map.targets["A"] = "tampered again"
+    with pytest.raises(TypeError):
+        del alias_map.targets["A"]
+    for method in ("clear", "update", "pop", "popitem", "setdefault"):
+        assert not hasattr(alias_map.targets, method)
+
+
+def test_alias_map_constructor_copy_also_protects_against_a_mutable_definitions_set():
+    """The `frozenset(...)` coercion in `__post_init__` is the same
+    defensive-copy story as `targets`, for the other field: a caller
+    passing a plain, mutable `set` for `definitions` must not be able to
+    mutate `AliasMap.definitions` afterwards, or add to it after the fact.
+    """
+    mutable_definitions = {10, 20}
+    alias_map = AliasMap(targets={}, definitions=mutable_definitions)
+    assert isinstance(alias_map.definitions, frozenset)
+    mutable_definitions.add(30)
+    assert alias_map.definitions == frozenset({10, 20})
+    with pytest.raises(AttributeError):
+        alias_map.definitions.add(40)
+
+
+# --- Round 4: empty-argument arity, variadic packs, more literal prefixes --
+
+# `B()` is byte-identical whether `B` takes zero or one parameter -- C
+# resolves the ambiguity from the *callee's own* declared arity, never from
+# the call's own text alone. `A` itself is always zero-parameter in these
+# fixtures; what varies is `B`'s arity, which is what the empty `B()` call
+# must be read against.
+
+_EMPTY_CALL_TO_ONE_PARAMETER_INTERMEDIATE = b"#define B(x) _mm_loadl_epi64(x)\n#define A() B()\n"
+
+
+def test_an_empty_call_to_a_one_parameter_intermediate_is_one_empty_argument():
+    """Before this fix, `_call_shape` always read `()`'s zero named children
+    as zero arguments regardless of context, so `A`'s call `B()` mismatched
+    `B`'s own one-parameter arity and `A` never registered.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_EMPTY_CALL_TO_ONE_PARAMETER_INTERMEDIATE, knowledge)
+    assert dict(alias_map.targets) == {"A": "_mm_loadl_epi64", "B": "_mm_loadl_epi64"}
+
+
+_EMPTY_CALL_TO_ZERO_PARAMETER_INTERMEDIATE = b"#define B() _mm_setzero_si128()\n#define A() B()\n"
+
+
+def test_an_empty_call_to_a_zero_parameter_intermediate_is_zero_arguments():
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_EMPTY_CALL_TO_ZERO_PARAMETER_INTERMEDIATE, knowledge)
+    assert dict(alias_map.targets) == {"A": "_mm_setzero_si128", "B": "_mm_setzero_si128"}
+
+
+_EMPTY_CALL_TO_TWO_PARAMETER_INTERMEDIATE = b"#define B(x, y) _mm_add_epi32(x, y)\n#define A() B()\n"
+
+
+def test_an_empty_call_to_a_two_parameter_intermediate_fails_closed():
+    """Two or more fixed parameters against an empty call list has no single
+    agreed-on meaning in real C either (a straightforward too-few-arguments
+    error at preprocessing time) — this project does not try to guess at
+    one, unlike the clean one-parameter and zero-parameter cases above.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_EMPTY_CALL_TO_TWO_PARAMETER_INTERMEDIATE, knowledge)
+    # `B` itself is a perfectly good, ordinary alias on its own -- only
+    # `A`'s empty call to it is the malformed part.
+    assert dict(alias_map.targets) == {"B": "_mm_add_epi32"}
+
+
+_EMPTY_CALL_DIRECTLY_TO_AN_INTRINSIC = b"#define Z() _mm_setzero_si128()\n"
+
+
+def test_an_empty_call_directly_to_an_intrinsic_is_always_zero_arguments():
+    """Unlike a macro callee, a real function call's own syntax settles
+    `f()` unambiguously as zero arguments — there is no declared parameter
+    list on this side for this project to read `()` against, regardless of
+    what `Z` itself declares.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_EMPTY_CALL_DIRECTLY_TO_AN_INTRINSIC, knowledge)
+    assert dict(alias_map.targets) == {"Z": "_mm_setzero_si128"}
+
+
+# --- A genuinely empty *middle* argument is unrepresentable and fails closed
+
+_MIDDLE_EMPTY_ARGUMENT = b"#define B(x, y, z) _mm_add_epi32(x, y)\n#define A(x, z) B(x,,z)\n"
+
+
+def test_a_middle_empty_argument_is_unrepresentable_and_fails_closed():
+    """`B(x,,z)` — a genuinely empty *middle* argument — does not parse at
+    all in this project's grammar (confirmed directly: it produces an
+    `ERROR` node inside the argument list, not two empty `argument_list`
+    children), so `A`'s own body fails to reparse cleanly
+    (`ReparsedMacro.ok` is False) and `A` is rejected well before arity
+    ever enters into it. There is no attempt made to give this shape a
+    successful registration through some other, more permissive route —
+    the boundary is that it fails closed, and that is what is pinned here,
+    not any particular internal mechanism.
+    """
+    knowledge = load_knowledge()
+    root = parse_source(_MIDDLE_EMPTY_ARGUMENT).root_node
+    reparsed = reparse_macros(root, _MIDDLE_EMPTY_ARGUMENT)
+    a_macro = next(m for m in reparsed if m.name == "A")
+    assert a_macro.ok is False
+    alias_map = build_alias_map(root, _MIDDLE_EMPTY_ARGUMENT, reparsed, knowledge)
+    assert "A" not in alias_map.targets
+    assert dict(alias_map.targets) == {}
+
+
+_NESTED_PARENS_ARGUMENT = b"#define B(a, b) _mm_add_epi32(a, b)\n#define A(p, q, r) B(p, (q, r))\n"
+
+
+def test_a_comma_inside_nested_parentheses_is_not_an_argument_separator():
+    """Pinning what was already correct before this round, so the new
+    empty-argument/variadic handling above and below cannot silently break
+    it: `B(p, (q, r))` is two arguments to `B` — `p`, and the whole
+    parenthesized `(q, r)` — not three, because a comma nested inside
+    parentheses is not itself an argument separator.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_NESTED_PARENS_ARGUMENT, knowledge)
+    assert alias_map.targets["A"] == "_mm_add_epi32"
+
+
+# --- Variadic packs: standard `...` and GNU named (`args...`), zero/one/ ---
+# --- several arguments, and composition through an intermediate -----------
+
+_VARIADIC_TARGET = b"#define B(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+
+_VARIADIC_ZERO_EXTRA_ARGS = _VARIADIC_TARGET + b"#define A0(x) B(x)\n"
+_VARIADIC_ONE_EXTRA_ARG = _VARIADIC_TARGET + b"#define A1(x, y) B(x, y)\n"
+_VARIADIC_SEVERAL_EXTRA_ARGS = _VARIADIC_TARGET + b"#define A2(x, y, z) B(x, y, z)\n"
+
+
+def test_composing_through_a_variadic_intermediate_with_zero_extra_arguments_registers():
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_VARIADIC_ZERO_EXTRA_ARGS, knowledge)
+    assert alias_map.targets["A0"] == "_mm_add_epi32"
+
+
+def test_composing_through_a_variadic_intermediate_with_one_extra_argument_registers():
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_VARIADIC_ONE_EXTRA_ARG, knowledge)
+    assert alias_map.targets["A1"] == "_mm_add_epi32"
+
+
+def test_composing_through_a_variadic_intermediate_with_several_extra_arguments_registers():
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_VARIADIC_SEVERAL_EXTRA_ARGS, knowledge)
+    assert alias_map.targets["A2"] == "_mm_add_epi32"
+
+
+_DUP_VARIADIC_STANDARD_AND_GNU_NAMED_AGREE = (
+    b"#define TARGET1(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+    b"#define TARGET2(x, rest...) _mm_add_epi32(x, rest)\n"
+    b"#ifdef A\n"
+    b"#define CHAINED(a, b) TARGET1(a, b)\n"
+    b"#else\n"
+    b"#define CHAINED(a, b) TARGET2(a, b)\n"
+    b"#endif\n"
+)
+
+
+def test_duplicate_definitions_chaining_through_a_standard_and_a_gnu_named_variadic_that_agree_register():
+    """`TARGET1` (standard `...`) and `TARGET2` (GNU named `rest...`) both
+    forward their pack to `_mm_add_epi32`'s second position, faithfully —
+    different variadic *forms*, same real correspondence. `CHAINED`'s two
+    `#if` branches, one routing through each, must still be recognized as
+    agreeing.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_DUP_VARIADIC_STANDARD_AND_GNU_NAMED_AGREE, knowledge)
+    assert alias_map.targets["CHAINED"] == "_mm_add_epi32"
+    assert alias_map.targets["TARGET1"] == "_mm_add_epi32"
+    assert alias_map.targets["TARGET2"] == "_mm_add_epi32"
+
+
+_DUP_VARIADIC_PACK_POSITION_CONFLICTS = (
+    b"#define TARGET1(x, ...) _mm_add_epi32(x, __VA_ARGS__)\n"
+    b"#define TARGET3(x, ...) _mm_add_epi32(__VA_ARGS__, x)\n"
+    b"#ifdef A\n"
+    b"#define CHAINED2(a, b) TARGET1(a, b)\n"
+    b"#else\n"
+    b"#define CHAINED2(a, b) TARGET3(a, b)\n"
+    b"#endif\n"
+)
+
+
+def test_duplicate_definitions_chaining_through_variadic_intermediates_whose_pack_position_conflicts_are_rejected():
+    """`TARGET1` puts the pack second; `TARGET3` puts it first. Composed
+    through `CHAINED2`'s two branches this is a genuine operand-order
+    disagreement — the same "two sides read differently" case as a
+    fixed-parameter reversal, just with a pack instead of a single
+    parameter — and must be rejected, not registered.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_DUP_VARIADIC_PACK_POSITION_CONFLICTS, knowledge)
+    assert "CHAINED2" not in alias_map.targets
+    assert alias_map.targets["TARGET1"] == "_mm_add_epi32"
+    assert alias_map.targets["TARGET3"] == "_mm_add_epi32"
+
+
+# --- Zero-parameter chains, several links deep -----------------------------
+
+_ZERO_PARAMETER_CHAIN = (
+    b"#define C() _mm_setzero_si128()\n"
+    b"#define B() C()\n"
+    b"#define A() B()\n"
+)
+
+
+def test_a_zero_parameter_chain_several_links_deep_registers_every_link():
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_ZERO_PARAMETER_CHAIN, knowledge)
+    assert dict(alias_map.targets) == {
+        "A": "_mm_setzero_si128",
+        "B": "_mm_setzero_si128",
+        "C": "_mm_setzero_si128",
+    }
+
+
+# --- More literal prefixes: regular (non-raw) string and character forms --
+# Raw strings (`R"..."`/`u8R"..."`) are covered above; these are the plain
+# `u8`/`u`/`U`/`L` string and character prefixes `_STRING_PREFIXES` names,
+# plus the two raw-string prefix combinations not yet exercised directly.
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        b'u8"x"',
+        b'u"x"',
+        b'U"x"',
+        b'L"x"',
+        b"u8'x'",
+        b"u'x'",
+        b"U'x'",
+        b"L'x'",
+    ],
+)
+def test_prefixed_string_and_character_literals_are_tokenized_as_a_single_opaque_token(text):
+    assert _tokenize(text) == [("other", text)]
+
+
+@pytest.mark.parametrize("text", [b'uR"(x)"', b'UR"(x)"', b'LR"(x)"'])
+def test_the_remaining_prefixed_raw_string_forms_are_tokenized_as_a_single_opaque_token(text):
+    assert _tokenize(text) == [("other", text)]
+
+
+def test_an_unprefixed_character_literal_is_tokenized_as_a_single_opaque_token():
+    assert _tokenize(b"'x'") == [("other", b"'x'")]
