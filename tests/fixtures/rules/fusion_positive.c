@@ -13,6 +13,18 @@ void kernel(const int *a, const int *b, __m128i acc, __m256i acc256) {
     (void)sum; (void)sum64; (void)sum256;
 }
 
+// The widening hop on an intrinsic whose fused form is established. madd's
+// hop in `kernel` now caps at C because no AArch64 fused form is known for
+// it, so grade B needs a case where the transform is not in doubt.
+void widening_known_cost(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_mullo_epi32(va, vb);
+    __m128i wide = _mm_cvtepi32_epi64(prod);
+    __m128i sum = _mm_add_epi64(acc, wide);
+    (void)sum;
+}
+
 void two_products(const int *a, const int *b) {
     __m128i va = _mm_loadu_si128((const __m128i *)a);
     __m128i vb = _mm_loadu_si128((const __m128i *)b);

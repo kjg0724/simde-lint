@@ -32,7 +32,7 @@ ALLOWED: dict[str, set[str]] = {
     "R.zero_init_partial_load": {"A"},
     "S.pshufb_guard": {"A", "B", "C"},
     "W.mul16_widen_roundtrip": {"A", "B"},
-    "F.mul_add_no_fuse": {"A", "B"},
+    "F.mul_add_no_fuse": {"A", "B", "C"},
     "M.scalar_insert_chain": {"A", "B"},
     "M.scalar_set_build": {"A", "B"},
     "P.cmp_immediate_use": {"A"},
