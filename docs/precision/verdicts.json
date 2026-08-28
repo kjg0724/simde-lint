@@ -1,0 +1,82 @@
+{
+  "verdicts": {
+    "1": "TP",
+    "2": "TP",
+    "3": "TP",
+    "4": "TP",
+    "5": "TP",
+    "6": "TP",
+    "7": "TP",
+    "8": "TP",
+    "9": "TP",
+    "10": "TP",
+    "11": "TP",
+    "12": "TP",
+    "13": "TP",
+    "14": "TP",
+    "15": "TP",
+    "16": "TP",
+    "17": "TP",
+    "18": "TP",
+    "19": "TP",
+    "20": "TP",
+    "21": "TP",
+    "22": "TP",
+    "23": "TP",
+    "24": "TP",
+    "25": "TP",
+    "26": "TP",
+    "27": "TP",
+    "28": "TP",
+    "29": "TP",
+    "30": "TP",
+    "31": "TP",
+    "32": "TP",
+    "33": "TP",
+    "34": "TP",
+    "35": "TP",
+    "36": "TP"
+  },
+  "by_rule": {
+    "F.mul_add_no_fuse": {
+      "pop": 1154,
+      "n": 6,
+      "tp": 6
+    },
+    "M.scalar_insert_chain": {
+      "pop": 24,
+      "n": 6,
+      "tp": 6
+    },
+    "M.scalar_set_build": {
+      "pop": 52,
+      "n": 6,
+      "tp": 6
+    },
+    "P.cmp_immediate_use": {
+      "pop": 35,
+      "n": 3,
+      "tp": 3
+    },
+    "R.zero_init_partial_load": {
+      "pop": 1922,
+      "n": 3,
+      "tp": 3
+    },
+    "S.pshufb_guard": {
+      "pop": 505,
+      "n": 9,
+      "tp": 9
+    },
+    "W.mul16_widen_roundtrip": {
+      "pop": 18,
+      "n": 3,
+      "tp": 3
+    }
+  },
+  "weighted_precision": 1.0,
+  "wilson95": [
+    0.9035781695514236,
+    1
+  ]
+}
