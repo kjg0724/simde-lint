@@ -13,6 +13,15 @@ Section 3), a different and larger unit. Divergences below are recorded as
 results, with an established cause for each — not smoothed over and not
 treated as failures.
 
+**The reference checkouts are pinned.** Every figure below was measured
+against these exact revisions; a different checkout will give different
+counts, and the file-count footnotes in Section 1 record a case where it did.
+
+| Codebase | Commit | Date |
+|---|---|---|
+| SVT-AV1 | `094b2a5262c465c60c33fd4e7e0c79a0aa564a32` | 2026-08-18 |
+| VVenC | `0f2e874451d6b194615e5dfefdc96796a7da00f4` | 2026-08-11 |
+
 Every command in this document was re-run on the day this file was last
 updated (v1.2: intrinsic calls inside `#define` bodies are analysed; see
 Section 5). Reference checkouts are given through the `SIMDE_LINT_SVT_AV1`
@@ -44,7 +53,7 @@ $ uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --type S --format json \
     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['summary'])"
 {'total': 341, 'by_type': {'S': 341}, 'by_rule': {'S.pshufb_guard':
 {'type': 'S', 'count': 341, 'mechanism': 'pshufb->tbl guard only'}},
-'by_evidence': {'A': 35, 'C': 306}, 'by_impact': {'confirmed': 341}}
+'by_evidence': {'A': 35, 'C': 306}}
 ```
 
 341 is the combined total of both shuffle widths rule S matches. Filtering
@@ -52,7 +61,7 @@ the tool's own findings to `_mm_shuffle_epi8` alone and comparing against the
 grep count directly:
 
 ```python
-findings, _ = analyze([SVT_AV1], types=["S"])
+findings, _, _ = analyze([SVT_AV1], types=["S"])
 tool_count = sum(1 for f in findings if f.intrinsic == "_mm_shuffle_epi8")
 # tool_count == 204 == grep count
 ```
@@ -89,7 +98,7 @@ from pathlib import Path
 from simde_lint.analyze import analyze
 from simde_lint.finding import Evidence
 
-findings, _ = analyze([Path(os.environ["SIMDE_LINT_SVT_AV1"]) / "Source"], types=["S"])
+findings, _, _ = analyze([Path(os.environ["SIMDE_LINT_SVT_AV1"]) / "Source"], types=["S"])
 for f in findings:
     if f.evidence is Evidence.A and f.mask_source:
         print(f.file, f.line, f.mask_source)
@@ -117,7 +126,15 @@ $ echo $?
 
 561 files scanned (all `.c`/`.h` under `Source/`), exit 0, no stderr output.
 3261 total findings: `F 1019, R 1816, S 341, M 53, P 31, W 1`. Evidence
-`A 2906, B 49, C 306`. By scope: **3233 in function bodies, 28 in macro
+`A 2386, B 49, C 826`.
+
+> The evidence split changed in v1.3 and the type split did not. Rule F now
+> caps a finding at grade C (`reason: unresolved`) when the knowledge table
+> records no established fused form for the intrinsic — `_mm_madd_epi16` and
+> `_mm256_madd_epi16`, whose pairwise reduction has no direct AArch64
+> equivalent. 520 SVT-AV1 findings moved from A to C on that rule alone. The
+> call sites are the same ones; what changed is that the tool no longer
+> reports a transform it cannot establish as one it can. By scope: **3233 in function bodies, 28 in macro
 bodies** — the 3233 is the same figure v1.1.0 reported, unchanged
 finding-for-finding (Section 5).
 
@@ -185,7 +202,7 @@ Five modules use SIMDe: DepQuant, LoopFilter, Quant, Trafo, FGA. For each,
 the type distribution below comes from:
 
 ```
-findings, _ = analyze([VVENC_X86 / "<Module>X86.h"])
+findings, _, _ = analyze([VVENC_X86 / "<Module>X86.h"])
 Counter(f.type for f in findings)
 ```
 
@@ -233,8 +250,7 @@ them in the `+40` here.)
 A full recursive sweep of the whole `x86/` directory (47 files: the five
 SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 `avx2/` and `sse41/` subdirectories) totals 449 findings — `R 106, S 164,
-F 135, W 17, M 23, P 4` — evidence `A 324, B 87, C 38`, impact
-`confirmed 316, diagnostic 133`. By scope: **445 in function bodies, 4 in
+F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155`. By scope: **445 in function bodies, 4 in
 macro bodies**; the 445 and its per-type split (`F 131`, everything else as
 printed) are v1.1.0's figures unchanged, and the 4 macro findings are all F,
 in `AffineGradientSearchX86.h`, which is not one of the five modules in the
