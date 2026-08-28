@@ -2,9 +2,10 @@ cff-version: 1.2.0
 message: "If you use this tool in academic work, please cite the paper it implements."
 title: simde-lint
 abstract: >-
-  Source-level detection of the six SIMDe emulation inefficiency types
-  described in the referenced paper, for C/C++ codebases using x86 SIMD
-  intrinsics translated to ARM NEON.
+  Source-level detection of seven named mechanisms drawn from the six-type
+  SIMDe emulation inefficiency taxonomy of the referenced paper, for C/C++
+  codebases using x86 SIMD intrinsics translated to ARM NEON. It implements
+  one mechanism per type (two for Type M), not the types in full.
 type: software
 authors:
   - family-names: Kim
@@ -13,8 +14,8 @@ authors:
     orcid: "https://orcid.org/0009-0003-1171-8034"
 license: MIT
 repository-code: "https://github.com/kjg0724/simde-lint"
-version: 1.2.0
-date-released: "2026-08-24"
+version: 2.0.0
+date-released: "2026-08-28"
 preferred-citation:
   type: article
   title: >-

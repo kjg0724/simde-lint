@@ -128,7 +128,7 @@ $ echo $?
 3261 total findings: `F 1019, R 1816, S 341, M 53, P 31, W 1`. Evidence
 `A 2386, B 49, C 826`.
 
-> The evidence split changed in v1.3 and the type split did not. Rule F now
+> The evidence split changed in v2.0.0 and the type split did not. Rule F now
 > caps a finding at grade C (`reason: unresolved`) when the knowledge table
 > records no established fused form for the intrinsic — `_mm_madd_epi16` and
 > `_mm256_madd_epi16`, whose pairwise reduction has no direct AArch64
@@ -205,6 +205,15 @@ the type distribution below comes from:
 findings, _, _ = analyze([VVENC_X86 / "<Module>X86.h"])
 Counter(f.type for f in findings)
 ```
+
+**The paper column was transcribed and then checked back against the paper's
+own source**, cell by cell, along with the Table IV microbenchmark figures the
+impact discussion quotes (S 1.59x, W 2.15x, F 1.94x; R/M/P 1.00x). All match.
+Two notes from that check: the paper labels the fourth module TrQuant where
+this table uses the header the tool scans (`TrafoX86.h`), and the paper
+footnotes LoopFilter because its native implementation there was scalar C
+rather than NEON — its taxonomy counts come from the same SIMDe-translated
+x86 source as the other four modules.
 
 | Module | Type | Paper (Table III) | Tool |
 |---|---|---:|---:|
@@ -417,10 +426,17 @@ output are identical, on both codebases. The whole of the difference is the
 new macro-body unit, plus the two new schema fields (`scope`, `macro`) that
 every finding now carries.
 
+This comparison was run when `impact` was still part of the schema, which is
+why it appears in the field list above. The field was removed later, so the
+comparison as written cannot be re-run against the current tool: re-running
+it means dropping `impact` from the field set on both sides.
+
 ### Where the 32 macro findings are
 
-They come from 15 macro units across 14 distinct macro names. All 32 grade
-evidence A.
+They come from 15 macro units across 14 distinct macro names: 26 grade
+evidence A, 6 grade C. The six are the `_mm_madd_epi16` call sites that rule
+F's grade cap moves to C, for the same reason as anywhere else -- no fused
+form is established for that intrinsic.
 
 | codebase | file | macro | findings |
 |---|---|---|---:|
