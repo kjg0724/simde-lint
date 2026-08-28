@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence, Impact
+from simde_lint.finding import Evidence
 from simde_lint.rules.memory import MemoryRule, ScalarSetBuildRule
 
 
@@ -7,7 +7,6 @@ def test_reports_one_finding_for_a_chain_at_or_above_the_threshold(run_rule):
     assert len(findings) == 1
     assert findings[0].type == "M"
     assert findings[0].evidence is Evidence.A
-    assert findings[0].impact is Impact.DIAGNOSTIC
     assert "4" in findings[0].rationale
 
 
@@ -42,7 +41,6 @@ def test_reports_a_vector_assembled_from_runtime_scalars(run_rule):
         key=lambda f: f.line,
     )
     assert [f.intrinsic for f in findings] == ["_mm_set_epi64x", "_mm_set_epi32"]
-    assert all(f.type == "M" and f.impact is Impact.DIAGNOSTIC for f in findings)
     assert all(f.evidence is Evidence.A for f in findings)
     assert findings[0].rule_mechanism == "vector built from runtime scalars"
 

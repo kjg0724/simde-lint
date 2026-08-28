@@ -5,6 +5,7 @@ import re
 import pytest
 
 from simde_lint.cli import main
+from simde_lint.finding import BENCHMARK_BACKED_TYPES
 
 SOURCE = """
 void kernel(const int *src, __m128i data) {
@@ -58,12 +59,6 @@ def test_a_known_type_mixed_with_an_unknown_one_is_still_rejected(tmp_path):
         main([_write(tmp_path), "--type", "R,Z"])
 
 
-def test_impact_confirmed_drops_diagnostic_findings(tmp_path, capsys):
-    main([_write(tmp_path), "--format", "json", "--impact", "confirmed"])
-    data = json.loads(capsys.readouterr().out)
-    # Same trap as above: all(...) over an empty list is vacuously true.
-    assert data["findings"]
-    assert all(f["impact"] == "confirmed" for f in data["findings"])
 
 
 def test_text_output_is_the_default(tmp_path, capsys):
@@ -75,14 +70,16 @@ def test_exit_code_is_zero_even_with_findings(tmp_path):
     assert main([_write(tmp_path)]) == 0
 
 
-def test_sort_defaults_to_impact_first(tmp_path, capsys):
+def test_sort_defaults_to_benchmarked_types_first(tmp_path, capsys):
     main([_write(tmp_path), "--format", "json"])
     data = json.loads(capsys.readouterr().out)
-    impacts = [f["impact"] for f in data["findings"]]
-    # Every "confirmed" entry must precede every "diagnostic" one; this
-    # fixture mixes S (confirmed) and R (diagnostic) findings at the same
-    # file, so a location-first sort would interleave them instead.
-    assert impacts == sorted(impacts, key=lambda i: 0 if i == "confirmed" else 1)
+    ranks = [
+        0 if f["type"] in BENCHMARK_BACKED_TYPES else 1 for f in data["findings"]
+    ]
+    # Every benchmarked-type entry must precede every other one; this fixture
+    # mixes S (benchmarked) and R (not) findings at the same file, so a
+    # location-first sort would interleave them instead.
+    assert ranks == sorted(ranks)
 
 
 def test_sort_file_restores_the_pre_v1_1_location_order(tmp_path, capsys):

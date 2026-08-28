@@ -369,3 +369,67 @@ def test_no_pipeline_or_fusion_finding_over_both_checkouts_has_a_macro_resolved_
     # discard anything.
     assert p_direct_alias_consumers == 0
     assert f_direct_alias_adds == 0
+
+
+# --- Published aggregates, pinned ---------------------------------------
+#
+# Every count the OSP manuscript prints comes from one of the two sweeps
+# below. Before v1.3 they lived only in docs/verification.md, so a change
+# that moved them broke nothing: an ordinary green test run said nothing
+# about whether the published figures still held. These assertions make a
+# drift fail loudly, and name the revision they were measured against so a
+# failure is legible as "different checkout" rather than "tool regression".
+
+_PINNED = {
+    "svt-av1": "094b2a5262c465c60c33fd4e7e0c79a0aa564a32",
+    "vvenc": "0f2e874451d6b194615e5dfefdc96796a7da00f4",
+}
+
+
+def _head(path: Path) -> str | None:
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:
+        return None
+    return r.stdout.strip() or None
+
+
+def _aggregate(findings):
+    from collections import Counter
+
+    return {
+        "total": len(findings),
+        "type": dict(Counter(f.type.value if hasattr(f.type, "value") else f.type for f in findings)),
+        "evidence": dict(Counter(f.evidence.value for f in findings)),
+    }
+
+
+@requires_svt
+def test_published_svt_av1_aggregates_still_hold():
+    head = _head(SVT_AV1.parent if SVT_AV1.name == "Source" else SVT_AV1)
+    if head and head != _PINNED["svt-av1"]:
+        pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
+    findings, _, _ = analyze([SVT_AV1])
+    assert _aggregate(findings) == {
+        "total": 3261,
+        "type": {"R": 1816, "F": 1019, "S": 341, "M": 53, "P": 31, "W": 1},
+        "evidence": {"A": 2386, "B": 49, "C": 826},
+    }
+
+
+@requires_vvenc
+def test_published_vvenc_aggregates_still_hold():
+    head = _head(VVENC_X86.parents[3])
+    if head and head != _PINNED["vvenc"]:
+        pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
+    findings, _, _ = analyze([VVENC_X86])
+    assert _aggregate(findings) == {
+        "total": 449,
+        "type": {"S": 164, "F": 135, "R": 106, "M": 23, "W": 17, "P": 4},
+        "evidence": {"A": 207, "B": 87, "C": 155},
+    }

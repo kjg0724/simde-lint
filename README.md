@@ -40,9 +40,9 @@ operand values the tool cannot always resolve from source alone. This is
 reported separately as an **evidence grade**, so "found" and "confirmed
 removable" are never conflated into one signal.
 
-## Evidence grade and impact class
+## Evidence grade
 
-Every finding carries two independent axes:
+Every finding carries an evidence grade.
 
 - **`evidence`** — how far the rule's premise is confirmed from source.
   - **A** — every operand the rule depends on resolves to a known value or a
@@ -71,16 +71,31 @@ Every finding carries two independent axes:
   carry the field for JSON schema uniformity and consistent
   `--min-evidence` filtering.
 
-- **`impact`** — taken directly from the paper's Table IV microbenchmarks
-  (isolated kernel, Graviton3), not a computed score:
-  - `confirmed` — S (1.59x), W (2.15x), F (1.94x)
-  - `diagnostic` — R, M, P (1.00x in an isolated kernel; `-O3` neutralizes
-    them there, so their value is in identifying porting candidates, not in
-    a measured speedup)
+### Why there is no per-finding impact column
 
-A computed priority score was deliberately not built: weighting types
-against each other would need VVenC-specific benchmark data, reproducing in
-the tool the exact overfitting concern the paper itself was written against.
+Earlier releases carried an `impact` field valued `confirmed` or
+`diagnostic`, read from the paper's Table IV microbenchmarks. It was removed
+in v1.3. The value was a complete function of `type` — every S, W and F
+finding was `confirmed`, every R, M and P finding was `diagnostic` — so
+`--impact confirmed` returned exactly the same set as `--type S,W,F` and the
+column carried no information the type column did not. Worse, `confirmed`
+read as a claim that *this call site's* effect had been measured, which no
+measurement supports: the figures below are isolated-kernel numbers for the
+pattern, on one machine.
+
+The measurements themselves are still the reason three types are worth
+looking at first, so they are recorded here as a reference table rather than
+stamped onto each finding:
+
+| Type | Isolated-kernel speedup (Graviton3, paper Table IV) |
+|---|---|
+| S | 1.59x |
+| W | 2.15x |
+| F | 1.94x |
+| R, M, P | 1.00x — `-O3` neutralizes the pattern in an isolated kernel |
+
+The default sort still puts S, W and F first for the same reason; see
+`BENCHMARK_BACKED_TYPES` in `finding.py`.
 
 ## Installation
 
@@ -99,20 +114,18 @@ Requires Python >= 3.10. Dependencies: `tree-sitter`, `tree-sitter-cpp`,
 
 ```bash
 simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P]
-           [--min-evidence A|B|C] [--impact confirmed|all] [--sort impact|file]
+           [--min-evidence A|B|C] [--sort benchmarked|file]
            [--exclude GLOB] [--config FILE] [--dump-symbols]
 ```
 
 - `--type` filters to a comma-separated set of taxonomy types.
 - `--min-evidence` is a floor, not an exact match: `B` keeps grades A and B.
-- `--impact confirmed` keeps only the three types with a measured
-  microbenchmark speedup.
 - `--sort` picks the display order; both `--format` values honor it, so text
   and JSON output never disagree on order for the same run.
-  - `impact` (default) — `confirmed` findings before `diagnostic`, then
+  - `benchmarked` (default) — S, W and F findings before the rest, then
     grade A before B before C, then file and line. On a large codebase, the
-    diagnostic-impact rules (chiefly R) can outnumber everything else several
-    times over; sorting by impact first means the findings worth acting on
+    un-benchmarked rules (chiefly R) can outnumber everything else several
+    times over; sorting them last means the findings worth acting on
     aren't buried under a scroll of ones `-O3` typically removes on its own.
   - `file` — the plain `(file, line, type, rule)` walk through the source
     tree, for a diff-friendly read.
@@ -133,22 +146,22 @@ Run against a fixture with several forms of the same shuffle-mask call:
 
 ```
 $ simde-lint tests/fixtures/rules/suboptimal_positive.c --format text
-tests/fixtures/rules/suboptimal_positive.c:7  S (pshufb->tbl guard only)  evidence=A  impact=confirmed
+tests/fixtures/rules/suboptimal_positive.c:7  S (pshufb->tbl guard only)  evidence=A
     _mm_shuffle_epi8 in kernel
     SIMDe 0.8.4 guards the tbl index on every call; inline mask lanes are all in [0,15] or 0xFF (x86/ssse3.h:346)
     suggestion: vqtbl1q_u8 (3 -> 1 instructions)
 
-tests/fixtures/rules/suboptimal_positive.c:15  S (pshufb->tbl guard only)  evidence=B  impact=confirmed
+tests/fixtures/rules/suboptimal_positive.c:15  S (pshufb->tbl guard only)  evidence=B
     _mm_shuffle_epi8 in kernel
     SIMDe 0.8.4 guards the tbl index on every call; mask derives from a literal through _mm_blendv_epi8, so the final lane values are not pinned (x86/ssse3.h:346)
     no suggestion offered (instruction count unknown)
 
-tests/fixtures/rules/suboptimal_positive.c:18  S (pshufb->tbl guard only)  evidence=C (unresolved)  impact=confirmed
+tests/fixtures/rules/suboptimal_positive.c:18  S (pshufb->tbl guard only)  evidence=C (unresolved)
     _mm_shuffle_epi8 in kernel
     SIMDe 0.8.4 guards the tbl index on every call; mask is produced by a call with unknown lanes (x86/ssse3.h:346)
     no suggestion offered (instruction count unknown)
 
-tests/fixtures/rules/suboptimal_positive.c:25  S (pshufb->tbl guard only)  evidence=C (guard_required)  impact=confirmed
+tests/fixtures/rules/suboptimal_positive.c:25  S (pshufb->tbl guard only)  evidence=C (guard_required)
     _mm_shuffle_epi8 in unsafe_but_known
     SIMDe 0.8.4 guards the tbl index on every call; inline mask has a lane in the unsafe [16,127] middle range (x86/ssse3.h:346)
     no suggestion offered (instruction count unknown)
@@ -185,7 +198,6 @@ real finding from an SVT-AV1 scan (paths shortened for display):
   "rule_mechanism": "pshufb->tbl guard only",
   "evidence": "A",
   "reason": null,
-  "impact": "confirmed",
   "file": "Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c",
   "line": 617,
   "scope": "function",
@@ -205,7 +217,7 @@ real finding from an SVT-AV1 scan (paths shortened for display):
 ```
 
 `evidence` grade A never carries a `reason`, so it renders `null` here — see
-"Evidence grade and impact class" above for what `reason` holds on grade C.
+"Evidence grade" above for what `reason` holds on grade C.
 
 **`scope` says which kind of unit the call site sits in**, and `function` and
 `macro` are mutually exclusive. A call written in a function body reports
@@ -230,15 +242,15 @@ reduced to one "primary" type.
 
 ## Per-rule mechanism coverage
 
-| Rule id | Type | What it matches | Evidence grades | Impact | What it does not cover |
-|---|---|---|---|---|---|
-| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {A} always | diagnostic | Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
-| `S.pshufb_guard` | S | `_mm_shuffle_epi8` and `_mm256_shuffle_epi8`, graded on whether the shuffle mask's lanes are known to be safe | {A, B, C} | confirmed | Transpose and blend sequences the paper also classes as Type S — an explicit v1 exclusion, not an oversight (VVenC's LoopFilter has zero `_mm_shuffle_epi8` sites and is exactly this case) |
-| `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit | {A, B} | confirmed | Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
-| `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32` (128- and 256-bit) reaching an `add_epi32`/`add_epi64`, directly or through one widening conversion hop | {A, B} | confirmed | A multiply's product reaching two different adds (only the first is reported); widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
-| `M.scalar_insert_chain` | M | A same-target chain of `_mm_insert_epi16/epi32/epi64`/`_mm256_insert_epi16` at or above a configurable threshold (default 3) | {A, B} | diagnostic | The `_mm_cvtsi32_si128` + unpack variant of the same mechanism; stride-pointer loop forms |
-| `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (all-literal calls excluded as constant vectors, not scalar assembly) | {A, B} | diagnostic | The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
-| `P.cmp_immediate_use` | P | A `cmpgt_*`/`cmpeq_*` result (macro aliases included, e.g. VVenC's `_my_cmpgt_epi64`) consumed by the very next call in source order | {A} always | diagnostic | Anything beyond adjacency in source text — source order is an explicit, documented approximation of scheduling order, not a claim about compiler output |
+| Rule id | Type | What it matches | Evidence grades | What it does not cover |
+|---|---|---|---|---|
+| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {A} always || Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
+| `S.pshufb_guard` | S | `_mm_shuffle_epi8` and `_mm256_shuffle_epi8`, graded on whether the shuffle mask's lanes are known to be safe | {A, B, C} || Transpose and blend sequences the paper also classes as Type S — an explicit v1 exclusion, not an oversight (VVenC's LoopFilter has zero `_mm_shuffle_epi8` sites and is exactly this case) |
+| `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit | {A, B} || Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
+| `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32` (128- and 256-bit) reaching an `add_epi32`/`add_epi64`, directly or through one widening conversion hop | {A, B} || A multiply's product reaching two different adds (only the first is reported); widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
+| `M.scalar_insert_chain` | M | A same-target chain of `_mm_insert_epi16/epi32/epi64`/`_mm256_insert_epi16` at or above a configurable threshold (default 3) | {A, B} || The `_mm_cvtsi32_si128` + unpack variant of the same mechanism; stride-pointer loop forms |
+| `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (all-literal calls excluded as constant vectors, not scalar assembly) | {A, B} || The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
+| `P.cmp_immediate_use` | P | A `cmpgt_*`/`cmpeq_*` result (macro aliases included, e.g. VVenC's `_my_cmpgt_epi64`) consumed by the very next call in source order | {A} always || Anything beyond adjacency in source text — source order is an explicit, documented approximation of scheduling order, not a claim about compiler output |
 
 Type M is the one taxonomy type with two implemented mechanisms in v1.
 Report summaries group by rule id, not by bare type, so the two are never

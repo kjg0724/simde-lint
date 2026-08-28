@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .analyze import analyze, read_sources
-from .finding import Evidence, Impact
+from .finding import Evidence
 from .knowledge import load_knowledge
 from .report import render_json, render_text
 from .symbols import build_symbol_index
@@ -26,14 +26,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=["text", "json"], default="text")
     parser.add_argument(
         "--sort",
-        choices=["impact", "file"],
-        default="impact",
-        help="impact-first (default): confirmed before diagnostic, then evidence, then location. "
+        choices=["benchmarked", "file"],
+        default="benchmarked",
+        help="benchmarked-first (default): the types with a microbenchmarked speedup "
+             "before the rest, then evidence, then location. "
         "file: the previous (file, line, type, rule) location order",
     )
     parser.add_argument("--type", default="", help="comma-separated taxonomy types, e.g. S,F")
     parser.add_argument("--min-evidence", choices=["A", "B", "C"], default="C")
-    parser.add_argument("--impact", choices=["confirmed", "all"], default="all")
     parser.add_argument("--exclude", action="append", default=[], metavar="GLOB")
     parser.add_argument("--config", type=Path, help="JSON file with rule thresholds")
     parser.add_argument("--dump-symbols", action="store_true", help="print resolved constant arrays and exit")
@@ -72,7 +72,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         exclude=args.exclude,
         types=types,
         min_evidence=Evidence(args.min_evidence),
-        impact=Impact.CONFIRMED if args.impact == "confirmed" else None,
         config=config,
     )
 

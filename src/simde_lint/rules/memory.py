@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact
+from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
@@ -93,7 +93,6 @@ class MemoryRule:
             rule=self.rule_id,
             rule_mechanism=self.mechanism,
             evidence=Evidence.A if direct else Evidence.B,
-            impact=Impact.DIAGNOSTIC,
             file=unit.file,
             line=first.line,
             **location_fields(unit),
@@ -161,7 +160,6 @@ class ScalarSetBuildRule:
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
                 evidence=Evidence.A if direct else Evidence.B,
-                impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
                 **location_fields(unit),

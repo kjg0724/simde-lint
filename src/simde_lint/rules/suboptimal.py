@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact, Reason
+from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit, ValueKind, ValueRef
 from .base import Context, location_fields, raw_name_if_aliased
 
@@ -69,7 +69,6 @@ class SuboptimalRule:
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
                 evidence=evidence,
-                impact=Impact.CONFIRMED,
                 file=unit.file,
                 line=call.line,
                 **location_fields(unit),
