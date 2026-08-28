@@ -121,12 +121,11 @@ class Finding:
         return data
 
 
-# Explicit rank tables, not a bare comparison on the enum values. "confirmed"
-# < "diagnostic" and "A" < "B" < "C" happen to sort correctly as plain
-# strings today, but that is a coincidence of the value names — renaming a
-# value would silently reorder findings with no test catching it. A rank
-# table makes the order an explicit decision instead of an accident of
-# spelling.
+# Explicit rank tables, not a bare comparison on the enum values. "A" < "B"
+# < "C" happens to sort correctly as a plain string today, but that is a
+# coincidence of the value names — renaming a value would silently reorder
+# findings with no test catching it. A rank table makes the order an
+# explicit decision instead of an accident of spelling.
 # The taxonomy types whose isolated-kernel microbenchmarks showed a speedup.
 # This is a property of the type, not of any call site, which is why it is a
 # constant here rather than a field on Finding: a per-finding "impact" column
@@ -144,12 +143,12 @@ def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
     """Benchmarked-type-first display order — the v1.1 default.
 
     Rule R alone accounts for the majority of a large sweep's findings (56%
-    of SVT-AV1's), and its impact is always `diagnostic`: `-O3` generally
-    removes the pattern on its own. Sorting by location first buried the
-    `confirmed` findings — the ones actually worth acting on — under a wall
-    of diagnostic ones. This key surfaces `confirmed` first, then the
-    strongest evidence within it, and only then falls back to a stable
-    location order.
+    of SVT-AV1's), and its isolated-kernel microbenchmark showed no speedup:
+    `-O3` generally removes the pattern on its own. Sorting by location
+    first buried the benchmark-backed types under a wall of them. This key
+    surfaces the types in BENCHMARK_BACKED_TYPES first, then the strongest
+    evidence within them, and only then falls back to a stable location
+    order. It is a display default, not a claim about any one call site.
 
     Includes the rule id because one location can legitimately carry findings
     from several rules — two Type M mechanisms can fire on the same statement.
