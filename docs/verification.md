@@ -579,14 +579,25 @@ gaps to be closed later:
 
   **One honesty boundary, stated rather than implied:** this comparison is
   over each definition's *written token structure* — string/character
-  literal contents are opaque and never inspected, and every other token is
-  compared byte-for-byte once whitespace, comments and backslash-newline
-  continuations are normalized away — never over macro *expansion*. Two
-  forwarding bodies whose written text is identical are treated as
-  agreeing even if one of them contains a further, separately
+  literal contents are opaque and never inspected, punctuators are lexed by
+  longest match (`&&` is one token, never mistaken for two adjacent `&`
+  tokens, and likewise for every other multi-character C/C++ punctuator),
+  and every other token is compared byte-for-byte once whitespace, comments
+  and backslash-newline continuations are normalized away — never over macro
+  *expansion*. Two forwarding bodies whose written text is identical are
+  treated as agreeing even if one of them contains a further, separately
   `#if`-redefined object-like macro that would make the two expand to
   different values at compile time; this module has no model of the
   preprocessor beyond the one function-like macro layer it reparses.
+
+  This comparison also requires a macro's own declared variadic pack, not
+  only its fixed parameters, to actually be written somewhere in the
+  forwarded call: `#define BAD(...) _mm_set_epi32(0, 0, 0, 0)` declares a
+  pack and throws it away, and is rejected as a forwarding alias for that
+  reason, the same as a body that drops a fixed parameter. A pack that *is*
+  written in the body but composes to zero tokens at a particular call site
+  (`#define V(...) _mm_setzero_si128(__VA_ARGS__)` called as `V()`) is not
+  this case — the pack is used, it just expands to nothing there.
 
 ### The forwarding-alias argument list
 

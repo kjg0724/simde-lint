@@ -1403,3 +1403,169 @@ def test_the_remaining_prefixed_raw_string_forms_are_tokenized_as_a_single_opaqu
 
 def test_an_unprefixed_character_literal_is_tokenized_as_a_single_opaque_token():
     assert _tokenize(b"'x'") == [("other", b"'x'")]
+
+
+# --- Round 5: a discarded variadic pack, and longest-match punctuator ------
+# --- lexing -----------------------------------------------------------------
+#
+# Two defects a sixth review round found, both reproduced with the review's
+# own examples.
+
+_DISCARDED_STANDARD_PACK = b"#define BAD(...) _mm_set_epi32(0, 0, 0, 0)\n"
+
+
+def test_a_macro_that_declares_a_pack_and_never_writes_it_is_not_a_forwarding_alias():
+    """The review's own repro: `BAD` declares a variadic pack and throws it
+    away entirely -- the forwarded call receives four constants, none of
+    them any part of whatever a call site passes. Before this fix,
+    `is_forwarding_alias` only checked `set(macro.params) <= used`, and
+    `macro.params` is the empty tuple for a pack-only parameter list, so
+    the subset check passed vacuously and `BAD` registered as forwarding
+    to `_mm_set_epi32` -- a confident false finding (`M`, with an
+    instruction count) over a call that in fact receives no runtime
+    scalars at all.
+    """
+    macro = _macros(_DISCARDED_STANDARD_PACK)[0]
+    assert macro.ok
+    assert is_forwarding_alias(macro) is None
+
+
+def test_a_discarded_standard_pack_does_not_register_in_the_alias_map():
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_DISCARDED_STANDARD_PACK, knowledge)
+    assert "BAD" not in alias_map.targets
+
+    units = extract_units("bad.c", _DISCARDED_STANDARD_PACK, knowledge)
+    macro_units = [u for u in units if u.scope == "macro"]
+    assert len(macro_units) == 1
+
+
+_DISCARDED_GNU_NAMED_PACK = b"#define BAD_GNU(args...) _mm_set_epi32(0, 0, 0, 0)\n"
+
+
+def test_a_macro_that_declares_a_gnu_named_pack_and_never_writes_it_is_not_a_forwarding_alias():
+    """Same defect, the other spelling: a GNU named variadic (`args...`)
+    thrown away is rejected the same way a standard `...` pack is -- the
+    fix reads `macro.variadic` itself, which holds the pack's own
+    reference name under either form, not the `__VA_ARGS__` spelling
+    specifically.
+    """
+    macro = _macros(_DISCARDED_GNU_NAMED_PACK)[0]
+    assert macro.ok
+    assert is_forwarding_alias(macro) is None
+
+
+_DISCARDED_PACK_WITH_FIXED_PARAMETER_PRESENT = b"#define V(x, ...) _mm_loadl_epi64(x)\n"
+
+
+def test_a_dropped_pack_is_rejected_even_when_the_fixed_parameter_is_forwarded_faithfully():
+    """`x` is forwarded faithfully -- the old `set(macro.params) <= used`
+    check alone would accept this body, the same as it already (wrongly)
+    accepted `BAD`'s empty-`params` case. The pack `...` is still thrown
+    away, and that alone must reject it.
+    """
+    macro = _macros(_DISCARDED_PACK_WITH_FIXED_PARAMETER_PRESENT)[0]
+    assert macro.ok
+    assert is_forwarding_alias(macro) is None
+
+
+def test_a_pack_that_is_written_in_the_body_still_registers_even_when_it_expands_to_nothing():
+    """Regression guard for the fix above, so tightening registration
+    against a *discarded* pack does not also start rejecting a pack that
+    is legitimately used but simply expands to nothing at a given call
+    site: `V` writes `__VA_ARGS__` right there in its own forwarded call,
+    unlike `BAD`, which never writes its pack anywhere. This is the same
+    shape `_VARIADIC_ZERO_EXTRA_ARGS_MATCHES_DIRECT` already exercises
+    end-to-end through `build_alias_map`, below; this test pins the same
+    claim directly at `is_forwarding_alias`, the function the fix above
+    changes.
+    """
+    macro = _macros(b"#define V(...) _mm_setzero_si128(__VA_ARGS__)\n")[0]
+    assert macro.ok
+    assert is_forwarding_alias(macro) == "_mm_setzero_si128"
+
+
+# --- Longest-match punctuator lexing ---------------------------------------
+
+@pytest.mark.parametrize(
+    "punctuator",
+    [
+        # C (and shared C/C++) forms.
+        b"...",
+        b"->",
+        b"++",
+        b"--",
+        b"<<",
+        b">>",
+        b"<=",
+        b">=",
+        b"==",
+        b"!=",
+        b"&&",
+        b"||",
+        b"*=",
+        b"/=",
+        b"%=",
+        b"+=",
+        b"-=",
+        b"&=",
+        b"^=",
+        b"|=",
+        b"<<=",
+        b">>=",
+        # C++-only forms.
+        b"::",
+        b".*",
+        b"->*",
+        b"<=>",
+    ],
+)
+def test_multi_character_punctuators_lex_as_a_single_token(punctuator):
+    """Before this fix, `_tokenize`'s only punctuator handling was its
+    final catch-all — one byte, unconditionally — so every multi-character
+    operator here split into that many single-character tokens instead of
+    lexing as the one real preprocessing token it actually is.
+    """
+    assert _tokenize(punctuator) == [("other", punctuator)]
+
+
+def test_logical_and_and_bitwise_and_address_of_lex_to_different_token_sequences():
+    """The review's own minimal repro, at the tokenizer level: `a && b`
+    (logical-and) and `a & &b` (bitwise-and applied to the address of `b`)
+    are different C, and must produce different token sequences. Before
+    this fix both lexed to the identical four tokens `a`, `&`, `&`, `b` —
+    whitespace alone decided which real operator two macro bodies compared
+    as agreeing on.
+    """
+    assert _tokenize(b"a && b") == [("ident", b"a"), ("other", b"&&"), ("ident", b"b")]
+    assert _tokenize(b"a & &b") == [
+        ("ident", b"a"),
+        ("other", b"&"),
+        ("other", b"&"),
+        ("ident", b"b"),
+    ]
+    assert _tokenize(b"a && b") != _tokenize(b"a & &b")
+
+
+_LOGICAL_AND_VS_BITWISE_AND_ADDRESS_OF = (
+    b"#ifdef A\n"
+    b"#define X(a,b,c,d) _mm_set_epi32(a && b, b, c, d)\n"
+    b"#else\n"
+    b"#define X(a,b,c,d) _mm_set_epi32(a & &b, b, c, d)\n"
+    b"#endif\n"
+)
+
+
+def test_duplicate_definitions_disagreeing_only_by_logical_versus_bitwise_and_are_not_registered():
+    """The review's own repro, end to end. Before this fix, `X`'s two
+    branches — one written `a && b` (logical-and), the other `a & &b`
+    (bitwise-and of `a` with the address of `b`) — both normalized to the
+    same four tokens `a`, `&`, `&`, `b`, so `build_alias_map` judged them
+    to agree and registered `X` as forwarding to `_mm_set_epi32`, even
+    though the two branches are genuinely different C. This is the wrong
+    direction for a fail-closed comparison: two definitions that disagree
+    must never register.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_LOGICAL_AND_VS_BITWISE_AND_ADDRESS_OF, knowledge)
+    assert "X" not in alias_map.targets

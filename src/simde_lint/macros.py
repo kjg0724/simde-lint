@@ -305,6 +305,26 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     every parameter present at least once, so none of those are rejected
     here.
 
+    A declared variadic pack is held to the same standard as a fixed
+    parameter: `macro.variadic`, when not None, must also appear (as its
+    own reference — `"__VA_ARGS__"` or a GNU named pack's own name) among
+    the identifiers written in the forwarded call's argument list, or this
+    macro is rejected the same way a dropped fixed parameter is. Without
+    this, `#define BAD(...) _mm_set_epi32(0, 0, 0, 0)` — a pack declared
+    and never written anywhere in the body — passed `set(macro.params) <=
+    used` vacuously (`macro.params` is empty for a pack-only parameter
+    list) and registered `BAD` as forwarding to `_mm_set_epi32`, even
+    though the call it actually forwards to receives four constants and no
+    part of any call-site argument at all. This is "declared and never
+    written in the body," not "expands to zero tokens": `#define
+    V(...) _mm_setzero_si128(__VA_ARGS__)` writes `__VA_ARGS__` right here
+    in its own body and must keep registering even though a call site with
+    no pack arguments makes it expand to nothing — see
+    `_VARIADIC_ZERO_EXTRA_ARGS_MATCHES_DIRECT` in the test suite. A fixed
+    parameter still present alongside a dropped pack does not save the
+    macro either: `#define V(x, ...) TGT(x)` is the same defect with `x`
+    faithfully forwarded and `...` thrown away.
+
     **This check is a heuristic, not a soundness guarantee — see
     `_identifiers`'s docstring for `DROP_VALUE`, a confirmed alias whose
     body drops a parameter's value while the name still appears in the
@@ -328,6 +348,8 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     arguments = expression.child_by_field_name("arguments")
     used = _identifiers(arguments, macro.source) if arguments is not None else set()
     if not set(macro.params) <= used:
+        return None
+    if macro.variadic is not None and macro.variadic not in used:
         return None
     return macro.source[callee.start_byte : callee.end_byte].decode()
 
@@ -490,15 +512,94 @@ def _scan_block_comment_end(text: bytes, start: int) -> int | None:
     return None if end < 0 else end + 2
 
 
+# Every multi-character punctuator this lexer must not split into individual
+# bytes, drawn from the C (C17 6.4.6) and C++ (C++23 [lex.operators]) grammars
+# together — this project accepts both, and a body written in either must
+# tokenize its operators correctly. Sorted longest-first below by
+# `_scan_punctuator`, so a longer spelling is always tried before any shorter
+# spelling that is one of its own prefixes: `<<=` before `<<` before `<`,
+# `->*` before `->`, and so on. A single-character punctuator (`+`, `&`, `.`,
+# `<`, ...) is not listed here at all -- it falls through to `_tokenize`'s own
+# one-byte-at-a-time fallback, unchanged from before this set existed.
+_PUNCTUATORS: tuple[bytes, ...] = tuple(
+    sorted(
+        {
+            # C (and shared C/C++) multi-character punctuators.
+            b"...",
+            b"->",
+            b"++",
+            b"--",
+            b"<<",
+            b">>",
+            b"<=",
+            b">=",
+            b"==",
+            b"!=",
+            b"&&",
+            b"||",
+            b"*=",
+            b"/=",
+            b"%=",
+            b"+=",
+            b"-=",
+            b"&=",
+            b"^=",
+            b"|=",
+            b"<<=",
+            b">>=",
+            b"##",
+            # C99 digraphs -- alternate spellings of `[ ] { } # ##`.
+            b"<:",
+            b":>",
+            b"<%",
+            b"%>",
+            b"%:",
+            b"%:%:",
+            # C++-only forms.
+            b"::",
+            b".*",
+            b"->*",
+            b"<=>",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+
+
+def _scan_punctuator(text: bytes, i: int) -> bytes | None:
+    """The longest punctuator spelling starting at `i`, or None if none matches.
+
+    Tried in `_PUNCTUATORS`'s longest-first order, so `&&` is never split
+    into two separate `&` tokens, and `<<=` is never mistaken for `<<`
+    followed by a separate `=`. This is what keeps `a && b` (logical-and)
+    and `a & &b` (bitwise-and applied to the address of `b`) from lexing to
+    the same token sequence `a`, `&`, `&`, `b` -- before this function
+    existed, `_tokenize`'s catch-all one-byte-per-punctuator fallback did
+    exactly that, and two macro definitions differing only by that
+    whitespace (one written `&&`, the other `& &`) compared as agreeing
+    even though they specify different operators applied to different
+    operands.
+    """
+    for punct in _PUNCTUATORS:
+        if text[i : i + len(punct)] == punct:
+            return punct
+    return None
+
+
 def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
     """Lex already-spliced `text` into `(kind, bytes)` tokens, or None if malformed.
 
     `kind` is `"ident"` for an identifier (a candidate for parameter
     substitution), or `"other"` for everything else that is kept
     (string/character literals as one opaque token each, pp-numbers, and
-    individual punctuator characters). Whitespace and comments are dropped
-    entirely — neither carries meaning for comparing two forwarded call
-    shapes.
+    punctuators). A punctuator is lexed by longest match against
+    `_PUNCTUATORS` (`_scan_punctuator`) before falling back to a single
+    byte, so a multi-character operator like `&&`, `<<=`, or `->*` is always
+    kept as one token, the same as a real preprocessing-token lexer would
+    keep it, and not split into its individual characters. Whitespace and
+    comments are dropped entirely — neither carries meaning for comparing
+    two forwarded call shapes.
 
     This is a plain byte-level lexer, deliberately independent of
     tree-sitter's own CST node classification: `(BASE) + (0 * (S))` parses
@@ -580,6 +681,11 @@ def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
                 break
             tokens.append(("other", text[i:j]))
             i = j
+            continue
+        punct = _scan_punctuator(text, i)
+        if punct is not None:
+            tokens.append(("other", punct))
+            i += len(punct)
             continue
         tokens.append(("other", c))
         i += 1
