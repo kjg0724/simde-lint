@@ -2,9 +2,10 @@
 
 `simde-lint` reads C/C++ source that uses x86 SIMD intrinsics translated to
 ARM NEON through [SIMDe](https://github.com/simd-everywhere/simde), finds
-call sites matching a six-type inefficiency taxonomy, and reports them with
-file, line, rationale, and an instruction-count estimate — so a maintainer
-can decide where a native NEON implementation is worth writing.
+call sites matching seven named mechanisms drawn from a six-type
+inefficiency taxonomy, and reports them with file, line, rationale, and —
+where the cost is established — an instruction-count estimate, so a
+maintainer can decide where a native NEON implementation is worth writing.
 
 The taxonomy comes from J. Kim, "A Taxonomy of SIMDe Emulation Inefficiencies
 for ARM NEON Porting of VVC Encoders," *IEEE Computer Architecture Letters*,
@@ -75,7 +76,7 @@ Every finding carries an evidence grade.
 
 Earlier releases carried an `impact` field valued `confirmed` or
 `diagnostic`, read from the paper's Table IV microbenchmarks. It was removed
-in v1.3. The value was a complete function of `type` — every S, W and F
+in v2.0.0. The value was a complete function of `type` — every S, W and F
 finding was `confirmed`, every R, M and P finding was `diagnostic` — so
 `--impact confirmed` returned exactly the same set as `--type S,W,F` and the
 column carried no information the type column did not. Worse, `confirmed`
