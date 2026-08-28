@@ -478,7 +478,11 @@ why, because "no delta" is not the same as "no effect":
   the body merely mentions first. The strict predicate keeps 22 definition
   sites — exactly the 37 less those 15 — none with a multi-call body, which
   resolve to 16 distinct per-file alias entries (11 in SVT-AV1 `Source`, 5 in
-  VVenC `CommonLib/x86`). **Which macros register as aliases changed; which
+  VVenC `CommonLib/x86`). Those are the v1.2 figures. Requiring every
+  definition of a name to agree before it registers reduced them to 15
+  entries (10 and 5): `MM256_BROADCASTSI128_SI256` has six definitions across
+  compiler-version `#if` branches split between two targets, and no longer
+  registers. **Which macros register as aliases changed; which
   findings fire did not** — the 15 removed misregistrations all pointed at names no
   rule anchors on (`_mm256_inserti128_si256`, `_mm256_castsi128_si256`,
   `_mm_unpacklo_epi64`, `_mm256_insertf128_si256`, `_mm_cvtsi128_si32`), so
@@ -630,9 +634,10 @@ gaps to be closed later:
 A confirmed forwarding alias's call site presents the **alias macro's own**
 argument list, not the forwarded intrinsic's. Nothing in the alias predicate
 requires a body to pass its parameters through faithfully, and real macros do
-not: of the **22 forwarding-alias definition sites** across the two sweep
-directories — which resolve to 16 distinct per-file alias entries — **11
-forward unfaithfully**. Two measured examples:
+not: of the **16 forwarding-alias definition sites** that register across the
+two sweep directories — which resolve to 15 distinct per-file alias entries
+(10 in SVT-AV1 `Source`, 5 in VVenC `CommonLib/x86`) — **10 forward
+unfaithfully**. Two measured examples:
 
 - SVT-AV1's `_mm256_setr_m128i(lo, hi)` forwards to
   `_mm256_set_m128i((hi), (lo))` — the two operands are reversed.
