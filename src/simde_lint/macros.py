@@ -580,7 +580,23 @@ def _scan_punctuator(text: bytes, i: int) -> bytes | None:
     whitespace (one written `&&`, the other `& &`) compared as agreeing
     even though they specify different operators applied to different
     operands.
+
+    One exception to plain longest-match, carved out before the general
+    scan even starts: C++ [lex.pptoken]'s own `<::` rule. If the next three
+    characters are `<::` and the fourth is neither `:` nor `>`, `<` is its
+    own token here, not the first character of the `<:` digraph -- this is
+    what makes a template argument list like `f<::N>` lex as `f`, `<`,
+    `::`, `N`, `>` (a qualified name `::N`) rather than `f`, `<:`, `:N>` (a
+    digraph `[` swallowing the first colon of `::`). Returning None here
+    falls through to `_tokenize`'s own single-byte fallback for the `<`,
+    and the very next call at `i + 1` finds `::` and matches it by ordinary
+    longest match -- no separate bookkeeping needed for the rest of it.
+    When the fourth character *is* `:` or `>` (`<::>`, `<:::`), or the next
+    three characters are not `<::` at all (a bare `<:`, or `<:>`), this
+    exception does not fire and the digraph is matched exactly as before.
     """
+    if text[i : i + 3] == b"<::" and text[i + 3 : i + 4] not in (b":", b">"):
+        return None
     for punct in _PUNCTUATORS:
         if text[i : i + len(punct)] == punct:
             return punct
@@ -673,6 +689,26 @@ def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
             while j < n:
                 d = text[j : j + 1]
                 if d in _EXPONENT_LETTERS and text[j + 1 : j + 2] in _SIGNS:
+                    j += 2
+                    continue
+                # C++14 digit separator: a `'` inside a pp-number is part of
+                # the number itself, not the start of a character literal --
+                # but only when immediately followed by a digit or an
+                # identifier-nondigit (`1'000`, `0x1'ff`), per the grammar's
+                # own `pp-number ' digit` / `pp-number ' nondigit`
+                # productions. Consuming both bytes here (the `'` and the
+                # character after it) in one step is enough: whatever that
+                # character is, it is already one this loop's own
+                # `_IDENT_CONTINUE`/exponent-sign checks know how to
+                # continue from on the next iteration. A `'` *not* followed
+                # by a digit or nondigit is not a separator at all -- the
+                # loop breaks before it, same as before this case existed,
+                # and the character literal scanning `_tokenize`'s own quote
+                # branch performs on it next fails closed exactly as any
+                # other malformed literal does.
+                if d == b"'" and (
+                    text[j + 1 : j + 2] in _DIGITS or text[j + 1 : j + 2] in _IDENT_START
+                ):
                     j += 2
                     continue
                 if d in _IDENT_CONTINUE or d == b".":

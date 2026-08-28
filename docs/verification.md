@@ -581,14 +581,20 @@ gaps to be closed later:
   over each definition's *written token structure* — string/character
   literal contents are opaque and never inspected, punctuators are lexed by
   longest match (`&&` is one token, never mistaken for two adjacent `&`
-  tokens, and likewise for every other multi-character C/C++ punctuator),
-  and every other token is compared byte-for-byte once whitespace, comments
-  and backslash-newline continuations are normalized away — never over macro
-  *expansion*. Two forwarding bodies whose written text is identical are
-  treated as agreeing even if one of them contains a further, separately
-  `#if`-redefined object-like macro that would make the two expand to
-  different values at compile time; this module has no model of the
-  preprocessor beyond the one function-like macro layer it reparses.
+  tokens, and likewise for every other multi-character C/C++ punctuator,
+  including C99 digraphs and C++-only forms such as `->*`, `::`, `<=>`),
+  C++'s own `<::` exception is honored (`f<::N>` lexes as `f`, `<`, `::`,
+  `N`, `>` — a qualified name — not as the `<:` digraph swallowing the
+  first colon of `::`), a C++14 digit separator inside a numeric literal is
+  read as part of the same pp-number token (`1'000`, `0x1'ff`) rather than
+  mistaken for the start of a character literal, and every other token is
+  compared byte-for-byte once whitespace, comments and backslash-newline
+  continuations are normalized away — never over macro *expansion*. Two
+  forwarding bodies whose written text is identical are treated as agreeing
+  even if one of them contains a further, separately `#if`-redefined
+  object-like macro that would make the two expand to different values at
+  compile time; this module has no model of the preprocessor beyond the one
+  function-like macro layer it reparses.
 
   This comparison also requires a macro's own declared variadic pack, not
   only its fixed parameters, to actually be written somewhere in the
@@ -598,6 +604,26 @@ gaps to be closed later:
   written in the body but composes to zero tokens at a particular call site
   (`#define V(...) _mm_setzero_si128(__VA_ARGS__)` called as `V()`) is not
   this case — the pack is used, it just expands to nothing there.
+
+  **This lexer is a conservative approximation of C/C++ preprocessing-token
+  lexing, not a complete one, and that is a deliberate boundary, not an
+  oversight.** It is a plain byte-level scanner over already-substituted
+  argument text, independent of tree-sitter's own grammar, and it does not
+  implement the full preprocessing-token grammar down to every corner case.
+  What matters for this module's own soundness is which direction a gap
+  fails in: every case this lexer cannot classify — an input `_tokenize`
+  cannot get through cleanly — returns `None` and propagates as a hard
+  failure (`_normalized_tokens`, `_call_shape`), which can only ever *cost*
+  a registration, never grant one to definitions that do not actually
+  agree. A gap here means a legitimate forwarding alias is missed and kept
+  as its own ordinary unit — a coverage loss — not a misregistration. Wrong
+  output (two genuinely different definitions judged to agree, as the `&&`
+  vs `& &` and `<::` defects both were before their respective fixes)
+  remains a blocking defect regardless of how obscure its trigger is; a
+  fail-closed gap that neither reference corpus exercises is tracked as a
+  known limit instead, on the same standing this project already applies to
+  `A body that does not reparse is skipped` (README.md) and other
+  fail-closed boundaries elsewhere in this module.
 
 ### The forwarding-alias argument list
 

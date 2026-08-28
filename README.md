@@ -289,7 +289,12 @@ Cross-cutting limits that apply to every rule, not just one:
     expansion: two forwarding bodies that are textually identical are
     treated as agreeing even if one of them contains a further, separately
     `#if`-redefined object-like macro that would make the two expand
-    differently at compile time.
+    differently at compile time. The token-structure comparison is a
+    conservative, fail-closed approximation of C/C++ preprocessing-token
+    lexing, not a complete implementation of it: anything it cannot lex
+    costs a missed registration, never a wrong one — see
+    `docs/verification.md`'s forwarding-alias section for what this
+    currently covers and where the boundary sits.
 - **The knowledge tables are small by design, not by accident.** Every entry
   in `knowledge/*.yaml` is read from the SIMDe source and cites the file and
   line it came from; nothing is guessed. Extending coverage means adding

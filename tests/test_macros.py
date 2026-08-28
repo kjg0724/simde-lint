@@ -1569,3 +1569,134 @@ def test_duplicate_definitions_disagreeing_only_by_logical_versus_bitwise_and_ar
     knowledge = load_knowledge()
     alias_map = _alias_map(_LOGICAL_AND_VS_BITWISE_AND_ADDRESS_OF, knowledge)
     assert "X" not in alias_map.targets
+
+
+# --- Round 6: two lexer gaps found reproducible against neither reference --
+# --- corpus -- C++'s `<::` exception, and C++14 digit separators -----------
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # The exception fires: the next three characters are `<::` and the
+        # fourth is neither `:` nor `>`, so `<` is its own token and `::`
+        # follows by ordinary longest match -- not the `<:` digraph
+        # swallowing the first colon of `::`.
+        (b"a<::b", [("ident", b"a"), ("other", b"<"), ("other", b"::"), ("ident", b"b")]),
+        (b"f<::N>", [("ident", b"f"), ("other", b"<"), ("other", b"::"), ("ident", b"N"), ("other", b">")]),
+    ],
+)
+def test_the_cpp_less_than_colon_colon_exception_splits_less_than_from_scope(text, expected):
+    """The review's own repro, at the tokenizer level: before this fix,
+    `_scan_punctuator`'s plain longest match always took the `<:` digraph
+    first, so `a<::b` lexed as `a`, `<:`, `:`, `b` -- a different token
+    sequence than the equivalent, explicitly spaced `a < ::b`, even though
+    both are the same C++ (`<` then the scope-resolution operator `::`).
+    """
+    assert _tokenize(text) == expected
+
+
+def test_the_less_than_colon_digraph_still_lexes_normally_where_the_exception_does_not_apply():
+    """The exception is narrow: it fires only when the next three
+    characters are exactly `<::`. A bare `<:` (nothing after the colon) and
+    `<:>` (`<:`, `:`, `>` -- not `<::`, since the second and third
+    characters are `:` and `>`, not `::`) must still lex the digraph
+    normally, the same as before this round's fix. Pinned separately from
+    the exception-fires cases above so a future change to the exception
+    cannot silently overshoot and swallow these too.
+    """
+    assert _tokenize(b"<:") == [("other", b"<:")]
+    assert _tokenize(b"<:>") == [("other", b"<:"), ("other", b">")]
+
+
+def test_the_exception_does_not_fire_when_the_fourth_character_is_colon_or_greater_than():
+    """The other half of the exception's own condition: when the next three
+    characters *are* `<::` but the fourth is `:` or `>`, the exception does
+    not apply and the `<:` digraph is matched exactly as it would be
+    without the exception existing at all -- `<::>` lexes as the digraph
+    pair `<:`, `:>` (`[`, `]`), not as `<`, `::`, `>`.
+    """
+    assert _tokenize(b"<::>") == [("other", b"<:"), ("other", b":>")]
+    assert _tokenize(b"<:::") == [("other", b"<:"), ("other", b"::")]
+
+
+_LESS_THAN_SCOPE_VS_DIGRAPH_SCOPE = (
+    b"#if A\n"
+    b"#define X(a,b,c,d) _mm_set_epi32(a<::b,b,c,d)\n"
+    b"#else\n"
+    b"#define X(a,b,c,d) _mm_set_epi32(a < ::b,b,c,d)\n"
+    b"#endif\n"
+)
+
+
+def test_duplicate_definitions_agreeing_only_after_the_less_than_colon_colon_exception_register():
+    """The review's own repro, end to end. Before this fix, `X`'s two
+    branches -- one written `a<::b` (no spaces), the other `a < ::b`
+    (explicitly spaced) -- are the same C++ token structure (`a`, `<`,
+    `::`, `b`) but lexed to *different* token sequences (`a`, `<:`, `:`,
+    `b` for the unspaced form), so `build_alias_map` rejected `X` as a
+    conflict between definitions that in fact agree. This is the coverage
+    loss the fix corrects: a legitimate alias missed, never a
+    misregistration -- `X` must now register.
+    """
+    knowledge = load_knowledge()
+    alias_map = _alias_map(_LESS_THAN_SCOPE_VS_DIGRAPH_SCOPE, knowledge)
+    assert alias_map.targets == {"X": "_mm_set_epi32"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [b"1'000", b"0x1'ff"],
+)
+def test_a_digit_separator_followed_by_a_digit_or_nondigit_is_part_of_the_pp_number(text):
+    """The review's own repro, at the tokenizer level: before this fix, the
+    pp-number scanning loop stopped at the first `'` it saw (not one of the
+    characters it knew how to continue a number with), leaving the `'`
+    itself to be re-lexed from scratch as the opening quote of a character
+    literal -- which then ran off the end of `text` looking for a closing
+    `'` that was never coming, and `_tokenize` returned None: a single,
+    well-formed C++14 number with digit separators failed to lex at all.
+    """
+    assert _tokenize(text) == [("other", text)]
+
+
+def test_a_digit_separator_not_followed_by_a_digit_or_nondigit_is_not_a_separator_and_fails_closed():
+    """Only `pp-number ' digit` and `pp-number ' nondigit` are digit
+    separators; a `'` followed by anything else (here, `+`) does not extend
+    the number. The pp-number token ends right before it (`1`), and the
+    `'` is then re-lexed on its own as the start of a character literal --
+    which is unterminated here, so this still fails closed exactly as an
+    ordinary unterminated character literal does, not silently accepted as
+    some other shape.
+    """
+    assert _tokenize(b"1'+2") is None
+
+
+@pytest.mark.parametrize("text", [b"1e+5", b"0x1p-3"])
+def test_exponent_forms_are_unaffected_by_the_digit_separator_addition(text):
+    """Pinning what earlier rounds already verified, so this round's new
+    `'`-handling branch cannot regress it: a `+`/`-` right after an
+    exponent letter (`e`/`E`/`p`/`P`) is still part of the same pp-number
+    token, nothing to do with digit separators at all.
+    """
+    assert _tokenize(text) == [("other", text)]
+
+
+_DIGIT_SEPARATOR_FORWARDING_MACRO = b"#define X(a,b,c,d) _mm_set_epi32(a, 1'000, b, c, d)\n"
+
+
+def test_a_forwarding_macro_using_a_digit_separator_literal_registers():
+    """End to end: before this fix, `is_forwarding_alias` still recognized
+    `X` as forwarding to `_mm_set_epi32` (it walks the tree-sitter AST, not
+    this module's own byte lexer), but `build_alias_map` never registered
+    it -- `_call_shape` calls `_tokenize` on each argument's text to build
+    the comparable shape, and `_tokenize(b"1'000")` returned None, which
+    `_call_shape` propagates as a hard failure. A single, unconditionally
+    well-formed macro with no conflicting sibling definition still failed
+    to register purely because one of its arguments happened to contain a
+    digit-separated literal.
+    """
+    knowledge = load_knowledge()
+    macro = _macros(_DIGIT_SEPARATOR_FORWARDING_MACRO)[0]
+    assert is_forwarding_alias(macro) == "_mm_set_epi32"
+    alias_map = _alias_map(_DIGIT_SEPARATOR_FORWARDING_MACRO, knowledge)
+    assert alias_map.targets == {"X": "_mm_set_epi32"}
