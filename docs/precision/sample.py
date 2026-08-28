@@ -7,24 +7,53 @@ and re-weighted to the population, never as a raw sample average.
 
     python3 docs/precision/sample.py --out docs/precision/sample.json
 """
-import argparse, json, random, subprocess, sys
+import argparse, json, os, random, subprocess, sys
 from collections import defaultdict
 from pathlib import Path
 
+# Checkout locations come from the environment, never from a default path.
+# A baked-in default would publish one machine's directory layout and would
+# silently sweep the wrong tree on anyone else's. Same contract as
+# tests/test_verification.py.
 CORPORA = {
-    "svt-av1": "/Users/solario/Solario/Solido/open-source/svt-av1/Source",
-    "vvenc": "/Users/solario/Solario/Solido/open-source/vvenc/source/Lib/CommonLib/x86",
+    "svt-av1": ("SIMDE_LINT_SVT_AV1", "Source"),
+    "vvenc": ("SIMDE_LINT_VVENC", "source/Lib/CommonLib/x86"),
 }
-PER_STRATUM = 3
+# Allocation. Equal allocation across strata answers "does each rule and
+# grade behave", but it cannot carry a population-level precision claim: a
+# stratum holding half the findings and a stratum holding three of them
+# would contribute the same evidence. Strata at or above LARGE_STRATUM get
+# LARGE_N so that the population-weighted interval is driven by the strata
+# that actually dominate the population; the rest are censused or get
+# SMALL_N, which is enough to catch a rule that is wrong everywhere.
+LARGE_STRATUM = 100
+LARGE_N = 25
+SMALL_N = 5
+REPO = Path(__file__).resolve().parents[2]
+
+
+def allocate(stratum_size):
+    return min(stratum_size, LARGE_N if stratum_size >= LARGE_STRATUM else SMALL_N)
+
+
+def corpus_path(env_var, subdir):
+    root = os.environ.get(env_var)
+    if not root:
+        sys.exit(f"{env_var} is not set; point it at the pinned checkout.")
+    path = Path(root) / subdir
+    if not path.is_dir():
+        sys.exit(f"{env_var} does not contain {subdir}: {path}")
+    return path
 
 
 def sweep(path):
-    out = subprocess.run(
-        ["uv", "run", "simde-lint", path, "--format", "json"],
-        capture_output=True, text=True,
-        cwd="/Users/solario/Solario/Solido/open-source/simde-lint",
-    ).stdout
-    return json.loads(out)["findings"]
+    proc = subprocess.run(
+        ["uv", "run", "simde-lint", str(path), "--format", "json"],
+        capture_output=True, text=True, cwd=REPO,
+    )
+    if proc.returncode != 0:
+        sys.exit(f"sweep of {path} exited {proc.returncode}: {proc.stderr}")
+    return json.loads(proc.stdout)["findings"]
 
 
 def main():
@@ -34,8 +63,8 @@ def main():
     args = ap.parse_args()
 
     pop, strata = [], defaultdict(list)
-    for corpus, path in CORPORA.items():
-        for f in sweep(path):
+    for corpus, (env_var, subdir) in CORPORA.items():
+        for f in sweep(corpus_path(env_var, subdir)):
             f["corpus"] = corpus
             pop.append(f)
             strata[(f["rule"], f["evidence"])].append(f)
@@ -44,20 +73,21 @@ def main():
     sample = []
     for key in sorted(strata):
         rows = strata[key]
-        sample += random.sample(rows, min(PER_STRATUM, len(rows)))
+        sample += random.sample(rows, allocate(len(rows)))
 
     print("population %d, strata %d, sample %d\n" % (len(pop), len(strata), len(sample)))
-    print("%-28s %6s %8s %7s" % ("stratum", "pop", "sampled", "share"))
-    print("-" * 54)
-    for key in sorted(strata):
+    print("%-30s %6s %8s %7s" % ("stratum", "pop", "sampled", "share"))
+    print("-" * 56)
+    for key in sorted(strata, key=lambda k: -len(strata[k])):
         n = len(strata[key])
-        k = min(PER_STRATUM, n)
-        print("%-28s %6d %8d %6.1f%%" % ("%s / %s" % key, n, k, 100.0 * n / len(pop)))
+        print("%-30s %6d %8d %6.1f%%" % ("%s / %s" % key, n, allocate(n), 100.0 * n / len(pop)))
 
     json.dump(
         {
             "seed": args.seed,
-            "per_stratum": PER_STRATUM,
+            "large_stratum": LARGE_STRATUM,
+            "large_n": LARGE_N,
+            "small_n": SMALL_N,
             "population": len(pop),
             "stratum_sizes": {"%s|%s" % k: len(v) for k, v in sorted(strata.items())},
             "sample": sample,
