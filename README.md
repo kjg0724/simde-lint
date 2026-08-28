@@ -273,13 +273,28 @@ Cross-cutting limits that apply to every rule, not just one:
     drops and the instruction counts are withheld, exactly as for any other
     value a rule cannot see.
   - **A macro name defined more than once in a file yields one unit per
-    definition**, since all `#if` branches are read. This drops to zero
-    units for every one of that name's definitions when any one of them is a
-    forwarding alias: the alias skip is keyed on the macro's name, not on
-    the specific definition, so a same-named `#if` branch whose body is a
-    genuinely different, multi-call sequence is skipped too, and its calls
-    become invisible. Known limitation, not fixed in v1.2 (see the release
-    notes).
+    definition, except definitions registered as forwarding aliases.**
+    All `#if` branches are read. Whether a name registers at all is decided
+    over the *whole set* of that name's definitions — every one of them
+    must be a forwarding alias, resolve (following through other registered
+    names, if the immediate callee is itself a macro) to the same target
+    intrinsic, and compose to the same parameter-to-argument mapping.
+    Registration and the resulting unit skip are then applied per
+    *definition*, not per name: a genuinely different, multi-call `#if`
+    branch sharing an alias-shaped sibling's name keeps its own unit, and so
+    does every definition of a name whose branches disagree with each other
+    — conflicting definitions are never merged, and none of them is then
+    recognized as an intrinsic call at its use sites either. This comparison
+    is over each definition's written token structure, not over macro
+    expansion: two forwarding bodies that are textually identical are
+    treated as agreeing even if one of them contains a further, separately
+    `#if`-redefined object-like macro that would make the two expand
+    differently at compile time. The token-structure comparison is a
+    conservative, fail-closed approximation of C/C++ preprocessing-token
+    lexing, not a complete implementation of it: anything it cannot lex
+    costs a missed registration, never a wrong one — see
+    `docs/verification.md`'s forwarding-alias section for what this
+    currently covers and where the boundary sits.
 - **The knowledge tables are small by design, not by accident.** Every entry
   in `knowledge/*.yaml` is read from the SIMDe source and cites the file and
   line it came from; nothing is guessed. Extending coverage means adding

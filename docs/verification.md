@@ -478,7 +478,11 @@ why, because "no delta" is not the same as "no effect":
   the body merely mentions first. The strict predicate keeps 22 definition
   sites — exactly the 37 less those 15 — none with a multi-call body, which
   resolve to 16 distinct per-file alias entries (11 in SVT-AV1 `Source`, 5 in
-  VVenC `CommonLib/x86`). **Which macros register as aliases changed; which
+  VVenC `CommonLib/x86`). Those are the v1.2 figures. Requiring every
+  definition of a name to agree before it registers reduced them to 15
+  entries (10 and 5): `MM256_BROADCASTSI128_SI256` has six definitions across
+  compiler-version `#if` branches split between two targets, and no longer
+  registers. **Which macros register as aliases changed; which
   findings fire did not** — the 15 removed misregistrations all pointed at names no
   rule anchors on (`_mm256_inserti128_si256`, `_mm256_castsi128_si256`,
   `_mm_unpacklo_epi64`, `_mm256_insertf128_si256`, `_mm_cvtsi128_si32`), so
@@ -539,25 +543,101 @@ gaps to be closed later:
   `tmp` in a function are unrelated and neither satisfies the other's def-use
   query.
 - **A macro name defined more than once in a file yields one unit per
-  definition.** VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two
-  separate `#ifdef USE_AVX2` blocks; both are read, as all `#if` branches
-  are, and both become units of three calls each. Neither produces a finding
-  today. This is the only such case in either codebase. This drops to zero
-  units for every one of that name's definitions when any one of them is a
-  forwarding alias: the alias skip is keyed on the macro's name, not on
-  the specific definition, so a same-named `#if` branch whose body is a
-  genuinely different, multi-call sequence is skipped too, and its calls
-  become invisible. Known limitation, not fixed in v1.2 (see the release
-  notes).
+  definition, except definitions registered as forwarding aliases.**
+  VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two separate `#ifdef
+  USE_AVX2` blocks; both are read, as all `#if` branches are, and — since
+  neither body is a forwarding alias — both become units of three calls
+  each. Neither produces a finding today.
+
+  Whether a name registers at all is a decision made over the *whole set*
+  of that name's definitions, not per definition: every one of them must be
+  a forwarding alias, must resolve — following through other already-
+  registered names, when the immediate callee is itself a macro rather than
+  a recognized intrinsic directly — to the same final target intrinsic, and
+  must compose to the same parameter-to-argument mapping (each definition's
+  own forwarded-call shape, with any intermediate macro's own forwarding
+  substituted in). A different immediate callee name between two of a
+  name's definitions is not itself disagreement, provided both routes
+  resolve and compose to the same result; an intermediate that reorders or
+  otherwise reshapes the operands it forwards is. Once a name registers,
+  the resulting unit skip *is* applied per definition: every one of that
+  name's own definitions is exempt from getting its own macro unit, and a
+  same-named sibling that shares no relationship to a *different*,
+  disagreeing name is unaffected.
+
+  A name whose definitions disagree — a genuinely different multi-call
+  `#if` branch sharing an alias-shaped sibling's name, or alias-shaped
+  branches that resolve to different intrinsics or compose to different
+  mappings — registers nothing: none of its definitions are skipped, and
+  none of its call sites are recognized as the intrinsic either. SVT-AV1's
+  `MM256_BROADCASTSI128_SI256` in `aom_subpixel_8t_intrin_avx2.c` is exactly
+  this: six definitions across nested `#if`/`#elif` branches, forwarding to
+  either `_mm_broadcastsi128_si256` or `_mm256_broadcastsi128_si256`
+  depending on the branch — a genuine disagreement, previously collapsed
+  into a single, arbitrary "last definition wins" registration before this
+  fix (see the release notes' "Alias registration and the unit skip are now
+  keyed per definition" for the underlying defect). Neither of that name's
+  two possible targets is anchored by a rule, so this changes which macros
+  register as aliases without moving any finding — the same shape as Task
+  3 below.
+
+  **One honesty boundary, stated rather than implied:** this comparison is
+  over each definition's *written token structure* — string/character
+  literal contents are opaque and never inspected, punctuators are lexed by
+  longest match (`&&` is one token, never mistaken for two adjacent `&`
+  tokens, and likewise for every other multi-character C/C++ punctuator,
+  including C99 digraphs and C++-only forms such as `->*`, `::`, `<=>`),
+  C++'s own `<::` exception is honored (`f<::N>` lexes as `f`, `<`, `::`,
+  `N`, `>` — a qualified name — not as the `<:` digraph swallowing the
+  first colon of `::`), a C++14 digit separator inside a numeric literal is
+  read as part of the same pp-number token (`1'000`, `0x1'ff`) rather than
+  mistaken for the start of a character literal, and every other token is
+  compared byte-for-byte once whitespace, comments and backslash-newline
+  continuations are normalized away — never over macro *expansion*. Two
+  forwarding bodies whose written text is identical are treated as agreeing
+  even if one of them contains a further, separately `#if`-redefined
+  object-like macro that would make the two expand to different values at
+  compile time; this module has no model of the preprocessor beyond the one
+  function-like macro layer it reparses.
+
+  This comparison also requires a macro's own declared variadic pack, not
+  only its fixed parameters, to actually be written somewhere in the
+  forwarded call: `#define BAD(...) _mm_set_epi32(0, 0, 0, 0)` declares a
+  pack and throws it away, and is rejected as a forwarding alias for that
+  reason, the same as a body that drops a fixed parameter. A pack that *is*
+  written in the body but composes to zero tokens at a particular call site
+  (`#define V(...) _mm_setzero_si128(__VA_ARGS__)` called as `V()`) is not
+  this case — the pack is used, it just expands to nothing there.
+
+  **This lexer is a conservative approximation of C/C++ preprocessing-token
+  lexing, not a complete one, and that is a deliberate boundary, not an
+  oversight.** It is a plain byte-level scanner over already-substituted
+  argument text, independent of tree-sitter's own grammar, and it does not
+  implement the full preprocessing-token grammar down to every corner case.
+  What matters for this module's own soundness is which direction a gap
+  fails in: every case this lexer cannot classify — an input `_tokenize`
+  cannot get through cleanly — returns `None` and propagates as a hard
+  failure (`_normalized_tokens`, `_call_shape`), which can only ever *cost*
+  a registration, never grant one to definitions that do not actually
+  agree. A gap here means a legitimate forwarding alias is missed and kept
+  as its own ordinary unit — a coverage loss — not a misregistration. Wrong
+  output (two genuinely different definitions judged to agree, as the `&&`
+  vs `& &` and `<::` defects both were before their respective fixes)
+  remains a blocking defect regardless of how obscure its trigger is; a
+  fail-closed gap that neither reference corpus exercises is tracked as a
+  known limit instead, on the same standing this project already applies to
+  `A body that does not reparse is skipped` (README.md) and other
+  fail-closed boundaries elsewhere in this module.
 
 ### The forwarding-alias argument list
 
 A confirmed forwarding alias's call site presents the **alias macro's own**
 argument list, not the forwarded intrinsic's. Nothing in the alias predicate
 requires a body to pass its parameters through faithfully, and real macros do
-not: of the **22 forwarding-alias definition sites** across the two sweep
-directories — which resolve to 16 distinct per-file alias entries — **11
-forward unfaithfully**. Two measured examples:
+not: of the **16 forwarding-alias definition sites** that register across the
+two sweep directories — which resolve to 15 distinct per-file alias entries
+(10 in SVT-AV1 `Source`, 5 in VVenC `CommonLib/x86`) — **10 forward
+unfaithfully**. Two measured examples:
 
 - SVT-AV1's `_mm256_setr_m128i(lo, hi)` forwards to
   `_mm256_set_m128i((hi), (lo))` — the two operands are reversed.

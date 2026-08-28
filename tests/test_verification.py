@@ -240,7 +240,7 @@ def test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensit
     for _, source in read_sources([SVT_AV1, VVENC_X86]):
         root = parse_source(source).root_node
         macros = reparse_macros(root, source)
-        alias_targets |= set(build_alias_map(macros, knowledge).values())
+        alias_targets |= set(build_alias_map(root, source, macros, knowledge).targets.values())
 
     assert alias_targets, "expected at least one confirmed forwarding alias across both checkouts"
     assert "_mm_cmpgt_epi64" in alias_targets, (
