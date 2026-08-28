@@ -63,8 +63,20 @@ class FusionRule:
                 # check. Grading such a call A would report an unconfirmed
                 # transform as confirmed, which is the one thing the evidence
                 # axis exists to prevent.
+                #
+                # The cap keys on the suggestion alone, not on the
+                # instruction count. Whether a fused form exists and how many
+                # instructions SIMDe emits are separate facts, and only the
+                # first one is what the grade is about. _mm256_mullo_epi32 is
+                # the case that separates them: its expansion is a
+                # SIMDE_VECTORIZE loop whose emitted form is the compiler's
+                # choice, so no count can be read from the source — but the
+                # fused replacement is the established 128-bit one applied
+                # twice, which the rule can see as well as for any other
+                # entry. Capping it for a missing count would report an
+                # established transform as unresolved.
                 reason = None
-                if cost.native_insns is None or cost.suggestion is None:
+                if cost.suggestion is None:
                     evidence, reason = Evidence.C, Reason.UNRESOLVED
                 claimed_adds.add(add.id)
                 yield Finding(
@@ -95,13 +107,16 @@ class FusionRule:
         The multiply and the add are always observed as separate SIMDe
         translations — that much is structural. Whether NEON has a fused
         multiply-accumulate that reaches them is a separate question the
-        rule can only answer when the per-intrinsic native cost is known; when
-        it is not (madd_epi16's pairwise reduction has no direct AArch64
-        fused form), the rationale must not name an instruction that may not
-        exist for this call site.
+        rule can only answer when a fused form is recorded for the
+        intrinsic; when none is (madd_epi16's pairwise reduction has no
+        direct AArch64 fused form), the rationale must not name an
+        instruction that may not exist for this call site. A recorded fused
+        form with no instruction count still names the instruction — the
+        count is reported separately, and is absent when SIMDe's expansion
+        leaves it to the compiler.
         """
         observed = "the multiply and the accumulate are emitted as separate instructions"
-        if cost.native_insns is None or cost.suggestion is None:
+        if cost.suggestion is None:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"
         return (
             f"{observed}; NEON fuses this into {cost.suggestion} for some accumulator shapes"

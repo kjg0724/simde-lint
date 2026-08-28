@@ -418,7 +418,7 @@ def test_published_svt_av1_aggregates_still_hold():
     assert _aggregate(findings) == {
         "total": 3261,
         "type": {"R": 1816, "F": 1019, "S": 341, "M": 53, "P": 31, "W": 1},
-        "evidence": {"A": 2386, "B": 49, "C": 826},
+        "evidence": {"A": 2661, "B": 49, "C": 551},
     }
 
 

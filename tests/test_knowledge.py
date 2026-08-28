@@ -70,13 +70,19 @@ def test_unknown_cost_and_suggestion_load_as_none():
     assert madd.suggestion is None
 
 
-def test_an_intrinsic_with_no_neon_lowering_at_all_is_fully_unknown():
-    # _mm256_mullo_epi32 falls through to SIMDe's portable per-element loop;
-    # there is no vector lowering to count, so every field is unknown.
+def test_an_uncountable_expansion_still_records_its_established_fused_form():
+    # _mm256_mullo_epi32 falls through to SIMDe's portable per-element loop.
+    # The loop carries SIMDE_VECTORIZE, so what is emitted is the compiler's
+    # choice and neither count can be read from the source. That is a
+    # separate fact from whether a fused form exists: mullo_epi32 does not
+    # widen, so the established 128-bit vmlaq_s32 case applies twice. The
+    # schema must be able to say "no count, but a known replacement" --
+    # collapsing the two would report an established transform as
+    # unresolved.
     entry = load_knowledge().patterns["F.mul_add_no_fuse"]["_mm256_mullo_epi32"]
     assert entry.simde_insns is None
     assert entry.native_insns is None
-    assert entry.suggestion is None
+    assert entry.suggestion == "vmlaq_s32"
 
 
 def test_cost_lookup_by_rule_and_intrinsic_returns_the_matching_entry():
