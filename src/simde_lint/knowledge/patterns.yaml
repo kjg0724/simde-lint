@@ -93,11 +93,16 @@ patterns:
     _mm256_mullo_epi32:
       simde_insns: unknown
       native_insns: unknown
-      suggestion: unknown
+      suggestion: vmlaq_s32
       source: x86/avx2.h:4076
       note: >-
-        no NEON branch — falls through to the portable per-element loop, not
-        a doubled 128-bit expansion, so there is no vector lowering to count
+        no NEON branch — falls through to the portable per-element loop over
+        the 8 i32 lanes. The loop carries SIMDE_VECTORIZE, so whether any
+        vector instruction is emitted at all is the compiler's decision, and
+        no instruction count can be read from the SIMDe source; both counts
+        stay unknown. The fused replacement is established independently of
+        that: mullo_epi32 does not widen, so the 128-bit vmlaq_s32 case
+        applies twice over the 8 lanes
   M.scalar_insert_chain:
     _mm_insert_epi16:
       simde_insns: 2
