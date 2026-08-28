@@ -3,20 +3,20 @@ import re
 
 import pytest
 
-from simde_lint.finding import Evidence, Finding, Impact, Reason
+from simde_lint.finding import Evidence, Finding, Reason
 from simde_lint.report.json import render_json
 from simde_lint.report.text import render_text
 
 FINDINGS = [
     Finding(
         type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
-        evidence=Evidence.A, impact=Impact.CONFIRMED, file="a.c", line=7,
+        evidence=Evidence.A, file="a.c", line=7,
         function="kernel", intrinsic="_mm_shuffle_epi8", rationale="guard is dead work",
         simde_insns=3, native_insns=1, suggestion="vqtbl1q_u8",
     ),
     Finding(
         type="R", rule="R.zero_init_partial_load", rule_mechanism="zero-init before partial load",
-        evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=7,
+        evidence=Evidence.A, file="a.c", line=7,
         function="kernel", intrinsic="_mm_loadu_si32", rationale="zero vector then lane load",
         simde_insns=2, native_insns=1, suggestion="vld1q_lane_s32",
     ),
@@ -57,8 +57,7 @@ def test_json_is_parseable_and_carries_the_mechanism():
 # dropped). Task 5 is a JSON schema change per the design doc, so pin the
 # exact key set directly at the reporter boundary, not just at `to_dict`.
 _MANDATORY_JSON_KEYS = {
-    "type", "rule", "rule_mechanism", "evidence", "reason", "impact",
-    "file", "line", "scope", "function", "macro", "intrinsic", "rationale",
+    "type", "rule", "rule_mechanism", "evidence", "reason",     "file", "line", "scope", "function", "macro", "intrinsic", "rationale",
     "simde_insns", "native_insns", "suggestion",
 }
 
@@ -71,8 +70,7 @@ def test_json_finding_has_exactly_the_mandatory_keys_when_optional_fields_are_ab
 def test_json_finding_adds_mask_source_and_raw_name_only_when_present():
     finding = Finding(
         type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
-        evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, impact=Impact.CONFIRMED,
-        file="a.c", line=1, function="kernel", intrinsic="_mm_shuffle_epi8",
+        evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, file="a.c", line=1, function="kernel", intrinsic="_mm_shuffle_epi8",
         raw_name="_my_shuffle_epi8", rationale="r",
         simde_insns=None, native_insns=None, suggestion=None,
         mask_source={"symbol": "t", "defined_at": "b.c:1", "resolution": "all_rows"},
@@ -98,14 +96,14 @@ def test_summaries_keep_two_mechanisms_of_one_type_apart():
         Finding(
             type="M", rule="M.scalar_set_build",
             rule_mechanism="vector built from runtime scalars",
-            evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=9,
+            evidence=Evidence.A, file="a.c", line=9,
             function="kernel", intrinsic="_mm_set_epi64x", rationale="spilled to stack",
             simde_insns=2, native_insns=2, suggestion="vsetq_lane_s64",
         ),
         Finding(
             type="M", rule="M.scalar_insert_chain",
             rule_mechanism="scalar insert chain",
-            evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=11,
+            evidence=Evidence.A, file="a.c", line=11,
             function="kernel", intrinsic="_mm_insert_epi16", rationale="insert chain",
             simde_insns=6, native_insns=3, suggestion="vld1q_lane_s16",
         ),
@@ -125,7 +123,7 @@ def test_empty_input_renders_without_error():
 
 UNKNOWN_COST_FINDING = Finding(
     type="F", rule="F.mul_add_no_fuse", rule_mechanism="multiply-add not fused",
-    evidence=Evidence.A, impact=Impact.CONFIRMED, file="a.c", line=3,
+    evidence=Evidence.A, file="a.c", line=3,
     function="kernel", intrinsic="_mm_madd_epi16",
     rationale="no fused multiply-accumulate form is established for this intrinsic",
     simde_insns=4, native_insns=None, suggestion=None,
@@ -149,8 +147,7 @@ def test_json_emits_null_for_an_unknown_cost():
 
 C_GUARD_REQUIRED_FINDING = Finding(
     type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
-    evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, impact=Impact.CONFIRMED,
-    file="a.c", line=12, function="kernel", intrinsic="_mm_shuffle_epi8",
+    evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, file="a.c", line=12, function="kernel", intrinsic="_mm_shuffle_epi8",
     rationale="inline mask has a lane in the unsafe [16,127] middle range",
     simde_insns=None, native_insns=None, suggestion=None,
 )
@@ -180,7 +177,7 @@ def test_json_reason_is_null_for_grade_a():
 
 RAW_NAME_FINDING = Finding(
     type="P", rule="P.cmp_immediate_use", rule_mechanism="compare consumed by the next call",
-    evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=4,
+    evidence=Evidence.A, file="a.c", line=4,
     function="kernel", intrinsic="_mm_cmpgt_epi64", raw_name="_my_cmpgt_epi64",
     rationale="consumed by the next call",
     simde_insns=1, native_insns=1, suggestion=None,
@@ -211,7 +208,7 @@ def test_both_renderers_order_a_tie_at_one_location_identically():
     def m(rule, mechanism):
         return Finding(
             type="M", rule=rule, rule_mechanism=mechanism,
-            evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=9,
+            evidence=Evidence.A, file="a.c", line=9,
             function="kernel", intrinsic="_mm_set_epi64x", rationale="r",
             simde_insns=2, native_insns=2, suggestion="vsetq_lane_s64",
         )
@@ -233,25 +230,25 @@ def test_both_renderers_order_a_tie_at_one_location_identically():
 _MIXED = [
     Finding(  # diagnostic, evidence A, earliest in file order
         type="R", rule="R.zero_init_partial_load", rule_mechanism="zero-init before partial load",
-        evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=1,
+        evidence=Evidence.A, file="a.c", line=1,
         function="kernel", intrinsic="_mm_loadu_si32", rationale="zero vector then lane load",
         simde_insns=2, native_insns=1, suggestion="vld1q_lane_s32",
     ),
     Finding(  # confirmed, evidence C
         type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
-        evidence=Evidence.C, reason=Reason.UNRESOLVED, impact=Impact.CONFIRMED, file="a.c", line=5,
+        evidence=Evidence.C, reason=Reason.UNRESOLVED, file="a.c", line=5,
         function="kernel", intrinsic="_mm_shuffle_epi8", rationale="mask lanes unknown",
         simde_insns=None, native_insns=None, suggestion=None,
     ),
     Finding(  # confirmed, evidence A, latest in file order
         type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
-        evidence=Evidence.A, impact=Impact.CONFIRMED, file="a.c", line=20,
+        evidence=Evidence.A, file="a.c", line=20,
         function="kernel", intrinsic="_mm_shuffle_epi8", rationale="guard is dead work",
         simde_insns=3, native_insns=1, suggestion="vqtbl1q_u8",
     ),
     Finding(  # confirmed, evidence B, in a different file
         type="W", rule="W.mul16_widen_roundtrip", rule_mechanism="16x16->32 widening roundtrip",
-        evidence=Evidence.B, impact=Impact.CONFIRMED, file="b.c", line=1,
+        evidence=Evidence.B, file="b.c", line=1,
         function="kernel", intrinsic="_mm_mullo_epi16", rationale="matched through an intermediate",
         simde_insns=4, native_insns=1, suggestion="vmull_s16",
     ),
@@ -280,8 +277,6 @@ def test_default_sort_is_impact_first_then_evidence_then_location():
     # First finding must be the confirmed grade-A one, not the diagnostic one
     # that happens to sit earliest in the file.
     assert data["findings"][0]["evidence"] == "A"
-    assert data["findings"][0]["impact"] == "confirmed"
-    assert data["findings"][-1]["impact"] == "diagnostic"
     assert _text_rule_order(render_text(_MIXED)) == _IMPACT_ORDER
 
 
@@ -291,7 +286,7 @@ def test_sort_file_reproduces_the_previous_location_order():
     assert _text_rule_order(render_text(_MIXED, sort="file")) == _FILE_ORDER
 
 
-@pytest.mark.parametrize("sort, expected", [("impact", _IMPACT_ORDER), ("file", _FILE_ORDER)])
+@pytest.mark.parametrize("sort, expected", [("benchmarked", _IMPACT_ORDER), ("file", _FILE_ORDER)])
 def test_both_reporters_agree_on_order_under_each_sort_value(sort, expected):
     json_order = [f["rule"] for f in json.loads(render_json(_MIXED, simde_version="0.8.4", sort=sort))["findings"]]
     text_order = _text_rule_order(render_text(_MIXED, sort=sort))
@@ -303,7 +298,7 @@ def test_text_marks_a_macro_finding():
     macro = Finding(
         type="R", rule="R.zero_init_partial_load",
         rule_mechanism="zero-init before partial load",
-        evidence=Evidence.A, impact=Impact.DIAGNOSTIC, file="a.c", line=9,
+        evidence=Evidence.A, file="a.c", line=9,
         function=None, scope="macro", macro="LOAD4",
         intrinsic="_mm_loadl_epi64", rationale="r",
         simde_insns=2, native_insns=1, suggestion="vld1q_lane_s64",

@@ -13,11 +13,6 @@ class Evidence(str, Enum):
     C = "C"
 
 
-class Impact(str, Enum):
-    CONFIRMED = "confirmed"
-    DIAGNOSTIC = "diagnostic"
-
-
 class Reason(str, Enum):
     """Why a finding graded C, distinguishing two meanings that grade alone can't.
 
@@ -47,7 +42,6 @@ class Finding:
     rule: str
     rule_mechanism: str
     evidence: Evidence
-    impact: Impact
     file: str
     line: int
     # None for a macro-scoped finding (see `scope`/`macro` below) — never
@@ -109,7 +103,6 @@ class Finding:
             "rule_mechanism": self.rule_mechanism,
             "evidence": self.evidence.value,
             "reason": self.reason.value if self.reason is not None else None,
-            "impact": self.impact.value,
             "file": self.file,
             "line": self.line,
             "scope": self.scope,
@@ -134,12 +127,21 @@ class Finding:
 # value would silently reorder findings with no test catching it. A rank
 # table makes the order an explicit decision instead of an accident of
 # spelling.
-impact_rank = {Impact.CONFIRMED: 0, Impact.DIAGNOSTIC: 1}
+# The taxonomy types whose isolated-kernel microbenchmarks showed a speedup.
+# This is a property of the type, not of any call site, which is why it is a
+# constant here rather than a field on Finding: a per-finding "impact" column
+# would be a complete function of `type` and would read as a claim about this
+# call site's measured effect, which no measurement supports.
+BENCHMARK_BACKED_TYPES = frozenset({"S", "W", "F"})
+
+
+def _type_rank(finding: "Finding") -> int:
+    return 0 if finding.type in BENCHMARK_BACKED_TYPES else 1
 evidence_rank = {Evidence.A: 0, Evidence.B: 1, Evidence.C: 2}
 
 
 def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
-    """Impact-first display order — the v1.1 default.
+    """Benchmarked-type-first display order — the v1.1 default.
 
     Rule R alone accounts for the majority of a large sweep's findings (56%
     of SVT-AV1's), and its impact is always `diagnostic`: `-O3` generally
@@ -156,7 +158,7 @@ def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
     Both reporters use this so their outputs stay comparable.
     """
     return (
-        impact_rank[finding.impact],
+        _type_rank(finding),
         evidence_rank[finding.evidence],
         finding.file,
         finding.line,
@@ -175,4 +177,4 @@ def file_sort_key(finding: "Finding") -> tuple[str, int, str, str]:
 
 # Both reporters index into this by the CLI's --sort value, so the two
 # formats can never end up sorted differently for the same invocation.
-SORT_KEYS = {"impact": sort_key, "file": file_sort_key}
+SORT_KEYS = {"benchmarked": sort_key, "file": file_sort_key}

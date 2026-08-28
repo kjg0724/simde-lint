@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact
+from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit
 from .base import Context, location_fields, raw_name_if_aliased
 
@@ -24,7 +24,6 @@ class RedundantRule:
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
                 evidence=Evidence.A,
-                impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
                 **location_fields(unit),

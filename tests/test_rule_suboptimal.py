@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence, Impact, Reason
+from simde_lint.finding import Evidence, Reason
 from simde_lint.rules.suboptimal import SuboptimalRule
 
 
@@ -17,10 +17,6 @@ def test_grades_every_mask_form_in_fixture_order(run_rule):
     # inline literal, local constant, two-hop derivation, one-hop derivation,
     # runtime-indexed table, unresolvable.
     assert [f.evidence.value for f in _graded(run_rule)] == ["A", "A", "B", "B", "A", "C"]
-
-
-def test_inline_literal_mask_is_confirmed_impact(run_rule):
-    assert _graded(run_rule)[0].impact is Impact.CONFIRMED
 
 
 def test_grades_a_local_constant_like_an_inline_literal(run_rule):

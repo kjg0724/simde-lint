@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence, Impact
+from simde_lint.finding import Evidence
 from simde_lint.report.text import render_text
 from simde_lint.rules.redundant import RedundantRule
 
@@ -44,7 +44,6 @@ def test_reports_loadu_si64_with_the_cost_it_inherits_from_cvtsi64_si128(run_rul
 def test_grades_every_finding_a_and_marks_it_diagnostic(run_rule):
     for finding in run_rule(RedundantRule(), "redundant_positive.c"):
         assert finding.evidence is Evidence.A
-        assert finding.impact is Impact.DIAGNOSTIC
         assert finding.type == "R"
         assert finding.rule_mechanism
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact
+from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, ValueKind
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
@@ -76,7 +76,6 @@ class PipelineRule:
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
                 evidence=Evidence.A,
-                impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=current.line,
                 **location_fields(unit),

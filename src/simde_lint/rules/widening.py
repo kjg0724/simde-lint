@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact
+from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
@@ -73,7 +73,6 @@ class WideningRule:
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
                 evidence=Evidence.A if direct else Evidence.B,
-                impact=Impact.CONFIRMED,
                 file=unit.file,
                 line=lo.line,
                 **location_fields(unit),

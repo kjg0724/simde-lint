@@ -21,7 +21,7 @@ from typing import Iterator
 import simde_lint.analyze as analyze_module
 from simde_lint import cli
 from simde_lint.analyze import analyze
-from simde_lint.finding import Evidence, Finding, Impact
+from simde_lint.finding import Evidence, Finding
 from simde_lint.ir import AnalysisUnit
 from simde_lint.rules.base import Context
 from simde_lint.rules.redundant import RedundantRule
@@ -59,7 +59,6 @@ class _AlwaysMalformedRule:
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
                 evidence=Evidence.A,
-                impact=Impact.DIAGNOSTIC,
                 file=unit.file,
                 line=call.line,
                 function="deliberately set alongside macro to break __post_init__",

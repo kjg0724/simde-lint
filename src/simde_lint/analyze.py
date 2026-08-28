@@ -8,7 +8,7 @@ from typing import Any, Sequence
 
 from .discover import discover_files
 from .extract import extract_units
-from .finding import Evidence, Finding, Impact
+from .finding import Evidence, Finding
 from .ir import AnalysisUnit
 from .knowledge import Knowledge, load_knowledge
 from .rules import ALL_RULES, Context, Rule
@@ -100,7 +100,6 @@ def analyze(
     exclude: Sequence[str] = (),
     types: Sequence[str] | None = None,
     min_evidence: Evidence = Evidence.C,
-    impact: Impact | None = None,
     config: dict[str, Any] | None = None,
 ) -> tuple[list[Finding], Knowledge, list[str]]:
     """Run the full pipeline and report what it found.
@@ -137,6 +136,4 @@ def analyze(
         allowed = set(types)
         findings = [f for f in findings if f.type in allowed]
     findings = [f for f in findings if _EVIDENCE_ORDER[f.evidence] <= _EVIDENCE_ORDER[min_evidence]]
-    if impact is not None:
-        findings = [f for f in findings if f.impact is impact]
     return findings, knowledge, errors
