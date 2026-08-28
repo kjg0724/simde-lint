@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding, Impact
+from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
@@ -55,13 +55,24 @@ class FusionRule:
                 if path is None:
                     continue
                 evidence, via = path
+                # The def-use path says how well the multiply is linked to the
+                # add. It says nothing about whether a fused form exists to
+                # replace them with: madd_epi16's pairwise reduction has no
+                # direct AArch64 equivalent, and reaching smlal is valid only
+                # for a horizontal-reduction consumer this rule does not
+                # check. Grading such a call A would report an unconfirmed
+                # transform as confirmed, which is the one thing the evidence
+                # axis exists to prevent.
+                reason = None
+                if cost.native_insns is None or cost.suggestion is None:
+                    evidence, reason = Evidence.C, Reason.UNRESOLVED
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,
                     rule=self.rule_id,
                     rule_mechanism=self.mechanism,
                     evidence=evidence,
-                    impact=Impact.CONFIRMED,
+                    reason=reason,
                     file=unit.file,
                     line=mul.line,
                     **location_fields(unit),

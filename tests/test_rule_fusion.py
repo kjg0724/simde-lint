@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence
+from simde_lint.finding import Evidence, Reason
 from simde_lint.rules.fusion import FusionRule
 
 
@@ -12,12 +12,32 @@ def test_grades_a_direct_mul_to_add_path_a(run_rule):
 
 
 def test_grades_a_path_through_a_widening_conversion_b(run_rule):
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "widening_known_cost"
+    ]
+    assert len(findings) == 1
+    assert findings[0].intrinsic == "_mm_mullo_epi32"
+    assert findings[0].evidence is Evidence.B
+
+
+def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
+    """The def-use path being clean does not make the transform known.
+
+    madd_epi16's pairwise reduction has no direct AArch64 fused form, and
+    reaching smlal is valid only for a horizontal-reduction consumer this
+    rule does not check. Grading it A or B on the strength of the def-use
+    link alone would report an unconfirmed transform as confirmed.
+    """
     findings = sorted(
         (f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "kernel"),
         key=lambda f: f.line,
     )
     assert findings[1].intrinsic == "_mm_madd_epi16"
-    assert findings[1].evidence is Evidence.B
+    assert findings[1].evidence is Evidence.C
+    assert findings[1].reason is Reason.UNRESOLVED
+    assert findings[1].suggestion is None
 
 
 def test_covers_the_256_bit_form(run_rule):
@@ -180,7 +200,10 @@ def test_widening_hop_abstains_only_for_a_macro_resolved_intermediate(run_rule):
     }
     assert set(findings) == {"widening_simde_intermediate"}
     finding = findings["widening_simde_intermediate"]
-    assert finding.evidence is Evidence.B
+    # This fixture's multiply is madd, which caps at C (see
+    # test_an_unestablished_fused_form_caps_the_grade_at_c); what this test
+    # pins is that the hop was claimed here and abstained on the macro case.
+    assert finding.evidence is Evidence.C
     assert "_mm_cvtepi32_epi64" in finding.rationale
 
 
@@ -192,5 +215,7 @@ def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
         f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "reused_name"
     ]
     assert len(findings) == 1
-    assert findings[0].evidence is Evidence.B
+    # madd caps at C (see test_an_unestablished_fused_form_caps_the_grade_at_c);
+    # what this test pins is that the widening hop was claimed at all.
+    assert findings[0].evidence is Evidence.C
     assert "_mm_cvtepi32_epi64" in findings[0].rationale
