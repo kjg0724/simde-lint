@@ -25,6 +25,33 @@
 - `extract_units_and_diagnostics()` returns units and unparsed spans from a
   single parse. `extract_units()` keeps its old signature and behaviour.
 
+### Fixed
+
+- **A missing or unreadable input now sets the exit code.** `simde-lint
+  /path/that/moved` printed a warning and exited 0, so a sweep over a path
+  that had gone away reported success with an empty report — the failure a
+  script cannot see. The same held for a file that could not be opened, and
+  for both under `--dump-symbols`.
+
+  This is the other half of the contract the unparsed-file work was
+  protecting. Recovery from a parse error must not escalate the exit code,
+  because it is the normal case; an input that is not there must, because it
+  is the tool failing to do what it was asked.
+
+- **The precision census no longer credits a composition as a forward.**
+  `docs/precision/verify_r.py` matched `#define`s with a regex over raw
+  text, which accepted one written inside a block comment, and accepted
+  `#define X(p) f(p) + g(p)` as forwarding to `f`. Definitions now come from
+  the parse tree, bodies are reparsed and must be exactly one call, a name
+  defined more than once is not resolved at all, and each finding is checked
+  against the spelling it actually records rather than against any call on
+  its line.
+
+  The published figure does not change — 1904 of 1922, 99.06% — because the
+  shapes it accepted wrongly forwarded to intrinsics rule R does not
+  register. What changes is that the checker now establishes the number
+  instead of happening to agree with it.
+
 ## 2.0.0 — 2026-08-28
 
 ### Breaking

@@ -12,38 +12,54 @@ shares nothing with the analyser: it re-parses the source with tree-sitter
 from scratch and does not import simde_lint, its lexer, its extractor, or
 its alias resolution.
 
-One shape is resolved here rather than deferred, with its own much simpler
-predicate: a file-local `#define NAME(args) TARGET(...)` whose body is a
-single call. That is a dozen lines of regex over the file's own text, not a
-second copy of the analyser's agreement logic, so a call site reached
-through such an alias can be credited without the check borrowing anything
-it is supposed to be independent of. SVT-AV1's `ssim_avx2.c` defines two of
-them under `#ifndef` guards.
+**What this checker claims, exactly.** It does not resolve macros in
+general, and an earlier version that tried to was wrong in the direction
+that inflates the number: a regex over raw text accepted a `#define` written
+inside a block comment, and accepted a body that was one intrinsic call plus
+something else. Both would have credited a finding for the wrong reason.
 
-Calls written *inside* a `#define` body are a different matter and stay
-uncredited. Confirming those means reparsing macro bodies the way the
-analyser does, and building a second macro extractor to check the first
-would be exactly the circularity this file exists to avoid. They are listed
-instead.
+So it claims less. Each finding names the spelling written at its call site
+(`raw_name`, absent when the call is direct), and the checker verifies that
+exact spelling:
+
+  * a direct finding must have a call to its intrinsic at that line;
+  * an aliased finding must have a call to its `raw_name` at that line, and
+    `raw_name` must be defined in that file, exactly once, by a `#define`
+    whose entire body is a single call to the finding's intrinsic.
+
+Definitions are read from tree-sitter's `preproc_function_def` nodes, so a
+`#define` inside a comment or a string is not a definition here -- the
+parser has already decided that, and the checker does not second-guess it
+with a regex. A name defined more than once is not resolved at all: which
+branch is live depends on configuration this file cannot see.
+
+Calls written *inside* a `#define` body stay unconfirmed. Confirming them
+means reparsing macro bodies as the analyser does, and a second macro
+extractor built to check the first would be the circularity this file
+exists to avoid.
 
     SIMDE_LINT_SVT_AV1=... SIMDE_LINT_VVENC=... \
         uv run python3 docs/precision/verify_r.py
 
 Reports, per finding, one of:
 
-    call        a call expression to the named intrinsic on that line
-    aliased     a call through a single-call `#define` resolving to it
+    call        a call to the finding's own intrinsic on that line
+    aliased     a call to the finding's raw_name, whose single-call
+                `#define` in that file forwards to the intrinsic
     macro       the line is inside a `#define` body; not confirmable here
     comment     the occurrence on that line is inside a comment
     string      the occurrence is inside a string literal
-    absent      no occurrence of the name on that line at all
+    absent      nothing on that line matches what the finding claims
 
-`call` and `aliased` count as confirmed. `macro`, `comment`, `string` and
-`absent` are listed rather than credited.
+`call` and `aliased` count as confirmed. Everything else is listed.
+
+**One limit worth naming.** Findings carry a line but not a column, so two
+findings of the same spelling on one line cannot be told apart. Neither
+corpus has that shape, and the checker would credit both or neither rather
+than silently pick one.
 """
 import json
 import os
-import re
 import subprocess
 import sys
 from collections import Counter
@@ -58,59 +74,7 @@ CORPORA = {
     "vvenc": ("SIMDE_LINT_VVENC", "source/Lib/CommonLib/x86"),
 }
 LANGUAGE = Language(tree_sitter_cpp.language())
-
-# `#define NAME(args) TARGET(...)` where the body is one call. Deliberately
-# narrow: it does not follow chains, does not check that the parameters are
-# used, and gives up on anything else. It only has to be right about the
-# shape it claims, and a wider predicate would start to resemble the thing
-# it is checking.
-_DEFINE_HEAD = re.compile(
-    r"^[ \t]*#[ \t]*define[ \t]+(?P<name>_mm[A-Za-z0-9_]*)[ \t]*\([^)]*\)(?P<body>.*)$",
-    re.MULTILINE,
-)
-_INTRINSIC_CALL = re.compile(r"(_mm[A-Za-z0-9_]*)[ \t]*\(")
-
-
-def _full_body(text: str, start: int) -> str:
-    """The macro body, following backslash line continuations."""
-    lines = []
-    for line in text[start:].split("\n"):
-        lines.append(line.rstrip())
-        if not line.rstrip().endswith("\\"):
-            break
-    return " ".join(line.rstrip("\\") for line in lines)
-
-
-def local_aliases(source: bytes) -> dict[str, str]:
-    """Map each single-call `#define` name to the intrinsic it forwards to.
-
-    "Single call" is enforced, not assumed. A body containing more than one
-    intrinsic call is not a forward -- SVT-AV1's
-    `_mm256_cvtsi256_si32(a) -> _mm_cvtsi128_si32(_mm256_castsi256_si128(a))`
-    is a composition, and crediting a call site to its outermost callee
-    would be inventing a fact. Those are dropped.
-
-    A name defined more than once with different targets, as separate `#if`
-    branches do, is also dropped: which one is live depends on configuration
-    this checker cannot see, and silently taking the last is how a credit
-    gets given to the wrong intrinsic.
-    """
-    text = source.decode("utf-8", errors="replace")
-    candidates: dict[str, set[str]] = {}
-    for match in _DEFINE_HEAD.finditer(text):
-        body = _full_body(text, match.start("body"))
-        calls = _INTRINSIC_CALL.findall(body)
-        if len(calls) != 1:
-            continue
-        name, target = match.group("name"), calls[0]
-        if name == target:
-            continue
-        candidates.setdefault(name, set()).add(target)
-    return {
-        name: targets.pop()
-        for name, targets in candidates.items()
-        if len(targets) == 1
-    }
+CONFIRMED = ("call", "aliased")
 
 
 def corpus_path(env_var, subdir):
@@ -133,43 +97,125 @@ def sweep(path):
     return json.loads(proc.stdout)["findings"]
 
 
-def classify(tree, source, line, name, aliases):
-    """What is at `line` in this file, judged from the parse tree alone."""
-    target = name.encode()
-    # Spellings that reach this intrinsic: itself, plus any single-call
-    # `#define` in this file that forwards to it.
-    spellings = {target} | {
-        alias.encode() for alias, resolved in aliases.items() if resolved == name
+def _calls_in(node, source):
+    """Every call expression under `node`, as (function name, node)."""
+    found = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == "call_expression":
+            fn = current.child_by_field_name("function")
+            if fn is not None:
+                found.append((source[fn.start_byte:fn.end_byte], current))
+        stack.extend(current.children)
+    return found
+
+
+def single_call_defines(root, source, parser):
+    """Map a `#define NAME(args)` to the one intrinsic its body calls.
+
+    Definitions are located in the parse tree, not by regex over text: a
+    `#define` written inside a comment or a string is not a
+    `preproc_function_def`, so it cannot reach this map at all. The parser
+    has already decided that question and this does not second-guess it.
+
+    tree-sitter leaves a `#define` body as an opaque `preproc_arg`, so the
+    body is reparsed here to see inside it. That is a snippet through the
+    same public parser, not the analyser's macro extractor -- the thing this
+    file must not borrow is `macros.py`'s alias logic, not the idea of
+    parsing.
+
+    The body must be exactly one call and nothing else. `f(x) + 1` has one
+    call but is not one; `f(g(x))` is a composition. A name defined more
+    than once is dropped whatever its bodies say, since which branch is live
+    depends on configuration this file cannot see.
+    """
+    definitions = {}
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "preproc_function_def":
+            name_node = node.child_by_field_name("name")
+            value = node.child_by_field_name("value")
+            if name_node is not None and value is not None:
+                name = source[name_node.start_byte:name_node.end_byte].decode()
+                body = source[value.start_byte:value.end_byte].strip()
+                definitions.setdefault(name, []).append(_sole_callee(body, parser))
+        stack.extend(node.children)
+    return {
+        name: targets[0]
+        for name, targets in definitions.items()
+        if len(targets) == 1 and targets[0] is not None
     }
+
+
+def _sole_callee(body, parser):
+    """The function a body calls, if the body is exactly that one call."""
+    stripped = body.strip()
+    while stripped.startswith(b"(") and stripped.endswith(b")"):
+        inner = stripped[1:-1].strip()
+        if _balanced(inner):
+            stripped = inner
+        else:
+            break
+    snippet = b"void _probe_(void) { " + stripped + b"; }"
+    tree = parser.parse(snippet)
+    calls = _calls_in(tree.root_node, snippet)
+    if len(calls) != 1:
+        return None
+    called, call_node = calls[0]
+    # The one call must BE the body, not merely sit inside it: `f(x) + 1`
+    # would otherwise pass.
+    whole = snippet[call_node.start_byte:call_node.end_byte].strip()
+    return called.decode() if whole == stripped else None
+
+
+def _balanced(text):
+    depth = 0
+    for byte in text:
+        if byte == ord("("):
+            depth += 1
+        elif byte == ord(")"):
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def classify(tree, source, line, intrinsic, raw_name, defines):
+    """What is at `line`, judged against what this finding actually claims."""
+    # The spelling the call site is said to use, and what it must resolve to.
+    wanted = (raw_name or intrinsic).encode()
+    if raw_name and defines.get(raw_name) != intrinsic:
+        # The finding says it reached `intrinsic` through `raw_name`, and
+        # this checker cannot confirm that forward. Not a contradiction of
+        # the tool -- it resolves chains and #if branches this does not.
+        return "absent"
+
     hits = []
 
     def walk(node):
         if node.start_point[0] + 1 > line or node.end_point[0] + 1 < line:
             return
-        if node.type in ("comment",):
-            if target in source[node.start_byte:node.end_byte]:
+        if node.type == "comment":
+            if wanted in source[node.start_byte:node.end_byte]:
                 hits.append("comment")
             return
         if node.type in ("string_literal", "raw_string_literal", "char_literal"):
-            if target in source[node.start_byte:node.end_byte]:
+            if wanted in source[node.start_byte:node.end_byte]:
                 hits.append("string")
             return
         if node.type == "preproc_function_def":
-            # A call written inside a #define body. Confirming it needs the
-            # body reparsed, which is the analyser's job and not this
-            # file's; say so rather than guess.
             if node.start_point[0] + 1 <= line <= node.end_point[0] + 1:
-                if target in source[node.start_byte:node.end_byte]:
+                if wanted in source[node.start_byte:node.end_byte]:
                     hits.append("macro")
                 return
         if node.type == "call_expression":
             fn = node.child_by_field_name("function")
-            if fn is not None and fn.start_point[0] + 1 == line:
-                spelling = source[fn.start_byte:fn.end_byte]
-                if spelling == target:
-                    hits.append("call")
-                elif spelling in spellings:
-                    hits.append("aliased")
+            if (fn is not None
+                    and fn.start_point[0] + 1 == line
+                    and source[fn.start_byte:fn.end_byte] == wanted):
+                hits.append("aliased" if raw_name else "call")
         for child in node.children:
             walk(child)
 
@@ -177,15 +223,14 @@ def classify(tree, source, line, name, aliases):
     for kind in ("call", "aliased", "macro", "comment", "string"):
         if kind in hits:
             return kind
-    line_text = source.split(b"\n")[line - 1] if line - 1 < source.count(b"\n") + 1 else b""
-    return "alias" if target in line_text else "absent"
+    return "absent"
 
 
 def main():
     parser = Parser(LANGUAGE)
-    trees = {}
+    parsed = {}
     verdicts = Counter()
-    flagged = []
+    rows, flagged = [], []
 
     findings = []
     for corpus, (env_var, subdir) in CORPORA.items():
@@ -193,22 +238,36 @@ def main():
 
     for finding in findings:
         path = finding["file"]
-        if path not in trees:
+        if path not in parsed:
             source = Path(path).read_bytes()
-            trees[path] = (parser.parse(source), source, local_aliases(source))
-        tree, source, aliases = trees[path]
-        verdict = classify(tree, source, finding["line"], finding["intrinsic"], aliases)
+            tree = parser.parse(source)
+            parsed[path] = (tree, source, single_call_defines(tree.root_node, source, parser))
+        tree, source, defines = parsed[path]
+        verdict = classify(
+            tree, source, finding["line"], finding["intrinsic"],
+            finding.get("raw_name"), defines,
+        )
         verdicts[verdict] += 1
-        if verdict not in ("call", "aliased"):
+        rows.append({
+            "file": path, "line": finding["line"],
+            "intrinsic": finding["intrinsic"], "raw_name": finding.get("raw_name"),
+            "verdict": verdict,
+        })
+        if verdict not in CONFIRMED:
             flagged.append((verdict, path, finding["line"], finding["intrinsic"]))
+
+    if "--json" in sys.argv:
+        json.dump({"findings": rows}, sys.stdout)
+        return
 
     total = sum(verdicts.values())
     print("rule R findings checked: %d (census, not a sample)\n" % total)
     for verdict, count in verdicts.most_common():
         print("  %-10s %5d  %5.1f%%" % (verdict, count, 100.0 * count / total))
-    confirmed = verdicts["call"] + verdicts["aliased"]
+    confirmed = sum(verdicts[k] for k in CONFIRMED)
     print("\nconfirmed true positives: %d / %d = %.2f%%  (%d direct, %d through a local alias)"
-          % (confirmed, total, 100.0 * confirmed / total, verdicts["call"], verdicts["aliased"]))
+          % (confirmed, total, 100.0 * confirmed / total,
+             verdicts["call"], verdicts["aliased"]))
 
     if flagged:
         print("\nnot confirmed by this check -- hand review required:")

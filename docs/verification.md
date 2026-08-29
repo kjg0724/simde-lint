@@ -940,6 +940,18 @@ scratch and reuses neither the lexer, the extractor, nor the alias
 resolution, because a checker sharing the implementation's assumptions
 proves nothing about them.
 
+It also claims less than an earlier draft did. That draft found `#define`s
+with a regex over raw text, which accepted one written inside a block
+comment and accepted `#define X(p) f(p) + g(p)` as forwarding to `f` --
+both credits given for the wrong reason. Definitions now come from the parse
+tree, so the parser decides what is a definition; bodies are reparsed and
+must be exactly one call; a name defined more than once is not resolved at
+all; and each finding is checked against the spelling it records in
+`raw_name` rather than against any call that happens to share its line.
+Neither wrong shape changed the number -- both forward to intrinsics rule R
+does not register -- but the check now establishes it rather than agreeing
+with it by luck.
+
 ```
 $ uv run python3 docs/precision/verify_r.py
 rule R findings checked: 1922 (census, not a sample)
