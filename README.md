@@ -139,9 +139,15 @@ simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P
 - `--dump-symbols` prints the cross-file constant-array index the tool built
   and exits, for debugging why a mask did or didn't resolve.
 - Exit code is 0 unless the tool itself errors — this is a reporting tool,
-  not a CI gate (`--error-on-findings` is roadmap work, not v1). A file the
-  parser could not fully read is a warning on stderr, not an error: see
-  below.
+  not a CI gate (`--error-on-findings` is roadmap work, not v1). Findings
+  never set it, however many there are.
+
+  What counts as the tool erring: an input path that does not exist, a file
+  it cannot open, an extraction or a rule that raised. Each of those means
+  the report you are holding is missing something it should have contained,
+  so the exit code says so — including under `--dump-symbols`.
+
+  What does not: a file that was read and did not fully parse. See below.
 
 ### When a file does not fully parse
 

@@ -43,13 +43,30 @@ def _excluded(path: Path, root: Path | None, patterns: Sequence[str]) -> bool:
     return False
 
 
-def discover_files(paths: Iterable[Path | str], exclude: Sequence[str]) -> list[Path]:
+def discover_files(
+    paths: Iterable[Path | str],
+    exclude: Sequence[str],
+    errors: list[str] | None = None,
+) -> list[Path]:
+    """Collect scannable files, recording the inputs that were not there.
+
+    `errors` collects a message per unusable input. A caller that passes one
+    can tell a clean sweep from a sweep whose path was misspelled; a caller
+    that does not still gets the stderr warning. The messages are plain
+    strings, which `analyze.is_failure` treats as failures — an input that
+    does not exist is the tool being unable to do its job, not a file it
+    read and could not fully parse.
+    """
     found: list[Path] = []
     for entry in paths:
         root = Path(entry)
         if not root.exists():
-            # A typo'd path would otherwise look exactly like a clean sweep.
-            print(f"warning: no such path: {root}", file=sys.stderr)
+            # A typo'd path would otherwise look exactly like a clean sweep,
+            # which is why this reaches the exit code and not just stderr.
+            message = f"no such path: {root}"
+            print(f"warning: {message}", file=sys.stderr)
+            if errors is not None:
+                errors.append(message)
             continue
         if root.is_file():
             if root.suffix in SOURCE_SUFFIXES and not _excluded(root, root.parent, exclude):

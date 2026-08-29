@@ -98,9 +98,13 @@ def test_both_formats_agree_on_order_under_the_default_sort(tmp_path, capsys):
     assert [(loc[0], int(loc[1])) for loc in text_locations] == [(f, l) for f, l, _ in json_order]
 
 
-def test_dump_symbols_survives_an_unreadable_file(tmp_path):
+def test_dump_symbols_survives_an_unreadable_file(tmp_path, capsys):
     # --dump-symbols must not crash a whole sweep over one file it cannot
-    # read, exactly like the analysis path already survives one.
+    # read, exactly like the analysis path already survives one. Surviving
+    # is not succeeding, though: the readable file's symbols still come out,
+    # and the exit code still says the run was incomplete. Asserting 0 here
+    # is what let a sweep over a moved path report success with a short
+    # index.
     readable = tmp_path / "ok.c"
     readable.write_text("static const unsigned char m[1] = {0};")
     blocked = tmp_path / "blocked.c"
@@ -110,4 +114,5 @@ def test_dump_symbols_survives_an_unreadable_file(tmp_path):
         code = main([str(tmp_path), "--dump-symbols"])
     finally:
         os.chmod(blocked, 0o644)
-    assert code == 0
+    assert code == 1
+    assert "m" in capsys.readouterr().out
