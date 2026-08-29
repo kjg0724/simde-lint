@@ -46,17 +46,45 @@ def wilson_lower(successes, n, alpha):
 
 def main():
     sample = json.loads((HERE / "sample.json").read_text())
-    verdicts = json.loads((HERE / "verdicts.json").read_text())["verdicts"]
+    verdicts_path = HERE / "verdicts.json"
+    if not verdicts_path.exists():
+        raise SystemExit(
+            "docs/precision/verdicts.json does not exist yet.\n"
+            "The sample is drawn but not judged; see HOWTO-judge.md."
+        )
+    verdicts = json.loads(verdicts_path.read_text())["verdicts"]
+
+    missing = [
+        str(i) for i in range(1, len(sample["sample"]) + 1) if str(i) not in verdicts
+    ]
+    if missing:
+        raise SystemExit(
+            "%d of %d findings have no verdict (first: %s).\n"
+            "Judging half a stratum and weighting it as if whole would "
+            "misstate the interval, so this refuses to guess."
+            % (len(missing), len(sample["sample"]), ", ".join(missing[:8]))
+        )
 
     sizes = sample["stratum_sizes"]
     N = sample["population"]
     H = len(sizes)
 
-    drawn, tp = {}, {}
+    # UNJUDGEABLE is a third answer, not a failure. Counting it as FP would
+    # charge the tool for what the source does not settle; counting it as TP
+    # would credit it with the same. It leaves the stratum's denominator
+    # instead, and is reported on its own line so the reader can see how much
+    # of the sample it took.
+    drawn, tp, unjudgeable = {}, {}, {}
     for i, finding in enumerate(sample["sample"], 1):
         key = "%s|%s" % (finding["rule"], finding["evidence"])
+        verdict = verdicts[str(i)]
+        if verdict == "UNJUDGEABLE":
+            unjudgeable[key] = unjudgeable.get(key, 0) + 1
+            continue
+        if verdict not in ("TP", "FP"):
+            raise SystemExit("finding %d has verdict %r; expected TP, FP or UNJUDGEABLE" % (i, verdict))
         drawn[key] = drawn.get(key, 0) + 1
-        tp[key] = tp.get(key, 0) + (verdicts[str(i)] == "TP")
+        tp[key] = tp.get(key, 0) + (verdict == "TP")
 
     print("population %d, strata %d, sample %d, alpha %.3f "
           "(per-stratum %.5f, Bonferroni over %d)"
@@ -85,6 +113,14 @@ def main():
              100 * point, 100 * lower))
     print("\nprecision %.1f%%, simultaneous 95%% lower bound %.1f%%"
           % (100 * point, 100 * lower))
+    if unjudgeable:
+        total_unjudgeable = sum(unjudgeable.values())
+        print("\n%d finding(s) were unjudgeable and left the denominator:"
+              % total_unjudgeable)
+        for key in sorted(unjudgeable, key=lambda k: -unjudgeable[k]):
+            print("  %-32s %d" % (key.replace("|", " / "), unjudgeable[key]))
+        print("The estimate above is conditional on a finding being judgeable "
+              "from source.")
 
 
 if __name__ == "__main__":
