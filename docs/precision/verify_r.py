@@ -64,22 +64,53 @@ LANGUAGE = Language(tree_sitter_cpp.language())
 # used, and gives up on anything else. It only has to be right about the
 # shape it claims, and a wider predicate would start to resemble the thing
 # it is checking.
-_SINGLE_CALL_DEFINE = re.compile(
-    r"^\s*#\s*define\s+(?P<name>_mm[A-Za-z0-9_]*)\s*\([^)]*\)\s*"
-    r"(?P<target>_mm[A-Za-z0-9_]*)\s*\(",
+_DEFINE_HEAD = re.compile(
+    r"^[ \t]*#[ \t]*define[ \t]+(?P<name>_mm[A-Za-z0-9_]*)[ \t]*\([^)]*\)(?P<body>.*)$",
     re.MULTILINE,
 )
+_INTRINSIC_CALL = re.compile(r"(_mm[A-Za-z0-9_]*)[ \t]*\(")
+
+
+def _full_body(text: str, start: int) -> str:
+    """The macro body, following backslash line continuations."""
+    lines = []
+    for line in text[start:].split("\n"):
+        lines.append(line.rstrip())
+        if not line.rstrip().endswith("\\"):
+            break
+    return " ".join(line.rstrip("\\") for line in lines)
 
 
 def local_aliases(source: bytes) -> dict[str, str]:
-    """Map each single-call `#define` name to the intrinsic it forwards to."""
+    """Map each single-call `#define` name to the intrinsic it forwards to.
+
+    "Single call" is enforced, not assumed. A body containing more than one
+    intrinsic call is not a forward -- SVT-AV1's
+    `_mm256_cvtsi256_si32(a) -> _mm_cvtsi128_si32(_mm256_castsi256_si128(a))`
+    is a composition, and crediting a call site to its outermost callee
+    would be inventing a fact. Those are dropped.
+
+    A name defined more than once with different targets, as separate `#if`
+    branches do, is also dropped: which one is live depends on configuration
+    this checker cannot see, and silently taking the last is how a credit
+    gets given to the wrong intrinsic.
+    """
     text = source.decode("utf-8", errors="replace")
-    aliases: dict[str, str] = {}
-    for match in _SINGLE_CALL_DEFINE.finditer(text):
-        name, target = match.group("name"), match.group("target")
-        if name != target:
-            aliases[name] = target
-    return aliases
+    candidates: dict[str, set[str]] = {}
+    for match in _DEFINE_HEAD.finditer(text):
+        body = _full_body(text, match.start("body"))
+        calls = _INTRINSIC_CALL.findall(body)
+        if len(calls) != 1:
+            continue
+        name, target = match.group("name"), calls[0]
+        if name == target:
+            continue
+        candidates.setdefault(name, set()).add(target)
+    return {
+        name: targets.pop()
+        for name, targets in candidates.items()
+        if len(targets) == 1
+    }
 
 
 def corpus_path(env_var, subdir):
