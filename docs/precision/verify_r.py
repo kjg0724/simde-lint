@@ -38,6 +38,16 @@ means reparsing macro bodies as the analyser does, and a second macro
 extractor built to check the first would be the circularity this file
 exists to avoid.
 
+**What this census does not cover.** It reads the same parse the analyser
+does, so it verifies the tool's reasoning *on top of* that parse and not
+the parse itself. A defect in how tree-sitter handles a construct is
+invisible to both sides at once. That is not hypothetical: recovery from an
+`ERROR` node cost eleven findings on the holdout corpus and nothing said
+so, and a checker sharing the parse would have credited the same findings
+and missed the same eleven. The unparsed-region diagnostics
+(`simde_lint.parser.unparsed_regions`) cover that half. Neither is the
+whole claim alone.
+
     SIMDE_LINT_SVT_AV1=... SIMDE_LINT_VVENC=... \
         uv run python3 docs/precision/verify_r.py
 
