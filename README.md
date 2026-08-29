@@ -139,7 +139,37 @@ simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P
 - `--dump-symbols` prints the cross-file constant-array index the tool built
   and exits, for debugging why a mask did or didn't resolve.
 - Exit code is 0 unless the tool itself errors — this is a reporting tool,
-  not a CI gate (`--error-on-findings` is roadmap work, not v1).
+  not a CI gate (`--error-on-findings` is roadmap work, not v1). A file the
+  parser could not fully read is a warning on stderr, not an error: see
+  below.
+
+### When a file does not fully parse
+
+tree-sitter always returns a tree. When it cannot parse a construct it
+recovers, so the file still yields findings — just not necessarily all of
+them, and historically with nothing to say any were lost. Preprocessor-heavy
+C++ hits this often: 362 of SVT-AV1's 561 files contain an unparsed region
+at the revision this tool's figures were measured at.
+
+The tool now prints the line spans it could not parse:
+
+```
+warning: .../InterpolationFilterX86.h: could not be fully parsed (lines 1-3398);
+findings there may be incomplete
+```
+
+This does **not** set the exit code. It is not the tool failing, and on real
+C++ it is the normal case rather than the exceptional one — an exit code
+that counted it would be 1 on nearly every sweep and would tell you nothing.
+Callers using `analyze()` directly get the same information in its third
+return value, where `simde_lint.analyze.is_failure()` separates a genuine
+failure from an incomplete parse.
+
+Recovery is not always free. On a holdout sweep of VVdeC it cost eleven
+registered-intrinsic call sites — every one past the point where a
+3398-line header stopped parsing. On SVT-AV1 and VVenC it cost nothing
+measurable. There is no way to know which case you are in without checking,
+which is why the warning exists.
 
 ### Example
 

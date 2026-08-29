@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A file that does not fully parse is now reported.** tree-sitter always
+  returns a tree; when it cannot parse a construct it recovers, so the file
+  still yields findings with no signal that any were lost. The unparsed line
+  spans now appear as warnings on stderr and in `analyze()`'s third return
+  value.
+
+  This does not set the exit code, and `simde_lint.analyze.is_failure()`
+  separates a genuine failure from an incomplete parse. Unparsed regions are
+  the normal case on preprocessor-heavy C++ — 362 of SVT-AV1's 561 files at
+  the pinned revision — so an exit code that counted them would be 1 on
+  nearly every sweep.
+
+  Found by sweeping a holdout codebase: on VVdeC `e493ce51`, recovery cost
+  eleven registered-intrinsic call sites, every one past the point where a
+  3398-line header stopped parsing. Recall for the two name-matched
+  mechanisms there is 420 of 431, 97.4%, and all eleven misses have this one
+  cause. See `docs/verification.md` §6.
+
+- `extract_units_and_diagnostics()` returns units and unparsed spans from a
+  single parse. `extract_units()` keeps its old signature and behaviour.
+
 ## 2.0.0 — 2026-08-28
 
 ### Breaking
