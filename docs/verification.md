@@ -126,15 +126,27 @@ $ echo $?
 
 561 files scanned (all `.c`/`.h` under `Source/`), exit 0, no stderr output.
 3261 total findings: `F 1019, R 1816, S 341, M 53, P 31, W 1`. Evidence
-`A 2386, B 49, C 826`.
+`A 2661, B 49, C 551`.
 
-> The evidence split changed in v2.0.0 and the type split did not. Rule F now
-> caps a finding at grade C (`reason: unresolved`) when the knowledge table
-> records no established fused form for the intrinsic — `_mm_madd_epi16` and
-> `_mm256_madd_epi16`, whose pairwise reduction has no direct AArch64
-> equivalent. 520 SVT-AV1 findings moved from A to C on that rule alone. The
-> call sites are the same ones; what changed is that the tool no longer
-> reports a transform it cannot establish as one it can. By scope: **3233 in function bodies, 28 in macro
+> The evidence split moved twice while the type split did not, and the call
+> sites never changed — only what the tool is willing to claim about them.
+>
+> v1.3 introduced rule F's grade cap: a finding drops to C
+> (`reason: unresolved`) when the knowledge table records no established
+> fused form for the intrinsic. That moved 520 SVT-AV1 findings from A to C,
+> giving `A 2386, B 49, C 826`.
+>
+> v2.0.0 narrowed the cap's predicate. It had asked
+> `native_insns is None or suggestion is None`, which conflates whether a
+> fused form exists with whether SIMDe's expansion can be counted; it now
+> asks only the first. `_mm256_mullo_epi32` is the case that separates them:
+> SIMDe has no NEON branch for it, so no count can be read from the source,
+> but `mullo_epi32` does not widen and the established 128-bit `vmlaq_s32`
+> transform applies twice across its eight lanes. Its 275 findings returned
+> to grading on the def-use link, with both counts absent, leaving
+> `A 2661, B 49, C 551` and rule F's grade-C set at 245 — every one of them
+> a `madd_epi16` call, whose pairwise reduction has no direct AArch64
+> equivalent and so remains capped. By scope: **3233 in function bodies, 28 in macro
 bodies** — the 3233 is the same figure v1.1.0 reported, unchanged
 finding-for-finding (Section 5).
 
@@ -821,6 +833,96 @@ separately-checked reasons — one per group of rules, not one blanket claim:
 
 See the release notes for why the underlying re-projection (making a forward
 faithful, or reading through it) is deferred rather than fixed.
+
+## 6. VVdeC: a holdout corpus, and the first recall measurement
+
+Sections 1 and 2 measure the tool on the two codebases the taxonomy was
+derived from. That cannot answer whether the rules generalize, and it cannot
+answer recall at all. This section uses a third codebase that took no part in
+the derivation.
+
+**Corpus.** Fraunhofer VVdeC at `e493ce51f13a2dea72cd58354652ed4e0f509a0e`,
+`source/Lib/CommonLib/x86` — 59 files. It vendors SIMDe and includes it
+directly (`#include <simde/x86/sse4.1.h>`), so its x86 intrinsic paths are
+what actually compiles on ARM, which is the precondition for a finding to
+mean anything.
+
+Two caveats belong here rather than in a footnote. VVdeC is a **weak**
+holdout: it is the same organization as VVenC and both descend from VTM, so
+it is independent of the derivation but not of the codebase family. And the
+pinned revision's HEAD is a merge of a pull request from this tool's author
+(an unrelated null-dereference fix), which is disclosed rather than
+concealed.
+
+```
+$ uv run simde-lint "$VVDEC/source/Lib/CommonLib/x86" --format json
+516 findings: R 224, S 196, F 77, W 9, M 8, P 2
+```
+
+All six taxonomy types fire on a codebase none of them were fitted to.
+
+### Recall, for the mechanisms where ground truth is mechanical
+
+Rules R and S match registered intrinsic names, so `grep` gives a ground
+truth that needs no judgement: every occurrence of a registered name that is
+not a definition is a call site the tool should report. Definitions are
+excluded by the same rule in both directions — a `static inline` signature
+or the left side of a `#define` is not a call.
+
+| Intrinsic | Ground truth | Reported | Missed | Recall |
+|---|---:|---:|---:|---:|
+| `_mm_shuffle_epi8` | 120 | 115 | 5 | 95.8% |
+| `_mm256_shuffle_epi8` | 84 | 81 | 3 | 96.4% |
+| `_mm_loadu_si64` | 197 | 195 | 2 | 99.0% |
+| `_mm_cvtsi32_si128` | 21 | 20 | 1 | 95.2% |
+| `_mm_loadu_si32` | 8 | 8 | 0 | 100% |
+| `_mm_loadl_epi64` | 1 | 1 | 0 | 100% |
+| **Total** | **431** | **420** | **11** | **97.4%** |
+
+This is recall for the two name-matched mechanisms only. F, M, W and P turn
+on structure rather than a name, so their ground truth cannot be built by
+`grep` and is not claimed here.
+
+### Every miss has one cause, and it is not the rules
+
+All eleven sit in `InterpolationFilterX86.h`, between lines 3145 and 3296.
+The tool's findings in that file stop at line 3034 and resume nowhere; the
+file is 3398 lines long.
+
+tree-sitter returns a single `ERROR` node spanning the whole file. It always
+returns a tree — when it cannot parse a construct it recovers — so the file
+still produced 123 findings, and nothing in the output said the rest were
+missing.
+
+That is not specific to the holdout:
+
+| Corpus | Files | Containing an `ERROR` node |
+|---|---:|---:|
+| SVT-AV1 `Source/` | 561 | 362 (64.5%) |
+| VVenC `x86/` | 47 | 11 (23.4%) |
+| VVdeC `x86/` | 59 | 10 (16.9%) |
+
+Every figure in Sections 1 and 2 was computed over trees like these.
+Recovery cost nothing measurable there — Section 1's rule-S gate still
+matches `grep` exactly, 204 to 204 — but that is an observation about two
+codebases, not a guarantee, and VVdeC is the counterexample that shows the
+guarantee does not exist.
+
+The tool now reports it. `analyze()` returns the unparsed line spans among
+its warnings and the CLI prints them to stderr, so a reader sees which files
+carry the risk instead of discovering it by grepping. It remains a warning
+and not a skip: the file's other findings are real and are still reported.
+
+### A version claim that is not checked
+
+The sweep above reports `simde_version: 0.8.4`. VVdeC vendors **0.8.3**. The
+figure comes from the knowledge table's own header, not from the scanned
+tree, so it describes the SIMDe the cost entries were read against and not
+the SIMDe the target will actually compile with. On this corpus the cited
+file and line numbers are therefore for a version the project does not use.
+This is a real limitation, recorded here rather than fixed: detecting the
+target's SIMDe version means finding and parsing its vendored copy, which is
+build-system knowledge the tool deliberately does not have.
 
 ## Reproducing this document
 
