@@ -24,7 +24,7 @@ from .ir import (
 )
 from .knowledge import Knowledge
 from .macros import AliasMap, ReparsedMacro, _is_intrinsic, build_alias_map, line_column, original_byte, reparse_macros
-from .parser import iter_nodes, node_text, parse_source
+from .parser import iter_nodes, node_text, parse_source, unparsed_regions
 from .symbols import parse_int_literal
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -168,7 +168,21 @@ def _call_is_recognized_intrinsic(
 
 
 def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[AnalysisUnit]:
+    """Units only. Callers that need to know whether the parse was clean use
+    `extract_units_and_diagnostics`; this wrapper keeps the older signature
+    for the many call sites that do not."""
+    return extract_units_and_diagnostics(path, source, knowledge)[0]
+
+
+def extract_units_and_diagnostics(
+    path: str, source: bytes, knowledge: Knowledge
+) -> tuple[list[AnalysisUnit], list[tuple[int, int]]]:
+    """Units, plus the line spans tree-sitter could not parse.
+
+    The two come from one parse rather than two: a sweep that reparsed every
+    file to collect diagnostics would pay for them twice."""
     root = parse_source(source).root_node
+    regions = unparsed_regions(root)
     macros = reparse_macros(root, source)
     aliases = build_alias_map(root, source, macros, knowledge)
 
@@ -265,7 +279,7 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
         unit = _extract_macro_unit(macro, source, path, aliases, knowledge)
         if unit is not None:
             units.append(unit)
-    return units
+    return units, regions
 
 
 def _extract_macro_unit(

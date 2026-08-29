@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from simde_lint.extract import extract_units
+from simde_lint.analyze import Diagnostic, analyze, is_failure
+from simde_lint.cli import main as cli_main
+from simde_lint.extract import extract_units, extract_units_and_diagnostics
 from simde_lint.ir import ValueKind
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, is_forwarding_alias, reparse_macros
@@ -525,3 +527,89 @@ def test_a_body_that_drops_a_macro_parameter_is_never_registered_as_an_alias():
     assert len(macros) == 1
     assert is_forwarding_alias(macros[0]) is None
     assert build_alias_map(root, _DROPPED_PARAMETER_SHAPE, macros, knowledge).targets == {}
+
+
+def test_a_clean_file_reports_no_unparsed_regions():
+    source = b"""
+#include <simde/x86/sse2.h>
+void kernel(const void *p) {
+    __m128i v = _mm_loadl_epi64((const __m128i *)p);
+    (void)v;
+}
+"""
+    units, unparsed = extract_units_and_diagnostics("clean.c", source, load_knowledge())
+    assert unparsed == []
+    assert [u.name for u in units] == ["kernel"]
+
+
+def test_an_unparsable_file_still_yields_units_and_says_where_it_broke():
+    # The point of the diagnostic: tree-sitter recovers rather than failing,
+    # so a file like this reports findings AND loses some, with nothing in
+    # the output to say which. VVdeC's InterpolationFilterX86.h is the real
+    # case -- eleven registered-intrinsic call sites past the break were
+    # never seen. The contract is only that a break is reported, not that
+    # extraction stops.
+    source = b"""
+void before(const void *p) {
+    __m128i a = _mm_loadl_epi64((const __m128i *)p);
+    (void)a;
+}
+struct { ! ) ( ] template<<< >>>
+void after(const void *p) {
+    __m128i b = _mm_loadl_epi64((const __m128i *)p);
+    (void)b;
+}
+"""
+    units, unparsed = extract_units_and_diagnostics("broken.c", source, load_knowledge())
+    assert unparsed, "a file tree-sitter cannot parse must report at least one span"
+    start, end = unparsed[0]
+    assert 1 <= start <= end <= source.count(b"\n") + 1
+    assert any(u.name == "before" for u in units)
+
+
+def test_analyze_reports_an_unparsed_file_as_a_warning_not_a_skip(tmp_path):
+    path = tmp_path / "broken.c"
+    path.write_text(
+        "void kernel(const void *p) {\n"
+        "    __m128i a = _mm_loadl_epi64((const __m128i *)p);\n"
+        "    (void)a;\n"
+        "}\n"
+        "struct { ! ) ( ] template<<< >>>\n"
+    )
+    findings, _, errors = analyze([path])
+    assert any("could not be fully parsed" in e for e in errors)
+    # The file is warned about, not dropped: the call site before the break
+    # is still reported.
+    assert any(f.intrinsic == "_mm_loadl_epi64" for f in findings)
+
+
+def test_an_unparsed_file_does_not_set_the_exit_code(tmp_path, capsys):
+    # The documented contract is that the exit code is 0 unless the tool
+    # itself errors. tree-sitter recovering from a construct it cannot parse
+    # is not the tool erroring, and it is the normal case on preprocessor-
+    # heavy C++ -- 362 of SVT-AV1's 561 files at the pinned revision. An
+    # exit code that counted it would be 1 on nearly every real sweep.
+    path = tmp_path / "broken.c"
+    path.write_text(
+        "void kernel(const void *p) {\n"
+        "    __m128i a = _mm_loadl_epi64((const __m128i *)p);\n"
+        "    (void)a;\n"
+        "}\n"
+        "struct { ! ) ( ] template<<< >>>\n"
+    )
+    assert cli_main([str(path), "--format", "json"]) == 0
+    assert "could not be fully parsed" in capsys.readouterr().err
+
+
+def test_a_diagnostic_is_still_an_ordinary_message():
+    # Diagnostic subclasses str so that every existing consumer -- printing,
+    # substring matching, collecting into a list -- keeps working. If that
+    # stops being true, callers break silently rather than loudly.
+    failure = Diagnostic("x.c: extraction failed: boom", Diagnostic.FAILURE)
+    unparsed = Diagnostic("x.c: could not be fully parsed (lines 1-9)", Diagnostic.UNPARSED)
+    assert isinstance(failure, str) and isinstance(unparsed, str)
+    assert "extraction failed" in failure
+    assert is_failure(failure) and not is_failure(unparsed)
+    # An unlabelled string predates the distinction; treating it as benign
+    # would be the unsafe direction.
+    assert is_failure("some older warning")
