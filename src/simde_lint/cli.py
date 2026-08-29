@@ -61,11 +61,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         knowledge = load_knowledge()
         # read_sources, not a bare read_bytes loop: this path must survive an
         # unreadable file exactly like the analysis path does.
-        index = build_symbol_index(read_sources(args.paths, args.exclude), knowledge)
+        errors: list[str] = []
+        index = build_symbol_index(read_sources(args.paths, args.exclude, errors), knowledge)
         for name in index.names():
             array = index.lookup(name)
             print(f"{array.name}\t{array.defined_at}\t{len(array.rows)} row(s)")
-        return 0
+        # Same contract as the analysis path: a missing or unreadable input
+        # is the tool failing, and must not print a short index and call it
+        # success.
+        return 1 if any(is_failure(error) for error in errors) else 0
 
     findings, knowledge, errors = analyze(
         args.paths,

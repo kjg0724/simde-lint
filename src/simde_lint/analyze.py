@@ -65,25 +65,37 @@ def is_failure(diagnostic: str) -> bool:
     return getattr(diagnostic, "kind", Diagnostic.FAILURE) == Diagnostic.FAILURE
 
 
-def _read(path: Path) -> bytes | None:
+def _read(path: Path, errors: list[str] | None) -> bytes | None:
     try:
         return path.read_bytes()
     except OSError as error:
-        print(f"warning: cannot read {path}: {error}", file=sys.stderr)
+        message = f"cannot read {path}: {error}"
+        print(f"warning: {message}", file=sys.stderr)
+        if errors is not None:
+            errors.append(Diagnostic(message, Diagnostic.FAILURE))
         return None
 
 
 def read_sources(
-    paths: Sequence[Path | str], exclude: Sequence[str] = ()
+    paths: Sequence[Path | str],
+    exclude: Sequence[str] = (),
+    errors: list[str] | None = None,
 ) -> list[tuple[str, bytes]]:
     """Discover and read every scannable file, skipping the unreadable.
 
     Shared by the analysis pipeline and by --dump-symbols so both survive a
     file that cannot be read; one bad file must never abort a sweep.
+
+    Surviving is not the same as succeeding. A path that does not exist and a
+    file that cannot be opened are both the tool failing to do what it was
+    asked, so they go into `errors` as failures and reach the exit code. The
+    case that must NOT reach it is a file that was read and did not fully
+    parse -- that one produced findings, and on real C++ it is the common
+    case.
     """
     sources: list[tuple[str, bytes]] = []
-    for path in discover_files(paths, exclude):
-        content = _read(path)
+    for path in discover_files(paths, exclude, errors):
+        content = _read(path, errors)
         if content is not None:
             sources.append((str(path), content))
     return sources
@@ -167,7 +179,8 @@ def analyze(
     stopped parsing, and nothing in the output said so.
     """
     knowledge = load_knowledge()
-    sources = read_sources(paths, exclude)
+    errors: list[str] = []
+    sources = read_sources(paths, exclude, errors)
 
     ctx = Context(
         symbols=build_symbol_index(sources, knowledge),
@@ -175,7 +188,6 @@ def analyze(
         config=config or {},
     )
 
-    errors: list[str] = []
     findings: list[Finding] = []
     for path, source in sources:
         try:

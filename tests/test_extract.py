@@ -613,3 +613,32 @@ def test_a_diagnostic_is_still_an_ordinary_message():
     # An unlabelled string predates the distinction; treating it as benign
     # would be the unsafe direction.
     assert is_failure("some older warning")
+
+
+def test_a_missing_input_path_sets_the_exit_code(tmp_path, capsys):
+    # The other half of the exit-code contract. An unparsed file must not set
+    # it; an input that is not there must. Both were once exit 0, which meant
+    # a sweep over a path that had moved reported success with an empty
+    # report -- the failure mode a script cannot see.
+    missing = tmp_path / "not-here.c"
+    assert cli_main([str(missing), "--format", "json"]) == 1
+    assert "no such path" in capsys.readouterr().err
+
+
+def test_an_unreadable_file_sets_the_exit_code(tmp_path, capsys):
+    path = tmp_path / "locked.c"
+    path.write_text("void f(void) {}\n")
+    path.chmod(0o000)
+    try:
+        assert cli_main([str(tmp_path), "--format", "json"]) == 1
+        assert "cannot read" in capsys.readouterr().err
+    finally:
+        path.chmod(0o644)
+
+
+def test_dump_symbols_reports_a_missing_path_too(tmp_path, capsys):
+    # --dump-symbols shares read_sources with the analysis path, so it shares
+    # the contract: printing a short index over inputs that were not there
+    # and calling it success is the same defect wearing a different flag.
+    assert cli_main([str(tmp_path / "gone.c"), "--dump-symbols"]) == 1
+    assert "no such path" in capsys.readouterr().err
