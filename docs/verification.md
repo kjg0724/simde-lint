@@ -124,7 +124,15 @@ $ echo $?
 0
 ```
 
-561 files scanned (all `.c`/`.h` under `Source/`), exit 0, no stderr output.
+561 files scanned (all `.c`/`.h` under `Source/`), exit 0.
+
+**stderr carries 362 warnings, and that is the expected state.** Each names
+a file tree-sitter could not fully parse; 362 of the 561 files contain an
+`ERROR` node. Recovery is why they still produce findings, and §6 measures
+what recovery can cost. A reader running the command above should see those
+362 lines — their absence would be the surprise, not their presence. No
+warning here is a failure: the exit code stays 0 because a parse error is
+not the tool erring.
 3261 total findings: `F 1019, R 1816, S 341, M 53, P 31, W 1`. Evidence
 `A 2661, B 49, C 551`.
 
@@ -857,7 +865,13 @@ concealed.
 ```
 $ uv run simde-lint "$VVDEC/source/Lib/CommonLib/x86" --format json
 516 findings: R 224, S 196, F 77, W 9, M 8, P 2
+$ echo $?
+0
 ```
+
+10 parse warnings on stderr, one per unparsable file. For reference across
+all three corpora: SVT-AV1 3261 findings / 362 warnings, VVenC 449 / 11,
+VVdeC 516 / 10 — every one exit 0.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
 
@@ -912,6 +926,51 @@ The tool now reports it. `analyze()` returns the unparsed line spans among
 its warnings and the CLI prints them to stderr, so a reader sees which files
 carry the risk instead of discovering it by grepping. It remains a warning
 and not a skip: the file's other findings are real and are still reported.
+
+### Rule R, checked as a census rather than a sample
+
+Rule R has no structural premise -- it reports every call to one of five
+registered intrinsics -- so whether a finding is a true positive reduces to
+whether a real call stands at the reported line rather than a comment, a
+string, or a definition. That needs no judgement, so
+`docs/precision/verify_r.py` checks all 1922 of them instead of sampling.
+
+The check imports no `simde_lint`. It re-parses with tree-sitter from
+scratch and reuses neither the lexer, the extractor, nor the alias
+resolution, because a checker sharing the implementation's assumptions
+proves nothing about them.
+
+```
+$ uv run python3 docs/precision/verify_r.py
+rule R findings checked: 1922 (census, not a sample)
+
+  call        1898   98.8%
+  macro         18    0.9%
+  aliased        6    0.3%
+
+confirmed true positives: 1904 / 1922 = 99.06%  (1898 direct, 6 through a local alias)
+```
+
+The six `aliased` are in `ssim_avx2.c`, which defines two forwarding macros
+under `#ifndef` guards -- `_mm_loadu_si32` at line 17 and `_mm_loadu_si64`
+at line 20. The checker resolves them with its own predicate: a `#define`
+whose body is a single call, matched by one regex. It follows no chains and
+does not check that the parameters are used, which is the point -- a wider
+predicate would start to resemble what it is checking.
+
+The 18 `macro` are calls written *inside* a `#define` body, and they
+partition as:
+
+| File | Findings | Macros |
+|---|---:|---|
+| `cdef_filter_block_avx2.c` | 10 | `LOAD4_NAT` 4, `LOAD4_ORD` 4, `DEFINE_8XN_IMPL` 2 |
+| `cdef_filter_block_sse4_1.c` | 8 | `LOAD2_S` 2, `DEFINE_8XN_SSE4` 2, `DEFINE_4XN_SSE4` 2, `BND_LOAD8` 2 |
+
+Confirming these means reparsing macro bodies the way `macros.py` does, and
+a second macro extractor built to check the first would be exactly the
+circularity this file avoids. They are listed rather than credited. The
+census stopping where its independence would have to be spent is the honest
+outcome, not a gap in it.
 
 ### A version claim that is not checked
 
