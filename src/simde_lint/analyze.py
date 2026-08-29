@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .discover import discover_files
-from .extract import extract_units
+from .extract import extract_units_and_diagnostics
 from .finding import Evidence, Finding
 from .ir import AnalysisUnit
 from .knowledge import Knowledge, load_knowledge
@@ -17,6 +17,52 @@ from .symbols import build_symbol_index
 # Ordered by strictness. --min-evidence is a floor: passing "B" keeps grades
 # A and B, not B alone, so the comparison below is <=, not ==.
 _EVIDENCE_ORDER = {Evidence.A: 0, Evidence.B: 1, Evidence.C: 2}
+
+# A file can carry many unparsed spans; a warning naming all of them would
+# bury the file name it is about. The count is always reported, so nothing
+# is hidden by the cap — only shortened.
+_MAX_REPORTED_SPANS = 3
+
+
+class Diagnostic(str):
+    """A warning about an incomplete run, carrying why without ceasing to be
+    a message.
+
+    Two things go wrong in a sweep and they are not the same thing. A
+    FAILURE is the tool breaking on input it should have handled: a file it
+    could not read, an extraction that raised, a rule that raised. An
+    UNPARSED is tree-sitter declining to parse a construct, recovering, and
+    returning a tree anyway — the tool worked, and the findings it produced
+    are real; what is missing is the assurance that they are all of them.
+
+    Only a FAILURE may set the exit code. Preprocessor-heavy C++ makes
+    UNPARSED the normal case rather than the exceptional one — 362 of
+    SVT-AV1's 561 files at the pinned revision — so an exit code that
+    counted them would be 1 on nearly every real sweep and would say
+    nothing.
+
+    Subclassing `str` rather than wrapping it keeps every existing consumer
+    working unchanged: these are still printed, still substring-matched,
+    still collected into a plain list.
+    """
+
+    FAILURE = "failure"
+    UNPARSED = "unparsed"
+
+    kind: str
+
+    def __new__(cls, message: str, kind: str) -> "Diagnostic":
+        diagnostic = super().__new__(cls, message)
+        diagnostic.kind = kind
+        return diagnostic
+
+
+def is_failure(diagnostic: str) -> bool:
+    """Whether a diagnostic means the tool broke, rather than that a file
+    did not fully parse. A plain string counts as a failure: it predates the
+    distinction, and treating an unlabelled warning as benign would be the
+    unsafe direction."""
+    return getattr(diagnostic, "kind", Diagnostic.FAILURE) == Diagnostic.FAILURE
 
 
 def _read(path: Path) -> bytes | None:
@@ -88,7 +134,10 @@ def _run_rule(
     try:
         return list(rule.match(unit, ctx))
     except Exception as error:  # noqa: BLE001 - isolate one rule/unit pair, not the whole sweep
-        message = f"{path}: rule {rule.rule_id} failed on {_unit_location(unit)}: {error}"
+        message = Diagnostic(
+            f"{path}: rule {rule.rule_id} failed on {_unit_location(unit)}: {error}",
+            Diagnostic.FAILURE,
+        )
         print(f"warning: {message} -- this unit's {rule.rule_id} results are incomplete", file=sys.stderr)
         errors.append(message)
         return []
@@ -105,9 +154,17 @@ def analyze(
     """Run the full pipeline and report what it found.
 
     The third return value is the list of warnings produced by an isolated
-    extraction or rule failure (empty on a clean run) — callers that need to
-    know whether the analysis was complete, rather than merely non-crashing,
-    check this rather than inferring it from stderr output.
+    extraction or rule failure, or by a file tree-sitter could not fully
+    parse (empty on a clean run) — callers that need to know whether the
+    analysis was complete, rather than merely non-crashing, check this
+    rather than inferring it from stderr output.
+
+    A parse error is a warning, not a skip. tree-sitter recovers and the
+    file still yields findings; what is lost is the guarantee that they are
+    all of them. Staying silent about that was the defect this reports: a
+    holdout sweep of VVdeC found eleven registered-intrinsic call sites the
+    tool never saw, all of them past the point where one 3398-line header
+    stopped parsing, and nothing in the output said so.
     """
     knowledge = load_knowledge()
     sources = read_sources(paths, exclude)
@@ -122,12 +179,25 @@ def analyze(
     findings: list[Finding] = []
     for path, source in sources:
         try:
-            units = extract_units(path, source, knowledge)
+            units, unparsed = extract_units_and_diagnostics(path, source, knowledge)
         except Exception as error:  # noqa: BLE001 - a bad file must not abort the sweep
-            message = f"{path}: extraction failed: {error}"
+            message = Diagnostic(f"{path}: extraction failed: {error}", Diagnostic.FAILURE)
             print(f"warning: skipping {path}: {error}", file=sys.stderr)
             errors.append(message)
             continue
+        if unparsed:
+            spans = ", ".join(
+                f"line {start}" if start == end else f"lines {start}-{end}"
+                for start, end in unparsed[:_MAX_REPORTED_SPANS]
+            )
+            if len(unparsed) > _MAX_REPORTED_SPANS:
+                spans += f", and {len(unparsed) - _MAX_REPORTED_SPANS} more"
+            message = Diagnostic(
+                f"{path}: could not be fully parsed ({spans}); findings there may be incomplete",
+                Diagnostic.UNPARSED,
+            )
+            print(f"warning: {message}", file=sys.stderr)
+            errors.append(message)
         for unit in units:
             for rule in ALL_RULES:
                 findings.extend(_run_rule(rule, unit, ctx, path, errors))

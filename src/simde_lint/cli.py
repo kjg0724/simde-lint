@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .analyze import analyze, read_sources
+from .analyze import analyze, is_failure, read_sources
 from .finding import Evidence
 from .knowledge import load_knowledge
 from .report import render_json, render_text
@@ -84,7 +84,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     # to stderr as it happened; the exit code is what makes "this run is
     # incomplete" distinguishable from a clean success without a reader
     # having to notice a warning line among the findings.
-    return 1 if errors else 0
+    #
+    # A file tree-sitter could not fully parse is warned about but does not
+    # set the exit code. It is not the tool failing — recovery is why the
+    # file still produced findings — and it is the normal case rather than
+    # the exceptional one on preprocessor-heavy C++, so counting it would
+    # make the exit code 1 on nearly every real sweep.
+    return 1 if any(is_failure(error) for error in errors) else 0
 
 
 if __name__ == "__main__":
