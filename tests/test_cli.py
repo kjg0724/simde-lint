@@ -1,3 +1,4 @@
+from importlib.metadata import version as metadata_version
 import json
 import os
 import re
@@ -116,3 +117,16 @@ def test_dump_symbols_survives_an_unreadable_file(tmp_path, capsys):
         os.chmod(blocked, 0o644)
     assert code == 1
     assert "m" in capsys.readouterr().out
+
+
+def test_the_declared_version_matches_the_package_metadata():
+    """`__version__` drifted from 0.1.0 through four releases unnoticed.
+
+    Nothing read it, so nothing caught it, and the v2.1.0 tag would have
+    shipped a package whose metadata said 2.1.0 while `simde_lint.__version__`
+    said 0.1.0. A release that disagrees with itself is worse for a cited
+    artifact than one that is merely out of date.
+    """
+    import simde_lint
+
+    assert simde_lint.__version__ == metadata_version("simde-lint")
