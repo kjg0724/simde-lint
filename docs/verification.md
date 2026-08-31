@@ -157,6 +157,22 @@ not the tool erring.
 > equivalent and so remains capped. By scope: **3233 in function bodies, 28 in macro
 bodies** — the 3233 is the same figure v1.1.0 reported, unchanged
 finding-for-finding (Section 5).
+>
+> A later change split *why* those 245 stay capped, without moving the
+> grade. Rule F now declares a `transform_status` per intrinsic —
+> `established`, `conditional`, or `unknown` — instead of inferring the cap
+> from whether a `suggestion` happened to be filled in. `_mm_madd_epi16` and
+> `_mm256_madd_epi16` are `conditional`, not `unknown`: `smlal_s16` absorbs
+> the accumulate when the consumer is a horizontal reduction, a shape rule F
+> does not check, so a transform exists here under a condition the rule
+> never verified — a different claim from "the tool could not judge at all".
+> Both statuses still cap at C, so no finding, count, or grade moves; what
+> changes is that the 245 findings' `reason` field now reads
+> `transform_requires_context` instead of `unresolved`, and their
+> `suggestion` field now names `smlal_s16` — presented in the rationale as
+> conditional ("absorbs the accumulate only when the consumer permits it,
+> which this rule does not check"), never as the unconditional replacement
+> line an `established` finding carries.
 
 > R rose from 716 to 1798 between v1 and v1.1: `knowledge/redundant.yaml`
 > gained `_mm_loadl_epi64` and `_mm_loadu_si64` (see Section 2 below), and

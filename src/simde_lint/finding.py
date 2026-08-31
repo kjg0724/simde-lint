@@ -25,6 +25,10 @@ class Reason(str, Enum):
     - **GUARD_REQUIRED** — the rule saw everything relevant and the answer is
       that the guard the rule is examining is load-bearing (a mask whose
       lanes are fully known but include one outside the safe range).
+    - **TRANSFORM_REQUIRES_CONTEXT** — a fused replacement exists, but only
+      under a condition this rule does not check (a consumer shape, for
+      instance). The rule saw the call clearly; what it did not verify is
+      that the condition holds here.
 
     v1 keeps one grade, C, for both: the action either warrants is identical
     — do not transform without human confirmation. A fourth grade would only
@@ -34,6 +38,7 @@ class Reason(str, Enum):
 
     UNRESOLVED = "unresolved"
     GUARD_REQUIRED = "guard_required"
+    TRANSFORM_REQUIRES_CONTEXT = "transform_requires_context"
 
 
 @dataclass(frozen=True)
