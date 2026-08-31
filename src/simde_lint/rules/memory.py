@@ -40,14 +40,25 @@ class MemoryRule:
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         threshold = int(ctx.config.get("memory_chain_threshold", _DEFAULT_THRESHOLD))
 
-        by_var: dict[str, list[IntrinsicCall]] = {}
+        # Grouped by the assignment target as written, not by the variable
+        # name. `dd[0]` and `dd[1]` are different vectors, and a lane load
+        # replaces one of them, so inserts into different elements are
+        # different chains however adjacent they sit in the source. Keying on
+        # `result_var` merged them: SVT-AV1's pickrst_sse4.c has three places
+        # where two runs of two became one run of four and cleared the
+        # threshold that neither reached.
+        by_target: dict[str, list[IntrinsicCall]] = {}
         for call in sorted(unit.calls, key=lambda c: c.start_byte):
-            if call.name not in _INSERTS or not call.result_var:
+            if call.name not in _INSERTS or not (call.result_lvalue or call.result_var):
                 continue
-            by_var.setdefault(call.result_var, []).append(call)
+            by_target.setdefault(call.result_lvalue or call.result_var, []).append(call)
 
-        for target, calls in by_var.items():
-            for chain in self._split_chains(unit, target, calls):
+        for target, calls in by_target.items():
+            # Splitting still asks about the *variable*: `redefined_between`
+            # tracks a name, and a write to `dd` breaks a chain on `dd[0]`
+            # just as surely as one to `dd[0]` does.
+            variable = calls[0].result_var or target
+            for chain in self._split_chains(unit, variable, calls):
                 if len(chain) < threshold:
                     continue
                 yield self._finding(unit, ctx, target, chain)

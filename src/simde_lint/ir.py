@@ -37,6 +37,17 @@ class IntrinsicCall:
     column: int
     start_byte: int
     result_var: str | None = None
+    # The assignment target exactly as written, subscript included, where
+    # `result_var` keeps only the identifier. The two answer different
+    # questions and a rule has to pick deliberately.
+    #
+    # `result_var` is the right key for asking whether a *variable* was
+    # written between two points, which is what `redefined_between` tracks.
+    # `result_lvalue` is the right key for asking whether two writes went to
+    # the same *place*: `dd[0]` and `dd[1]` are separate vectors, and a rule
+    # that grouped them by `dd` would treat two short insert runs as one long
+    # one. None when the binding is not a simple assignment or declaration.
+    result_lvalue: str | None = None
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
     # `macros.build_alias_map`) — a macro whose *body* extraction never sees,
