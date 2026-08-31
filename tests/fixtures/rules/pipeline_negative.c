@@ -28,18 +28,3 @@ void compound_assignment_not_direct_result(__m128i a, __m128i b, __m128i x, __m1
     __m128i sel = _mm_and_si128(x, c);
     (void)sel;
 }
-
-// Issue #13, shape 2: the compound write must still register as a
-// redefinition of x, or P links the first compare through a value the
-// second, compound-assigned compare actually overwrote. The second
-// compare's own right-hand side is deliberately a recognized call, not a
-// plain variable -- see fusion_negative.c's counterpart for why a plain
-// variable would not catch a fix that only did half the work.
-void compound_assignment_overwrites_result(
-    __m128i a, __m128i b, __m128i other_a, __m128i other_b, __m128i c
-) {
-    __m128i x = _mm_cmpgt_epi64(a, b);
-    x += _mm_cmpgt_epi64(other_a, other_b);
-    __m128i sel = _mm_and_si128(x, c);
-    (void)sel;
-}

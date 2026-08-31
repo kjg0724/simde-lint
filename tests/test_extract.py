@@ -143,8 +143,11 @@ def test_a_compound_assignment_still_records_an_unknown_definition():
     so it would pass whether or not the fix's second half was done.
 
     If the definition were dropped, `redefined_between` would not see that
-    `x` was reassigned, and F or P would link the earlier direct multiply/
-    compare through a value that was actually overwritten.
+    `x` was reassigned, and rule F would link the earlier direct multiply
+    through a value that was actually overwritten. Rule P cannot reach that
+    shape -- it pairs adjacent calls only, so the compound assignment's own
+    recognized call already breaks the pair before `redefined_between` is
+    consulted -- which is why only F carries a downstream test for this half.
     """
     knowledge = load_knowledge()
     (unit,) = extract_units("t.c", _COMPOUND_ASSIGNMENT_OVERWRITE, knowledge)
