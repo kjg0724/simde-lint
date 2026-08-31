@@ -156,3 +156,23 @@ def test_a_compound_assignment_target_is_not_read_as_a_direct_result(run_rule):
         if f.function == "compound_assignment_not_direct_result"
     ]
     assert findings == []
+
+
+def test_a_unary_transform_target_is_not_read_as_a_direct_result(run_rule):
+    """Issue #15, shape 4: `m = ~cmpgt(...)` must not grade as a direct link.
+
+    Extraction pins that `result_var` is None for this shape
+    (test_extract.py::test_a_call_under_a_unary_expression_binds_no_result);
+    this is the downstream consequence -- P reads `result_var` to decide
+    whether to match at all, so if that pin were wrong, or P ignored it,
+    this would still report a finding. Reachable through P specifically
+    because the compare and the consuming `_mm_and_si128` are still
+    strictly adjacent in call order -- the unary `~` is not itself a call,
+    so it does not break the `zip(ordered, ordered[1:])` pairing P relies on.
+    """
+    findings = [
+        f
+        for f in run_rule(PipelineRule(), "pipeline_negative.c")
+        if f.function == "unary_transform_not_direct_result"
+    ]
+    assert findings == []

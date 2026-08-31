@@ -303,6 +303,43 @@ def test_a_compound_assignments_write_stays_visible_to_fusion(run_rule):
     assert findings == []
 
 
+def test_a_binary_transform_target_is_not_read_as_a_direct_result(run_rule):
+    """Issue #15, shape 1: `x = mullo(...) ^ c` must not grade as a direct link.
+
+    Extraction pins that `result_var` is None for this shape
+    (test_extract.py::test_a_call_under_a_binary_expression_binds_no_result);
+    this is the downstream consequence -- F reads `result_var` to decide
+    membership, so if that pin were wrong, or F ignored it, this would still
+    report an Evidence-A finding.
+    """
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_negative.c")
+        if f.function == "binary_transform_not_direct_result"
+    ]
+    assert findings == []
+
+
+def test_a_conditional_transform_target_is_not_read_as_a_direct_result(run_rule):
+    """Issue #15, shape 2: `x = t ? mullo(...) : c` must not grade as a direct link."""
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_negative.c")
+        if f.function == "conditional_transform_not_direct_result"
+    ]
+    assert findings == []
+
+
+def test_a_comma_transform_target_is_not_read_as_a_direct_result(run_rule):
+    """Issue #15, shape 3: `x = (mullo(...), c)` must not grade as a direct link."""
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_negative.c")
+        if f.function == "comma_transform_not_direct_result"
+    ]
+    assert findings == []
+
+
 def test_changing_only_the_suggestion_cannot_change_the_evidence():
     """The invariant this whole change exists for.
 

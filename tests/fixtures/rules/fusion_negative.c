@@ -35,3 +35,28 @@ void compound_assignment_overwrites_result(
     __m128i sum = _mm_add_epi32(x, c);
     (void)sum;
 }
+
+// Issue #15, shape 1: the XOR is x's producer, not the multiply. Without
+// the fix, mul.result_var == "x" (the binary_expression is crossed
+// silently) and F reports this pair at Evidence A even though x's actual
+// value also depends on c.
+void binary_transform_not_direct_result(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = _mm_mullo_epi32(a, b) ^ c;
+    __m128i sum = _mm_add_epi32(x, d);
+    (void)sum;
+}
+
+// Issue #15, shape 2: x is the multiply's value only on the true branch.
+void conditional_transform_not_direct_result(int t, __m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = t ? _mm_mullo_epi32(a, b) : c;
+    __m128i sum = _mm_add_epi32(x, d);
+    (void)sum;
+}
+
+// Issue #15, shape 3: x is c; the multiply's value is discarded by the
+// comma expression.
+void comma_transform_not_direct_result(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = (_mm_mullo_epi32(a, b), c);
+    __m128i sum = _mm_add_epi32(x, d);
+    (void)sum;
+}

@@ -162,6 +162,121 @@ def test_a_compound_assignment_still_records_an_unknown_definition():
     assert overwrite.value.text == "_mm_mullo_epi32(other_a, other_b)"
 
 
+_BINARY_TRANSFORM_RHS = b"""
+__m128i f(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = _mm_mullo_epi32(a, b) ^ c;
+    return _mm_add_epi32(x, d);
+}
+"""
+
+_CONDITIONAL_TRANSFORM_RHS = b"""
+__m128i f(int t, __m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = t ? _mm_mullo_epi32(a, b) : c;
+    return _mm_add_epi32(x, d);
+}
+"""
+
+_COMMA_TRANSFORM_RHS = b"""
+__m128i f(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = (_mm_mullo_epi32(a, b), c);
+    return _mm_add_epi32(x, d);
+}
+"""
+
+_UNARY_TRANSFORM_RHS = b"""
+__m128i f(__m128i a, __m128i b, __m128i c) {
+    __m128i m = ~_mm_cmpgt_epi64(a, b);
+    return _mm_and_si128(m, c);
+}
+"""
+
+
+def test_a_call_under_a_binary_expression_binds_no_result():
+    """Issue #15, shape 1: the XOR is x's producer, not the multiply.
+
+    Before the fix, `_enclosing_result_var`/`_enclosing_result_lvalue`
+    crossed the `binary_expression` silently and recorded `x` as the
+    multiply's direct result -- an evidence-A claim about a def-use link
+    that never existed, since x's actual value also depends on `c`.
+    """
+    unit = extract_units("t.c", _BINARY_TRANSFORM_RHS, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+
+
+def test_a_call_under_a_conditional_expression_binds_no_result():
+    """Issue #15, shape 2: x is the multiply's value only on one branch."""
+    unit = extract_units("t.c", _CONDITIONAL_TRANSFORM_RHS, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+
+
+def test_a_call_under_a_comma_expression_binds_no_result():
+    """Issue #15, shape 3: x is c; the multiply's value is discarded."""
+    unit = extract_units("t.c", _COMMA_TRANSFORM_RHS, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+
+
+def test_a_call_under_a_unary_expression_binds_no_result():
+    """Issue #15, shape 4: the complement is m's producer, not the compare."""
+    unit = extract_units("t.c", _UNARY_TRANSFORM_RHS, load_knowledge())[0]
+    cmp_call = next(c for c in unit.calls if c.name == "_mm_cmpgt_epi64")
+    assert cmp_call.result_var is None
+    assert cmp_call.result_lvalue is None
+
+
+_PLAIN_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = _mm_mullo_epi32(a, b);
+    return x;
+}
+"""
+
+_PARENTHESIZED_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = (_mm_mullo_epi32(a, b));
+    return x;
+}
+"""
+
+_CAST_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = (__m128i)_mm_mullo_epi32(a, b);
+    return x;
+}
+"""
+
+
+def test_a_plain_binding_still_yields_the_target():
+    # Baseline that must keep working after the fix: no wrapper at all.
+    unit = extract_units("t.c", _PLAIN_BINDING, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var == "x"
+    assert mul.result_lvalue == "x"
+
+
+def test_a_parenthesized_binding_still_yields_the_target():
+    # Baseline that must keep working after the fix: parentheses are
+    # explicitly transparent.
+    unit = extract_units("t.c", _PARENTHESIZED_BINDING, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var == "x"
+    assert mul.result_lvalue == "x"
+
+
+def test_a_cast_wrapped_binding_still_yields_the_target():
+    # Baseline that must keep working after the fix: a C-style cast is
+    # transparent by the same existing choice `_unwrap_cast` makes.
+    unit = extract_units("t.c", _CAST_BINDING, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var == "x"
+    assert mul.result_lvalue == "x"
+
+
 def test_literal_lanes_are_recorded_only_for_byte_constructors():
     # Rule S reads lanes to judge a byte shuffle mask. A wider constructor
     # recorded under a byte mask would report truncated values, so it stays

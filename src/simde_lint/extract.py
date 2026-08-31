@@ -187,15 +187,42 @@ def _is_compound_assignment(node: Node, source: bytes) -> bool:
     return operator is not None and node_text(operator, source) != "="
 
 
+# The only nodes a call's value passes through unchanged on its way to a
+# binding. Matches `_unwrap_cast` exactly: a C-style cast is transparent by
+# existing deliberate choice, a C++ `static_cast`-shaped node is not (it is
+# not even named `cast_expression` in the grammar, so it never matches here).
+_TRANSPARENT_BINDING_WRAPPERS = ("parenthesized_expression", "cast_expression")
+
+
+def _enclosing_binding(call: Node) -> Node | None:
+    """`init_declarator` or `assignment_expression` this call binds directly.
+
+    A call nested in another call's argument list binds nothing of its own:
+    its value flows into the enclosing call, not into that statement's
+    target. A call nested in any other value-transforming construct —
+    `binary_expression`, `unary_expression`, `conditional_expression`,
+    `comma_expression`, `initializer_list`, and every node type not
+    anticipated here — binds nothing either: the enclosing write's value is
+    no longer this call's value alone. Only `parenthesized_expression` and
+    `cast_expression` preserve that identity, so only those are crossed;
+    everything else — including a nested `call_expression` and
+    `function_definition` — terminates the walk and yields None, exactly as
+    it always has for those two.
+    """
+    parent = call.parent
+    while parent is not None:
+        if parent.type in ("init_declarator", "assignment_expression"):
+            return parent
+        if parent.type not in _TRANSPARENT_BINDING_WRAPPERS:
+            return None
+        parent = parent.parent
+    return None
+
+
 def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     """Variable this call's result is bound to, when the binding is direct.
 
-    A call nested in another call's argument list binds nothing of its own:
-    its value flows into the enclosing call, not into that statement's target.
-    Walking past an intervening call_expression would attribute the outer
-    assignment to the inner call and record a second, wrong definition on the
-    same line — and `definition_before` would then name the inner call as the
-    producer.
+    See `_enclosing_binding` for what counts as direct.
 
     A compound assignment (`x += call(...)`) is not a direct binding either:
     `x`'s new value depends on its old value as well as on the call's result,
@@ -204,19 +231,13 @@ def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     `UNKNOWN` definition, since a compound assignment's right-hand side never
     reaches this function's caller as a recognized-call binding.
     """
-    parent = call.parent
-    while parent is not None:
-        if parent.type == "call_expression":
-            return None
-        if parent.type in ("init_declarator", "assignment_expression"):
-            if parent.type == "assignment_expression" and _is_compound_assignment(parent, source):
-                return None
-            field = "declarator" if parent.type == "init_declarator" else "left"
-            return _first_identifier(node_text(parent.child_by_field_name(field), source))
-        if parent.type == "function_definition":
-            return None
-        parent = parent.parent
-    return None
+    parent = _enclosing_binding(call)
+    if parent is None:
+        return None
+    if parent.type == "assignment_expression" and _is_compound_assignment(parent, source):
+        return None
+    field = "declarator" if parent.type == "init_declarator" else "left"
+    return _first_identifier(node_text(parent.child_by_field_name(field), source))
 
 
 def _enclosing_result_lvalue(call: Node, source: bytes) -> str | None:
@@ -225,28 +246,23 @@ def _enclosing_result_lvalue(call: Node, source: bytes) -> str | None:
     `_enclosing_result_var` reduces `dd[0]` to `dd` because a variable is
     what `redefined_between` tracks. A rule asking "did these writes go to
     the same place" needs the other answer, and getting `dd` there merges
-    `dd[0]` and `dd[1]` into one target they are not.
+    `dd[0]` and `dd[1]` into one target they are not. See `_enclosing_binding`
+    for what counts as a direct binding.
 
     None for a compound assignment for the same reason `_enclosing_result_var`
     is: `dd[0] += call(...)` does not bind the call's result to `dd[0]`
     either.
     """
-    parent = call.parent
-    while parent is not None:
-        if parent.type == "call_expression":
-            return None
-        if parent.type in ("init_declarator", "assignment_expression"):
-            if parent.type == "assignment_expression" and _is_compound_assignment(parent, source):
-                return None
-            field = "declarator" if parent.type == "init_declarator" else "left"
-            target = parent.child_by_field_name(field)
-            if target is None:
-                return None
-            return re.sub(r"\s+", "", node_text(target, source))
-        if parent.type == "function_definition":
-            return None
-        parent = parent.parent
-    return None
+    parent = _enclosing_binding(call)
+    if parent is None:
+        return None
+    if parent.type == "assignment_expression" and _is_compound_assignment(parent, source):
+        return None
+    field = "declarator" if parent.type == "init_declarator" else "left"
+    target = parent.child_by_field_name(field)
+    if target is None:
+        return None
+    return re.sub(r"\s+", "", node_text(target, source))
 
 
 def _binding_end_node(call: Node) -> Node:
