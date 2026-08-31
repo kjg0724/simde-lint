@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Rule M grouped an insert chain by variable name, merging chains that
+  write to different array elements.** `dd[0]` and `dd[1]` are different
+  vectors and a lane load replaces one of them, but `result_var` reduces
+  both to `dd`, so two independent runs of two inserts counted as one run of
+  four and cleared a threshold of three that neither reached. SVT-AV1's
+  `pickrst_sse4.c` had three such findings.
+
+  `IntrinsicCall` now carries `result_lvalue`, the assignment target as
+  written, and rule M groups on that. `result_var` is unchanged and still
+  means the identifier, because `redefined_between` tracks a variable rather
+  than a place -- rules F, P and W keep their existing behaviour exactly.
+
+  The fix also splits chains that genuinely were merged into the separate
+  chains they always were, so the rule's count rises even as false positives
+  go away: `M.scalar_insert_chain` 24 -> 27, SVT-AV1 total 3261 -> 3264,
+  evidence B 49 -> 52. VVenC is unchanged.
+
+  Found by `docs/precision/verify.py`.
+
 ### Added
 
 - **A file that does not fully parse is now reported.** tree-sitter always

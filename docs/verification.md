@@ -133,8 +133,8 @@ what recovery can cost. A reader running the command above should see those
 362 lines — their absence would be the surprise, not their presence. No
 warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
-3261 total findings: `F 1019, R 1816, S 341, M 53, P 31, W 1`. Evidence
-`A 2661, B 49, C 551`.
+3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`. Evidence
+`A 2661, B 52, C 551`.
 
 > The evidence split moved twice while the type split did not, and the call
 > sites never changed — only what the tool is willing to claim about them.
@@ -429,7 +429,7 @@ finding.
 
 | | v1.1.0 | v1.2 | delta |
 |---|---:|---:|---:|
-| SVT-AV1 `Source`, total | 3233 | 3261 | +28 |
+| SVT-AV1 `Source`, total | 3233 | 3264 | +31 |
 | — in function bodies | 3233 | 3233 | 0 |
 | — in macro bodies | — | 28 | +28 |
 | VVenC `CommonLib/x86`, total | 445 | 449 | +4 |
@@ -504,8 +504,8 @@ sweeps re-run:
 | 1 | def-use ordered by byte offset | 3233 | 445 | 204 |
 | 2 | macro bodies reparsed | 3233 | 445 | 204 |
 | 3 | strict forwarding-alias predicate | 3233 | 445 | 204 |
-| 4 | macro bodies analysed | 3261 | 449 | 204 |
-| 5 | `scope`/`macro` on every finding | 3261 | 449 | 204 |
+| 4 | macro bodies analysed | 3264 | 449 | 204 |
+| 5 | `scope`/`macro` on every finding | 3264 | 449 | 204 |
 
 **All of the movement is Task 4's.** Tasks 1 and 3 are corrections that
 changed no count on these two codebases, and it is worth being precise about
@@ -870,7 +870,7 @@ $ echo $?
 ```
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora: SVT-AV1 3261 findings / 362 warnings, VVenC 449 / 11,
+all three corpora: SVT-AV1 3264 findings / 362 warnings, VVenC 449 / 11,
 VVdeC 516 / 10 — every one exit 0.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -927,62 +927,67 @@ its warnings and the CLI prints them to stderr, so a reader sees which files
 carry the risk instead of discovering it by grepping. It remains a warning
 and not a skip: the file's other findings are real and are still reported.
 
-### Rule R, checked as a census rather than a sample
+### Every finding, checked against an independent reading
 
-Rule R has no structural premise -- it reports every call to one of five
-registered intrinsics -- so whether a finding is a true positive reduces to
-whether a real call stands at the reported line rather than a comment, a
-string, or a definition. That needs no judgement, so
-`docs/precision/verify_r.py` checks all 1922 of them instead of sampling.
+The codebook's test for a true positive is structural -- is the named
+mechanism where the finding puts it -- and structure is what a parser sees.
+So this is a census, not a sample: `docs/precision/verify.py` checks all of
+them.
 
-The check imports no `simde_lint`. It re-parses with tree-sitter from
-scratch and reuses neither the lexer, the extractor, nor the alias
-resolution, because a checker sharing the implementation's assumptions
-proves nothing about them.
-
-It also claims less than an earlier draft did. That draft found `#define`s
-with a regex over raw text, which accepted one written inside a block
-comment and accepted `#define X(p) f(p) + g(p)` as forwarding to `f` --
-both credits given for the wrong reason. Definitions now come from the parse
-tree, so the parser decides what is a definition; bodies are reparsed and
-must be exactly one call; a name defined more than once is not resolved at
-all; and each finding is checked against the spelling it records in
-`raw_name` rather than against any call that happens to share its line.
-Neither wrong shape changed the number -- both forward to intrinsics rule R
-does not register -- but the check now establishes it rather than agreeing
-with it by luck.
+The checker imports no `simde_lint`. It re-parses with tree-sitter and
+reimplements each of the seven predicates from the rule's own description,
+so an agreement is two implementations reaching the same answer rather than
+one agreeing with itself.
 
 ```
-$ uv run python3 docs/precision/verify_r.py
-rule R findings checked: 1922 (census, not a sample)
+$ uv run python3 docs/precision/verify.py
+findings checked: 3713 (census, not a sample)
 
-  call        1898   98.8%
-  macro         18    0.9%
-  aliased        6    0.3%
+  agree          3681   99.1%
+  macro            32    0.9%
 
-confirmed true positives: 1904 / 1922 = 99.06%  (1898 direct, 6 through a local alias)
+agreement on structurally checkable findings: 3681 / 3681 = 100.00%
 ```
 
-The six `aliased` are in `ssim_avx2.c`, which defines two forwarding macros
-under `#ifndef` guards -- `_mm_loadu_si32` at line 17 and `_mm_loadu_si64`
-at line 20. The checker resolves them with its own predicate: a `#define`
-whose body is a single call, matched by one regex. It follows no chains and
-does not check that the parameters are used, which is the point -- a wider
-predicate would start to resemble what it is checking.
+The 32 unchecked are calls written inside a `#define` body. Confirming them
+means reparsing macro bodies the way `macros.py` does, and a second macro
+extractor built to check the first is the circularity the checker exists to
+avoid, so they are reported as unchecked rather than credited.
 
-The 18 `macro` are calls written *inside* a `#define` body, and they
-partition as:
+### What the census found
 
-| File | Findings | Macros |
-|---|---:|---|
-| `cdef_filter_block_avx2.c` | 10 | `LOAD4_NAT` 4, `LOAD4_ORD` 4, `DEFINE_8XN_IMPL` 2 |
-| `cdef_filter_block_sse4_1.c` | 8 | `LOAD2_S` 2, `DEFINE_8XN_SSE4` 2, `DEFINE_4XN_SSE4` 2, `BND_LOAD8` 2 |
+The run above is the state after a fix. Before it, three findings
+disagreed, all in `pickrst_sse4.c`:
 
-Confirming these means reparsing macro bodies the way `macros.py` does, and
-a second macro extractor built to check the first would be exactly the
-circularity this file avoids. They are listed rather than credited. The
-census stopping where its independence would have to be spent is the honest
-outcome, not a gap in it.
+```
+  pickrst_sse4.c:1636  claimed 4 on dd, but they split across {'dd[0]': 2, 'dd[1]': 2}
+  pickrst_sse4.c:2346  claimed 4 on dd, but they split across {'dd[0]': 2, 'dd[1]': 2}
+  pickrst_sse4.c:2354  claimed 4 on ds, but they split across {'ds[0]': 2, 'ds[1]': 2}
+```
+
+Rule M grouped an insert chain by the identifier the result bound to, and
+`_enclosing_result_var` reduces `dd[0]` to `dd`. Two independent two-insert
+runs therefore counted as one run of four and cleared a threshold of three
+that neither reached. `IntrinsicCall` now also carries `result_lvalue`, the
+target as written, and rule M groups on that; `result_var` keeps its old
+meaning because `redefined_between` tracks a variable, not a place.
+
+The same change splits chains that really were merged into the separate
+chains they always were, which is why rule M's count went **up** while three
+false positives went away:
+
+| | before | after |
+|---|---:|---:|
+| `M.scalar_insert_chain` | 24 | 27 |
+| SVT-AV1 total | 3261 | 3264 |
+| SVT-AV1 evidence B | 49 | 52 |
+| VVenC | 449 | 449 |
+
+A sample of three per stratum would not have found this. The
+`M.scalar_insert_chain` stratum holds 24 findings and three of them were
+wrong; drawing three had about a one-in-three chance of touching any of
+them, and the design that replaced it drew five. Enumerating the population
+removed the question.
 
 ### A version claim that is not checked
 

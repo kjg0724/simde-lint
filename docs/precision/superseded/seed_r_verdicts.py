@@ -49,7 +49,7 @@ def main():
         key = (finding["file"], finding["line"], finding["intrinsic"])
         if key not in census:
             sys.exit("finding %d is not in the census; sample and sweep disagree" % index)
-        verdicts[str(index)] = "TP" if census[key] in CONFIRMED else "UNJUDGEABLE"
+        verdicts[str(index)] = "TP" if census[key] in CONFIRMED else "UNJUDGED"
         written += 1
 
     document["rule_r_source"] = "verify_r.py census over all rule-R findings"

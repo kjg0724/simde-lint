@@ -19,12 +19,12 @@ import pytest
 import tree_sitter_cpp
 from tree_sitter import Language, Parser
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "docs" / "precision" / "verify_r.py"
+_SCRIPT = Path(__file__).resolve().parents[1] / "docs" / "precision" / "verify.py"
 _PARSER = Parser(Language(tree_sitter_cpp.language()))
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location("verify_r", _SCRIPT)
+    spec = importlib.util.spec_from_file_location("verify", _SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -88,12 +88,19 @@ def test_only_a_true_single_call_forward_is_registered(source, expected, why):
 
 
 def test_an_aliased_finding_is_not_credited_without_its_definition():
-    # The finding says it reached _mm_loadl_epi64 through a spelling this
-    # file cannot confirm forwards there. Crediting it on the strength of
-    # some other call on the same line is the over-credit this checker
-    # exists to avoid.
+    # A finding that says it reached the intrinsic through a spelling this
+    # file cannot confirm forwards there must not be credited on the
+    # strength of the call being present. Taking the tool's own resolution
+    # on trust is checking the tool with the tool.
     module = _load()
-    source = b"void f(void *p) {\n    _mm_loadl_epi64(p);\n}\n"
+    source = b"void f(void *p) {\n    _mm_alias(p);\n}\n"
+    calls, by_line, _ = [], {2: []}, None
     tree = _PARSER.parse(source)
-    assert module.classify(tree, source, 2, "_mm_loadl_epi64", None, {}) == "call"
-    assert module.classify(tree, source, 2, "_mm_loadl_epi64", "_mm_unknown", {}) == "absent"
+    ctx = (calls, {2: [module.Call("_mm_alias", 2, ["p"], None, 0, 0)]}, source, {})
+    finding = {"line": 2, "intrinsic": "_mm_loadl_epi64", "raw_name": "_mm_alias"}
+    ok, detail = module.check_name_only(finding, ctx)
+    assert ok is False and "forwards it to" in detail
+
+    ctx_defined = (calls, ctx[1], source, {"_mm_alias": "_mm_loadl_epi64"})
+    ok, detail = module.check_name_only(finding, ctx_defined)
+    assert ok is True and "forwarded" in detail
