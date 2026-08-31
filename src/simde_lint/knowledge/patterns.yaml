@@ -81,27 +81,30 @@ patterns:
     _mm_madd_epi16:
       simde_insns: 4
       native_insns: unknown
-      suggestion: smlal_s16
+      suggestion: vmlal_s16 / vmlal_high_s16
       source: x86/sse2.h:4463
       transform_status: conditional
       note: >-
         expands to a pairwise widening multiply and a horizontal add;
         AArch64 has no pairwise 16->32 multiply-accumulate, so no
-        unconditional fused form exists. smlal_s16 absorbs the accumulate
-        when the consumer is a horizontal reduction, which this rule does
-        not check — hence conditional.
+        unconditional fused form exists. vmlal_s16 (low four lanes) and
+        vmlal_high_s16 (high four) absorb the accumulate when the consumer
+        is a horizontal reduction, which this rule does not check — hence
+        conditional. SIMDe uses exactly this pair at x86/xop.h:2859-2860.
     _mm256_madd_epi16:
       simde_insns: 8
       native_insns: unknown
-      suggestion: smlal_s16
+      suggestion: vmlal_s16 / vmlal_high_s16
       source: x86/avx2.h:3146
       transform_status: conditional
       note: >-
         expands to a pairwise widening multiply and a horizontal add;
         AArch64 has no pairwise 16->32 multiply-accumulate, so no
-        unconditional fused form exists. smlal_s16 absorbs the accumulate
-        when the consumer is a horizontal reduction, which this rule does
-        not check — hence conditional.
+        unconditional fused form exists. vmlal_s16 and vmlal_high_s16
+        absorb the accumulate independently in each 128-bit half when the
+        consumer is a horizontal reduction, which this rule does not
+        check — hence conditional. SIMDe uses exactly this pair at
+        x86/xop.h:2859-2860.
     _mm256_mullo_epi32:
       simde_insns: unknown
       native_insns: unknown
