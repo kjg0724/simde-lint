@@ -123,6 +123,30 @@ def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     return None
 
 
+def _enclosing_result_lvalue(call: Node, source: bytes) -> str | None:
+    """Assignment target as written, subscript kept, whitespace normalized.
+
+    `_enclosing_result_var` reduces `dd[0]` to `dd` because a variable is
+    what `redefined_between` tracks. A rule asking "did these writes go to
+    the same place" needs the other answer, and getting `dd` there merges
+    `dd[0]` and `dd[1]` into one target they are not.
+    """
+    parent = call.parent
+    while parent is not None:
+        if parent.type == "call_expression":
+            return None
+        if parent.type in ("init_declarator", "assignment_expression"):
+            field = "declarator" if parent.type == "init_declarator" else "left"
+            target = parent.child_by_field_name(field)
+            if target is None:
+                return None
+            return re.sub(r"\s+", "", node_text(target, source))
+        if parent.type == "function_definition":
+            return None
+        parent = parent.parent
+    return None
+
+
 def _binding_end_byte(call: Node) -> int:
     """End of the initializer or assignment that binds this call's result.
 
@@ -212,6 +236,7 @@ def extract_units_and_diagnostics(
                 for child in (arguments.named_children if arguments else [])
             )
             result_var = _enclosing_result_var(node, source)
+            result_lvalue = _enclosing_result_lvalue(node, source)
             call = IntrinsicCall(
                 id=call_ids[node.start_byte],
                 name=resolved,
@@ -221,6 +246,7 @@ def extract_units_and_diagnostics(
                 column=node.start_point[1] + 1,
                 start_byte=node.start_byte,
                 result_var=result_var,
+                result_lvalue=result_lvalue,
                 is_macro_alias=raw_name in aliases.targets,
             )
             unit.calls.append(call)
@@ -317,6 +343,7 @@ def _extract_macro_unit(
             for child in (arguments.named_children if arguments else [])
         )
         result_var = _enclosing_result_var(node, macro.source)
+        result_lvalue = _enclosing_result_lvalue(node, macro.source)
         start_byte = original_byte(macro, node.start_byte)
         line, column = line_column(source, start_byte)
         call = IntrinsicCall(
@@ -328,6 +355,7 @@ def _extract_macro_unit(
             column=column,
             start_byte=start_byte,
             result_var=result_var,
+            result_lvalue=result_lvalue,
             is_macro_alias=raw_name in aliases.targets,
         )
         calls.append(call)

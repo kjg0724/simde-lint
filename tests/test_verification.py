@@ -416,9 +416,9 @@ def test_published_svt_av1_aggregates_still_hold():
         pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
-        "total": 3261,
-        "type": {"R": 1816, "F": 1019, "S": 341, "M": 53, "P": 31, "W": 1},
-        "evidence": {"A": 2661, "B": 49, "C": 551},
+        "total": 3264,
+        "type": {"R": 1816, "F": 1019, "S": 341, "M": 56, "P": 31, "W": 1},
+        "evidence": {"A": 2661, "B": 52, "C": 551},
     }
 
 
