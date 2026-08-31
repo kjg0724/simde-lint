@@ -1,32 +1,32 @@
-# Superseded precision audit (36 findings, three per stratum)
+# Superseded: the sampled audit
 
-These are the audit's first sample, its verdicts and its write-up. They are
-kept because deleting judged data to make a later number look better is the
-one thing an audit must never do. They are **not** the current audit, and
-nothing in the paper should cite them.
+Kept because deleting an audit's working papers to make a later result look
+tidier is the one thing an audit must not do. None of this is current, and
+nothing in the paper cites it.
 
-Two independent reasons they no longer apply.
+Two designs were tried and both are here.
 
-**The strata changed.** v2.0.0 narrowed rule F's grade cap to key on whether
-a fused form is established rather than on whether the instruction count is
-known. 275 SVT-AV1 findings moved from grade C to grade A, so the
-`F.mul_add_no_fuse` strata this sample was drawn from — 637 at C, and the A
-stratum it fed — no longer exist at those sizes. A verdict is about a
-finding in a stratum; the stratum is gone.
+**36 findings, three per stratum.** Equal allocation gave a stratum holding
+51.8% of the population the same weight as one holding three findings, and
+the pooled Wilson interval reported beside it is not valid for an unequally
+allocated stratified sample -- the point estimate was population-weighted
+while the interval was not. Computed correctly this sample supports a
+population-weighted lower bound of **26.8%**, not the 90.4% first published.
 
-**The allocation could not carry the claim.** Three per stratum gave the
-same weight to a stratum holding 51.8% of the population and one holding
-three findings, and the pooled Wilson interval reported alongside it is not
-valid for an unequally allocated stratified sample. The point estimate was
-population-weighted while the interval was not, which is a contradiction
-inside one sentence.
+**138 findings, 25 from strata of 100 or more.** A defensible sample. Its
+lower bound was 72.2%.
 
-Computed correctly, this sample supports a population-weighted lower bound
-of **26.8%**, not the 90.4% that was published. That is what three per
-stratum buys. The current design draws 25 from strata of 100 or more and 5
-below, 138 in all, and `estimate.py` combines per-stratum Wilson bounds at
-`alpha/H` under the population weights.
+Both were replaced for the same reason: the question they estimate can be
+answered exactly. The codebook's test for a true positive is structural, and
+structure is what a parser sees, so `../verify.py` checks all 3713 findings
+instead of drawing from them. A census does not need an interval, and it
+does not need a judge -- which also removes the "one judge, no blinding"
+caveat the sampled design could only disclose and not fix.
 
-The codebook is not superseded and stays in the parent directory: it fixed
-the judging rules before either sample was drawn, and it is the same
-codebook the new sample is judged under.
+`sample.py`, `estimate.py`, `show.py`, `seed_r_verdicts.py`, `verify_r.py`
+and `HOWTO-judge.md` are the tooling for those two designs. `verify_r.py`
+covered rule R alone; `../verify.py` covers all seven mechanisms and
+subsumes it.
+
+The codebook is not superseded and stays in the parent directory. It fixes
+what counts as a true positive, and `verify.py` implements it.

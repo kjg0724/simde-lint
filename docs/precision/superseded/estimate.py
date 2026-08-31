@@ -69,20 +69,34 @@ def main():
     N = sample["population"]
     H = len(sizes)
 
-    # UNJUDGEABLE is a third answer, not a failure. Counting it as FP would
-    # charge the tool for what the source does not settle; counting it as TP
-    # would credit it with the same. It leaves the stratum's denominator
-    # instead, and is reported on its own line so the reader can see how much
-    # of the sample it took.
-    drawn, tp, unjudgeable = {}, {}, {}
+    # The verdict vocabulary is the codebook's, fixed before the sample was
+    # drawn: TP, three kinds of false positive, and UNJUDGED.
+    #
+    # UNJUDGED is a third answer, not a failure. Counting it as a false
+    # positive would charge the tool for what the source does not settle;
+    # counting it as TP would credit it with the same. It leaves the
+    # stratum's denominator and is reported separately, so a reader can see
+    # how much of the sample it took.
+    #
+    # The FP kinds are collapsed for the interval -- an incorrect finding is
+    # incorrect however it went wrong -- but counted separately below,
+    # because which kind dominates says something the rate does not.
+    FALSE = ("FP-shape", "FP-context", "FP-knowledge")
+    drawn, tp, unjudged = {}, {}, {}
+    kinds = {}
     for i, finding in enumerate(sample["sample"], 1):
         key = "%s|%s" % (finding["rule"], finding["evidence"])
         verdict = verdicts[str(i)]
-        if verdict == "UNJUDGEABLE":
-            unjudgeable[key] = unjudgeable.get(key, 0) + 1
+        if verdict == "UNJUDGED":
+            unjudged[key] = unjudged.get(key, 0) + 1
             continue
-        if verdict not in ("TP", "FP"):
-            raise SystemExit("finding %d has verdict %r; expected TP, FP or UNJUDGEABLE" % (i, verdict))
+        if verdict != "TP" and verdict not in FALSE:
+            raise SystemExit(
+                "finding %d has verdict %r; expected TP, %s or UNJUDGED"
+                % (i, verdict, ", ".join(FALSE))
+            )
+        if verdict != "TP":
+            kinds[verdict] = kinds.get(verdict, 0) + 1
         drawn[key] = drawn.get(key, 0) + 1
         tp[key] = tp.get(key, 0) + (verdict == "TP")
 
@@ -113,12 +127,16 @@ def main():
              100 * point, 100 * lower))
     print("\nprecision %.1f%%, simultaneous 95%% lower bound %.1f%%"
           % (100 * point, 100 * lower))
-    if unjudgeable:
-        total_unjudgeable = sum(unjudgeable.values())
-        print("\n%d finding(s) were unjudgeable and left the denominator:"
-              % total_unjudgeable)
-        for key in sorted(unjudgeable, key=lambda k: -unjudgeable[k]):
-            print("  %-32s %d" % (key.replace("|", " / "), unjudgeable[key]))
+    if kinds:
+        print("\nfalse positives by kind:")
+        for kind in sorted(kinds, key=lambda k: -kinds[k]):
+            print("  %-16s %d" % (kind, kinds[kind]))
+    if unjudged:
+        total_unjudged = sum(unjudged.values())
+        print("\n%d finding(s) were UNJUDGED and left the denominator:"
+              % total_unjudged)
+        for key in sorted(unjudged, key=lambda k: -unjudged[k]):
+            print("  %-32s %d" % (key.replace("|", " / "), unjudged[key]))
         print("The estimate above is conditional on a finding being judgeable "
               "from source.")
 

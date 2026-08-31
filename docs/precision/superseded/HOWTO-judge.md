@@ -32,12 +32,22 @@ A third argument widens the context: `show.py 1 20 15`.
 Record verdicts in `verdicts.json`:
 
 ```json
-{ "verdicts": { "1": "TP", "2": "FP", "3": "TP" } }
+{ "verdicts": { "1": "TP", "2": "FP-shape", "3": "TP" } }
 ```
 
-`TP` when the mechanism is there. `FP` when it is not. `UNJUDGEABLE` when
-the source does not settle it — that is a real answer and it is reported
-separately, not folded into either side.
+The vocabulary is the codebook's, and it distinguishes three ways a finding
+can be wrong:
+
+| | |
+|---|---|
+| `TP` | the named mechanism is present |
+| `FP-shape` | right intrinsic, wrong structural claim |
+| `FP-context` | right structure, but the call site is not one the mechanism applies to |
+| `FP-knowledge` | the knowledge table's claim about SIMDe's expansion is wrong here |
+| `UNJUDGED` | the source in the scanned tree does not settle it |
+
+`UNJUDGED` is a real answer, reported separately and never folded into
+either side.
 
 ## Then
 
@@ -61,5 +71,5 @@ population between them. The five- and three-finding strata barely move the
 weighted estimate; they are there to catch a rule that is wrong everywhere,
 not to estimate its precision.
 
-**A finding you are unsure about is `UNJUDGEABLE`, not `TP`.** Resolving
-doubt toward the tool is the failure mode this audit exists to detect.
+**A finding you are unsure about is `UNJUDGED`, not `TP`.** Resolving doubt
+toward the tool is the failure mode this audit exists to detect.
