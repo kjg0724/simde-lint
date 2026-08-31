@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from simde_lint.knowledge import load_knowledge
+from simde_lint.knowledge import _cost_entry, load_knowledge
 from simde_lint.rules import fusion, memory, pipeline, suboptimal, widening
 
 
@@ -167,3 +167,35 @@ def test_disagreeing_simde_versions_fail_loudly(tmp_path):
 
     with pytest.raises(ValueError, match="simde_version"):
         load_knowledge(tmp_path)
+
+
+def test_every_rule_f_entry_declares_a_transform_status():
+    knowledge = load_knowledge()
+    for name, cost in knowledge.patterns["F.mul_add_no_fuse"].items():
+        assert cost.transform_status is not None, name
+
+
+def test_a_rule_f_entry_without_a_transform_status_is_a_load_error(tmp_path):
+    # Defaulting a missing field to UNKNOWN would recreate the implicit
+    # coupling this change removes: an entry would grade without anyone
+    # having decided what it asserts.
+    entry = {
+        "simde_insns": 2,
+        "native_insns": 1,
+        "suggestion": "vmlaq_s16",
+        "source": "x86/sse2.h:5278",
+    }
+    with pytest.raises(KeyError):
+        _cost_entry("_mm_mullo_epi16", entry, requires_transform_status=True)
+
+
+def test_an_unrecognized_transform_status_is_rejected():
+    entry = {
+        "simde_insns": 2,
+        "native_insns": 1,
+        "suggestion": "vmlaq_s16",
+        "source": "x86/sse2.h:5278",
+        "transform_status": "probably",
+    }
+    with pytest.raises(ValueError):
+        _cost_entry("_mm_mullo_epi16", entry, requires_transform_status=True)

@@ -1,5 +1,13 @@
+from dataclasses import replace
+
 from simde_lint.finding import Evidence, Reason
+from simde_lint.knowledge import CostInfo, TransformStatus, load_knowledge
 from simde_lint.rules.fusion import FusionRule
+
+
+def _grade_for(cost: CostInfo) -> Evidence:
+    """The evidence rule F would cap this cost at, ignoring the def-use path."""
+    return FusionRule().cap_for(cost)[0]
 
 
 def test_grades_a_direct_mul_to_add_path_a(run_rule):
@@ -219,3 +227,21 @@ def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     # what this test pins is that the widening hop was claimed at all.
     assert findings[0].evidence is Evidence.C
     assert "_mm_cvtepi32_epi64" in findings[0].rationale
+
+
+def test_changing_only_the_suggestion_cannot_change_the_evidence():
+    """The invariant this whole change exists for.
+
+    Before v2.1 rule F read `suggestion is None` for grading, so filling in
+    an informative suggestion for an entry with no established fused form
+    silently promoted its findings from C to A. Presentation must not move
+    the grade.
+    """
+    knowledge = load_knowledge()
+    cost = knowledge.patterns["F.mul_add_no_fuse"]["_mm_madd_epi16"]
+    assert cost.transform_status is TransformStatus.UNKNOWN
+
+    with_suggestion = replace(cost, suggestion="smlal_s16")
+    graded = _grade_for(with_suggestion)
+
+    assert graded is Evidence.C

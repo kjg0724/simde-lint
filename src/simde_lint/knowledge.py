@@ -8,12 +8,34 @@ matching lives in the rule modules instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import yaml
 
 _DEFAULT_DIR = Path(__file__).parent / "knowledge"
 _UNKNOWN = "unknown"
+
+
+class TransformStatus(str, Enum):
+    """Whether a fused replacement is established for a matched intrinsic.
+
+    Rule F grades on this and never on `suggestion`. The two answer different
+    questions: `suggestion` is what the report shows a reader, this is what
+    the tool is willing to assert. They moved together by accident until
+    v2.1 — filling in an informative suggestion silently promoted a finding
+    from C to A.
+
+    - **ESTABLISHED** — a fused form applies generally to this intrinsic.
+    - **CONDITIONAL** — one applies, but under a condition rule F does not
+      check (a consumer shape, for instance). Caps at C, with its own reason,
+      because the rule has not verified the condition holds here.
+    - **UNKNOWN** — not established. Caps at C.
+    """
+
+    ESTABLISHED = "established"
+    CONDITIONAL = "conditional"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -33,6 +55,9 @@ class CostInfo:
     suggestion: str | None
     source: str
     note: str = ""
+    # Set only for `F.mul_add_no_fuse` entries; None elsewhere, where no rule
+    # asks the question.
+    transform_status: "TransformStatus | None" = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +104,19 @@ def _unknown_to_none(value):
     return None if value == _UNKNOWN else value
 
 
-def _cost_entry(key: str, entry: dict) -> CostInfo:
+def _cost_entry(key: str, entry: dict, requires_transform_status: bool = False) -> CostInfo:
+    status = None
+    if requires_transform_status:
+        # KeyError, not a default: an entry that never declared what it
+        # asserts must not be graded as though someone had decided.
+        raw = entry["transform_status"]
+        try:
+            status = TransformStatus(raw)
+        except ValueError:
+            raise ValueError(
+                f"{key}: unrecognized transform_status {raw!r}; "
+                f"expected one of {[s.value for s in TransformStatus]}"
+            ) from None
     return CostInfo(
         key=key,
         simde_insns=_unknown_to_none(entry["simde_insns"]),
@@ -87,11 +124,15 @@ def _cost_entry(key: str, entry: dict) -> CostInfo:
         suggestion=_unknown_to_none(entry.get("suggestion")) or None,
         source=entry["source"],
         note=entry.get("note", ""),
+        transform_status=status,
     )
 
 
-def _costs(entries: dict) -> dict[str, CostInfo]:
-    return {key: _cost_entry(key, entry) for key, entry in entries.items()}
+def _costs(entries: dict, requires_transform_status: bool = False) -> dict[str, CostInfo]:
+    return {
+        key: _cost_entry(key, entry, requires_transform_status)
+        for key, entry in entries.items()
+    }
 
 
 def _split_patterns(patterns_doc: dict) -> tuple[dict[str, dict[str, CostInfo]], dict[str, CostInfo]]:
@@ -107,7 +148,7 @@ def _split_patterns(patterns_doc: dict) -> tuple[dict[str, dict[str, CostInfo]],
         if "simde_insns" in entry:
             rule_level[rule_id] = _cost_entry(rule_id, entry)
         else:
-            per_intrinsic[rule_id] = _costs(entry)
+            per_intrinsic[rule_id] = _costs(entry, requires_transform_status=(rule_id == "F.mul_add_no_fuse"))
     return per_intrinsic, rule_level
 
 
