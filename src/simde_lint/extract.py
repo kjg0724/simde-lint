@@ -8,6 +8,7 @@ stable contract for everything downstream.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Iterator
 
 from tree_sitter import Node
@@ -33,6 +34,65 @@ _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 def _first_identifier(text: str) -> str | None:
     match = _IDENTIFIER.search(text)
     return match.group(0) if match else None
+
+
+@dataclass(frozen=True)
+class Coordinates:
+    """Where a node's text and position come from.
+
+    The function-unit and macro-unit extraction paths are identical in
+    every decision they make about a body -- which calls are recognized
+    intrinsics, which assignments bind a value, and so on. They differ in
+    exactly three things: which tree they walk (a function's own body, or a
+    macro's synthetic reparse), which bytes text is read from (`source`, or
+    `macro.source`), and whether a node's position is its own or has to be
+    mapped back to the real file because the tree it sits in is a synthetic
+    reparse. This type carries the last two, so the shared extraction code
+    below is written once against `Coordinates` instead of twice against
+    `source` and `macro.source` separately.
+
+    `of_file` and `of_macro` are the only two ways to build one, and they
+    are asymmetric on purpose: `of_file` returns a node's own `start_point`
+    / `start_byte` untouched, `of_macro` recomputes both by mapping the
+    synthetic byte through `original_byte` and re-deriving line/column with
+    `line_column`. That asymmetry is not an oversight to unify further --
+    the function path has never gone through `line_column`, and this class
+    must not become the thing that quietly changes that.
+    """
+
+    text: bytes
+    _macro: ReparsedMacro | None
+    _source: bytes | None
+
+    @classmethod
+    def of_file(cls, source: bytes) -> Coordinates:
+        """Positions read straight off the node, in the file's own tree."""
+        return cls(text=source, _macro=None, _source=None)
+
+    @classmethod
+    def of_macro(cls, macro: ReparsedMacro, source: bytes) -> Coordinates:
+        """Positions in `macro`'s synthetic reparse, mapped back to `source`."""
+        return cls(text=macro.source, _macro=macro, _source=source)
+
+    def place(self, node: Node) -> tuple[int, int, int]:
+        """1-based (line, column, start_byte) of `node` in the real file.
+
+        For `of_file`, this is exactly `node.start_point` and
+        `node.start_byte` -- see the class docstring. For `of_macro`, the
+        synthetic byte is mapped through `original_byte` and the line and
+        column are recomputed from the real source with `line_column`.
+        """
+        if self._macro is None:
+            return node.start_point[0] + 1, node.start_point[1] + 1, node.start_byte
+        start_byte = original_byte(self._macro, node.start_byte)
+        line, column = line_column(self._source, start_byte)
+        return line, column, start_byte
+
+    def end_of(self, node: Node) -> int:
+        """`node.end_byte`, mapped back to the real file the same way `place` is."""
+        if self._macro is None:
+            return node.end_byte
+        return original_byte(self._macro, node.end_byte)
 
 
 # Byte constructors only. Rule S is the sole consumer of `lanes`, and it reads
@@ -147,20 +207,21 @@ def _enclosing_result_lvalue(call: Node, source: bytes) -> str | None:
     return None
 
 
-def _binding_end_byte(call: Node) -> int:
-    """End of the initializer or assignment that binds this call's result.
+def _binding_end_node(call: Node) -> Node:
+    """The initializer or assignment whose end binds this call's result.
 
     The value exists only after the whole right-hand side has been evaluated,
-    so this is what `available_after_byte` records.
+    so this node's end is what `available_after_byte` records --
+    `Coordinates.end_of` reads it off directly.
     """
     parent = call.parent
     while parent is not None:
         if parent.type in ("init_declarator", "assignment_expression"):
-            return parent.end_byte
+            return parent
         if parent.type in ("call_expression", "function_definition"):
             break
         parent = parent.parent
-    return call.end_byte
+    return call
 
 
 def _iter_function_definitions(root: Node) -> Iterator[Node]:
@@ -198,6 +259,83 @@ def extract_units(path: str, source: bytes, knowledge: Knowledge) -> list[Analys
     return extract_units_and_diagnostics(path, source, knowledge)[0]
 
 
+def _extract_calls(
+    scope: Node, coords: Coordinates, aliases: AliasMap, knowledge: Knowledge
+) -> tuple[list[IntrinsicCall], list[Definition]]:
+    """Recognized-intrinsic calls in `scope`, and the definitions they bind.
+
+    Shared by the function-unit and macro-unit extraction paths; `coords`
+    supplies the text and positions to read `scope` through -- the file's
+    own tree via `Coordinates.of_file`, or a macro's synthetic reparse via
+    `Coordinates.of_macro`. Every other decision (which calls are recognized
+    intrinsics, which bind a variable, when a bound value's lanes are known)
+    is identical either way.
+    """
+    call_nodes = [c for c in iter_nodes(scope, "call_expression")]
+    call_nodes.sort(key=lambda n: n.start_byte)
+    call_ids = {node.start_byte: index for index, node in enumerate(call_nodes)}
+
+    calls: list[IntrinsicCall] = []
+    definitions: list[Definition] = []
+    for node in call_nodes:
+        raw_name = node_text(node.child_by_field_name("function"), coords.text)
+        resolved = knowledge.normalize(aliases.targets.get(raw_name, raw_name))
+        if not _is_intrinsic(resolved):
+            continue
+        arguments = node.child_by_field_name("arguments")
+        args = tuple(
+            _value_ref(child, coords.text, call_ids)
+            for child in (arguments.named_children if arguments else [])
+        )
+        # Two answers to two questions, deliberately kept apart. `result_var`
+        # names the variable `redefined_between` tracks, so it reduces `dd[0]`
+        # to `dd`; `result_lvalue` keeps the subscript, because a rule asking
+        # whether writes landed in the same place needs to see that `dd[0]`
+        # and `dd[1]` are different places. Widening `result_var` to the
+        # lvalue would change what rules F, P and W match, so it stays narrow.
+        result_var = _enclosing_result_var(node, coords.text)
+        result_lvalue = _enclosing_result_lvalue(node, coords.text)
+        line, column, start_byte = coords.place(node)
+        call = IntrinsicCall(
+            id=call_ids[node.start_byte],
+            name=resolved,
+            raw_name=raw_name,
+            args=args,
+            line=line,
+            column=column,
+            start_byte=start_byte,
+            result_var=result_var,
+            result_lvalue=result_lvalue,
+            is_macro_alias=raw_name in aliases.targets,
+        )
+        calls.append(call)
+        if result_var:
+            # A variable assigned a byte literal constructor is a local
+            # constant, and rules should see its lanes rather than an
+            # opaque call result: `const __m128i m = _mm_setr_epi8(...)`
+            # is as knowable as the same literal written inline.
+            lanes = _literal_lanes(node, coords.text) if resolved.startswith(_SET_PREFIXES) else None
+            # `call_id` is carried either way. Rules F, W and M reach a
+            # definition's producing call through it, and knowing the lanes
+            # must not cost them that link.
+            value = ValueRef(
+                ValueKind.LITERAL_VECTOR if lanes is not None else ValueKind.CALL_RESULT,
+                raw_name,
+                lanes=lanes,
+                call_id=call.id,
+            )
+            definitions.append(
+                Definition(
+                    result_var,
+                    call.line,
+                    start_byte=call.start_byte,
+                    available_after_byte=coords.end_of(_binding_end_node(node)),
+                    value=value,
+                )
+            )
+    return calls, definitions
+
+
 def extract_units_and_diagnostics(
     path: str, source: bytes, knowledge: Knowledge
 ) -> tuple[list[AnalysisUnit], list[tuple[int, int]]]:
@@ -221,60 +359,12 @@ def extract_units_and_diagnostics(
             end_line=definition.end_point[0] + 1,
         )
 
-        call_nodes = [c for c in iter_nodes(definition, "call_expression")]
-        call_nodes.sort(key=lambda n: n.start_byte)
-        call_ids = {node.start_byte: index for index, node in enumerate(call_nodes)}
-
-        for node in call_nodes:
-            raw_name = node_text(node.child_by_field_name("function"), source)
-            resolved = knowledge.normalize(aliases.targets.get(raw_name, raw_name))
-            if not _is_intrinsic(resolved):
-                continue
-            arguments = node.child_by_field_name("arguments")
-            args = tuple(
-                _value_ref(child, source, call_ids)
-                for child in (arguments.named_children if arguments else [])
-            )
-            result_var = _enclosing_result_var(node, source)
-            result_lvalue = _enclosing_result_lvalue(node, source)
-            call = IntrinsicCall(
-                id=call_ids[node.start_byte],
-                name=resolved,
-                raw_name=raw_name,
-                args=args,
-                line=node.start_point[0] + 1,
-                column=node.start_point[1] + 1,
-                start_byte=node.start_byte,
-                result_var=result_var,
-                result_lvalue=result_lvalue,
-                is_macro_alias=raw_name in aliases.targets,
-            )
-            unit.calls.append(call)
-            if result_var:
-                # A variable assigned a byte literal constructor is a local
-                # constant, and rules should see its lanes rather than an
-                # opaque call result: `const __m128i m = _mm_setr_epi8(...)`
-                # is as knowable as the same literal written inline.
-                lanes = _literal_lanes(node, source) if resolved.startswith(_SET_PREFIXES) else None
-                # `call_id` is carried either way. Rules F, W and M reach a
-                # definition's producing call through it, and knowing the lanes
-                # must not cost them that link.
-                value = ValueRef(
-                    ValueKind.LITERAL_VECTOR if lanes is not None else ValueKind.CALL_RESULT,
-                    raw_name,
-                    lanes=lanes,
-                    call_id=call.id,
-                )
-                unit.add_definition(
-                    Definition(
-                        result_var,
-                        call.line,
-                        start_byte=call.start_byte,
-                        available_after_byte=_binding_end_byte(node),
-                        value=value,
-                    )
-                )
-        _record_plain_assignments(definition, source, unit, aliases, knowledge)
+        coords = Coordinates.of_file(source)
+        calls, definitions = _extract_calls(definition, coords, aliases, knowledge)
+        unit.calls = calls
+        for call_definition in definitions:
+            unit.add_definition(call_definition)
+        _record_plain_assignments(definition, coords, unit, aliases, knowledge)
         units.append(unit)
 
     for macro in macros:
@@ -317,66 +407,16 @@ def _extract_macro_unit(
 ) -> MacroUnit | None:
     """Build a `MacroUnit` from one reparsed macro body.
 
-    Mirrors the function-unit call loop above, over the macro's synthetic
-    parse tree instead of the file's own. Every position on a resulting call
-    or definition is mapped back to the original file through `original_byte`
-    and `line_column` before it is stored — nothing here is read from the
-    synthetic wrapper's own coordinates, so a finding never points into text
-    that does not exist in the file. Returns None when no call in the body
-    normalizes to a recognized intrinsic; a unit built from a body that
-    contains none would have nothing for a rule to match.
+    Walks the macro's synthetic parse tree through `Coordinates.of_macro`,
+    which maps every resulting position back to the original file — nothing
+    here is read from the synthetic wrapper's own coordinates, so a finding
+    never points into text that does not exist in the file. Returns None
+    when no call in the body normalizes to a recognized intrinsic; a unit
+    built from a body that contains none would have nothing for a rule to
+    match.
     """
-    call_nodes = [c for c in iter_nodes(macro.root, "call_expression")]
-    call_nodes.sort(key=lambda n: n.start_byte)
-    call_ids = {node.start_byte: index for index, node in enumerate(call_nodes)}
-
-    calls: list[IntrinsicCall] = []
-    definitions: list[Definition] = []
-    for node in call_nodes:
-        raw_name = node_text(node.child_by_field_name("function"), macro.source)
-        resolved = knowledge.normalize(aliases.targets.get(raw_name, raw_name))
-        if not _is_intrinsic(resolved):
-            continue
-        arguments = node.child_by_field_name("arguments")
-        args = tuple(
-            _value_ref(child, macro.source, call_ids)
-            for child in (arguments.named_children if arguments else [])
-        )
-        result_var = _enclosing_result_var(node, macro.source)
-        result_lvalue = _enclosing_result_lvalue(node, macro.source)
-        start_byte = original_byte(macro, node.start_byte)
-        line, column = line_column(source, start_byte)
-        call = IntrinsicCall(
-            id=call_ids[node.start_byte],
-            name=resolved,
-            raw_name=raw_name,
-            args=args,
-            line=line,
-            column=column,
-            start_byte=start_byte,
-            result_var=result_var,
-            result_lvalue=result_lvalue,
-            is_macro_alias=raw_name in aliases.targets,
-        )
-        calls.append(call)
-        if result_var:
-            lanes = _literal_lanes(node, macro.source) if resolved.startswith(_SET_PREFIXES) else None
-            value = ValueRef(
-                ValueKind.LITERAL_VECTOR if lanes is not None else ValueKind.CALL_RESULT,
-                raw_name,
-                lanes=lanes,
-                call_id=call.id,
-            )
-            definitions.append(
-                Definition(
-                    result_var,
-                    line,
-                    start_byte=start_byte,
-                    available_after_byte=original_byte(macro, _binding_end_byte(node)),
-                    value=value,
-                )
-            )
-
+    coords = Coordinates.of_macro(macro, source)
+    calls, definitions = _extract_calls(macro.root, coords, aliases, knowledge)
     if not calls:
         return None
 
@@ -384,12 +424,12 @@ def _extract_macro_unit(
     unit.calls = calls
     for definition in definitions:
         unit.add_definition(definition)
-    _record_macro_plain_assignments(macro, source, unit, aliases, knowledge)
+    _record_plain_assignments(macro.root, coords, unit, aliases, knowledge)
     return unit
 
 
 def _record_plain_assignments(
-    scope: Node, source: bytes, unit: MutableAnalysisUnit, aliases: AliasMap, knowledge: Knowledge
+    scope: Node, coords: Coordinates, unit: MutableAnalysisUnit, aliases: AliasMap, knowledge: Knowledge
 ) -> None:
     """Record assignments whose right side is not a recognized intrinsic call.
 
@@ -399,13 +439,15 @@ def _record_plain_assignments(
     exactly what callers need to know.
 
     A right-hand side that *is* a recognized intrinsic call (optionally
-    wrapped in a cast) is skipped here: the intrinsic-call loop above already
-    recorded it, with its actual kind (literal vector or call result) rather
-    than UNKNOWN. Recording it again here would double-count the definition.
-    A call to something that is not a recognized intrinsic — `helper_load(c)`,
+    wrapped in a cast) is skipped here: `_extract_calls` already recorded it,
+    with its actual kind (literal vector or call result) rather than UNKNOWN.
+    Recording it again here would double-count the definition. A call to
+    something that is not a recognized intrinsic — `helper_load(c)`,
     cast-wrapped or not — falls through and is recorded as UNKNOWN, because
     today's only alternative is to not record it at all, which is the bug
     this function exists to avoid for non-call right-hand sides.
+
+    Shared by both extraction paths through `coords` — see `Coordinates`.
     """
     for node in iter_nodes(scope, "assignment_expression"):
         right = node.child_by_field_name("right")
@@ -413,18 +455,19 @@ def _record_plain_assignments(
             continue
         unwrapped = _unwrap_cast(right)
         if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
-            unwrapped, source, aliases, knowledge
+            unwrapped, coords.text, aliases, knowledge
         ):
             continue
-        name = _first_identifier(node_text(node.child_by_field_name("left"), source))
+        name = _first_identifier(node_text(node.child_by_field_name("left"), coords.text))
         if name:
+            line, _column, start_byte = coords.place(node)
             unit.add_definition(
                 Definition(
                     name,
-                    node.start_point[0] + 1,
-                    start_byte=node.start_byte,
-                    available_after_byte=node.end_byte,
-                    value=ValueRef(ValueKind.UNKNOWN, node_text(right, source).strip()),
+                    line,
+                    start_byte=start_byte,
+                    available_after_byte=coords.end_of(node),
+                    value=ValueRef(ValueKind.UNKNOWN, node_text(right, coords.text).strip()),
                 )
             )
     for node in iter_nodes(scope, "init_declarator"):
@@ -433,79 +476,18 @@ def _record_plain_assignments(
             continue
         unwrapped = _unwrap_cast(value)
         if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
-            unwrapped, source, aliases, knowledge
+            unwrapped, coords.text, aliases, knowledge
         ):
             continue
-        name = _first_identifier(node_text(node.child_by_field_name("declarator"), source))
+        name = _first_identifier(node_text(node.child_by_field_name("declarator"), coords.text))
         if name:
-            unit.add_definition(
-                Definition(
-                    name,
-                    node.start_point[0] + 1,
-                    start_byte=node.start_byte,
-                    available_after_byte=node.end_byte,
-                    value=ValueRef(ValueKind.UNKNOWN, node_text(value, source).strip()),
-                )
-            )
-
-
-def _record_macro_plain_assignments(
-    macro: ReparsedMacro,
-    source: bytes,
-    unit: MutableAnalysisUnit,
-    aliases: AliasMap,
-    knowledge: Knowledge,
-) -> None:
-    """Macro-body counterpart of `_record_plain_assignments`.
-
-    Same rationale — an overwrite with a non-intrinsic or non-call right-hand
-    side must still be visible to `redefined_between`, or a value would look
-    like it survived when it had been overwritten. Every position here comes
-    from the macro's synthetic parse tree, so it is mapped back to the
-    original file through `original_byte`/`line_column` before being stored,
-    exactly as `_extract_macro_unit` does for calls.
-    """
-    for node in iter_nodes(macro.root, "assignment_expression"):
-        right = node.child_by_field_name("right")
-        if right is None:
-            continue
-        unwrapped = _unwrap_cast(right)
-        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
-            unwrapped, macro.source, aliases, knowledge
-        ):
-            continue
-        name = _first_identifier(node_text(node.child_by_field_name("left"), macro.source))
-        if name:
-            start_byte = original_byte(macro, node.start_byte)
-            line, _ = line_column(source, start_byte)
+            line, _column, start_byte = coords.place(node)
             unit.add_definition(
                 Definition(
                     name,
                     line,
                     start_byte=start_byte,
-                    available_after_byte=original_byte(macro, node.end_byte),
-                    value=ValueRef(ValueKind.UNKNOWN, node_text(right, macro.source).strip()),
-                )
-            )
-    for node in iter_nodes(macro.root, "init_declarator"):
-        value = node.child_by_field_name("value")
-        if value is None or value.type == "initializer_list":
-            continue
-        unwrapped = _unwrap_cast(value)
-        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
-            unwrapped, macro.source, aliases, knowledge
-        ):
-            continue
-        name = _first_identifier(node_text(node.child_by_field_name("declarator"), macro.source))
-        if name:
-            start_byte = original_byte(macro, node.start_byte)
-            line, _ = line_column(source, start_byte)
-            unit.add_definition(
-                Definition(
-                    name,
-                    line,
-                    start_byte=start_byte,
-                    available_after_byte=original_byte(macro, node.end_byte),
-                    value=ValueRef(ValueKind.UNKNOWN, node_text(value, macro.source).strip()),
+                    available_after_byte=coords.end_of(node),
+                    value=ValueRef(ValueKind.UNKNOWN, node_text(value, coords.text).strip()),
                 )
             )

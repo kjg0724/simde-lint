@@ -2,11 +2,11 @@ from pathlib import Path
 
 from simde_lint.analyze import Diagnostic, analyze, is_failure
 from simde_lint.cli import main as cli_main
-from simde_lint.extract import extract_units, extract_units_and_diagnostics
+from simde_lint.extract import Coordinates, extract_units, extract_units_and_diagnostics
 from simde_lint.ir import ValueKind
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, is_forwarding_alias, reparse_macros
-from simde_lint.parser import parse_source
+from simde_lint.parser import iter_nodes, parse_source
 from simde_lint.rules import memory, suboptimal, widening
 
 FIXTURE = Path(__file__).parent / "fixtures" / "extract" / "basic.c"
@@ -354,8 +354,8 @@ def test_macro_call_positions_map_back_to_the_real_file_not_the_synthetic_wrappe
 def test_macro_definition_available_after_byte_maps_back_to_the_real_file():
     # A Definition's `available_after_byte` goes through the same
     # `original_byte` remapping as a call's own `start_byte` (extract.py's
-    # `_extract_macro_unit`, `original_byte(macro, _binding_end_byte(node))`)
-    # but is never itself asserted by the other position tests. The
+    # `Coordinates.end_of`, via `_extract_calls`) but is never itself
+    # asserted by the other position tests. The
     # init_declarator `t = _mm_mullo_epi32(a, b)` ends right after the call's
     # closing paren, so the real-file byte immediately before
     # `available_after_byte` must be that `)` -- a check that only holds if
@@ -389,14 +389,16 @@ def _calls_and_definitions_shape(unit):
 
 
 def test_function_and_macro_paths_agree_on_the_same_body():
-    # Tripwire for the ~90 lines mirrored between the function-unit call loop
-    # / `_record_plain_assignments` and `_extract_macro_unit` /
-    # `_record_macro_plain_assignments`. No drift exists today, but nothing
-    # short of a test like this would notice if a future fix to one path
-    # (compound assignment `+=` is the obvious next one; neither path handles
-    # it today) were not carried to the other. The same body text -- one
-    # direct call bound to a local, one plain assignment overwriting a
-    # parameter -- runs through both paths; only position should differ.
+    # `_extract_calls` and `_record_plain_assignments` are now shared between
+    # the function-unit and macro-unit paths, parameterized only by which
+    # `Coordinates` they are given (`of_file` vs. `of_macro`). This test pins
+    # that the choice of `Coordinates` changes position and nothing else --
+    # a future extraction change (compound assignment `+=` is the obvious
+    # next one; neither path handles it today) reaches both paths by
+    # construction, but a `Coordinates` bug that also perturbed some other
+    # decision would still show up here. The same body text -- one direct
+    # call bound to a local, one plain assignment overwriting a parameter --
+    # runs through both paths; only position should differ.
     body = (
         b"    __m128i t = _mm_mullo_epi32(a, b);\n"
         b"    dst = _mm_add_epi32(dst, t);\n"
@@ -415,6 +417,32 @@ def test_function_and_macro_paths_agree_on_the_same_body():
     macro_unit = next(u for u in extract_units("t.c", macro_source, load_knowledge()) if u.scope == "macro")
 
     assert _calls_and_definitions_shape(function_unit) == _calls_and_definitions_shape(macro_unit)
+
+
+def test_of_file_reports_tree_sitters_own_start_point_not_a_recomputed_one():
+    # The one behaviour the merge must not change: today the function path
+    # reads a call's line and column straight off tree-sitter's own
+    # `start_point`, never through `line_column` -- that recomputation is the
+    # macro path's job, needed only because a macro body is reparsed inside a
+    # synthetic wrapper. A v1.2 review flagged exactly the risk this pins:
+    # introducing one generic position mapper for both paths could quietly
+    # route `Coordinates.of_file` through `line_column` too, since the two
+    # happen to agree almost everywhere. They would still agree if this
+    # assertion were only `==`; comparing tree-sitter's own values directly,
+    # not a value merely equal to them, is what makes a future switch to
+    # `line_column` fail here.
+    source = b"void f(__m128i a, __m128i b) {\n    __m128i r = _mm_add_epi32(a, b);\n}\n"
+    root = parse_source(source).root_node
+    call = next(iter_nodes(root, "call_expression"))
+
+    coordinates = Coordinates.of_file(source)
+    line, column, start_byte = coordinates.place(call)
+
+    assert (line, column, start_byte) == (
+        call.start_point[0] + 1,
+        call.start_point[1] + 1,
+        call.start_byte,
+    )
 
 
 # Structural reproductions (not literal source) of the confirmed-alias shapes
