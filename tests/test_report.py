@@ -145,6 +145,40 @@ def test_json_emits_null_for_an_unknown_cost():
     assert finding["simde_insns"] == 4
 
 
+CONDITIONAL_SUGGESTION_FINDING = Finding(
+    type="F", rule="F.mul_add_no_fuse", rule_mechanism="multiply-add not fused",
+    evidence=Evidence.C, reason=Reason.TRANSFORM_REQUIRES_CONTEXT, file="a.c", line=3,
+    function="kernel", intrinsic="_mm_madd_epi16",
+    rationale=(
+        "the multiply and the accumulate are emitted as separate instructions; "
+        "vmlal_s16 / vmlal_high_s16 applies only when the consumer is a "
+        "horizontal reduction, which this rule does not check"
+    ),
+    simde_insns=4, native_insns=None, suggestion="vmlal_s16 / vmlal_high_s16",
+)
+
+
+def test_text_renders_a_conditional_suggestion_as_conditional_not_established():
+    # A conditional suggestion must not render as the unconditional
+    # replacement line an established finding gets -- that line would claim
+    # more than the tool verified (the consumer's shape is unchecked).
+    # Asserting only that the conditional label appears would still pass if
+    # both lines were emitted, so this also rejects the bare form.
+    output = render_text([CONDITIONAL_SUGGESTION_FINDING])
+    assert "conditional suggestion: vmlal_s16 / vmlal_high_s16" in output
+    assert "    suggestion: vmlal_s16 / vmlal_high_s16" not in output
+
+
+def test_json_still_carries_the_suggestion_and_reason_for_a_conditional_finding():
+    # JSON leaves the two fields as siblings in the same object rather than
+    # collapsing them into prose; a consumer reads `reason` to know the
+    # suggestion is conditional. The shape does not change for this case.
+    data = json.loads(render_json([CONDITIONAL_SUGGESTION_FINDING], simde_version="0.8.4"))
+    finding = data["findings"][0]
+    assert finding["suggestion"] == "vmlal_s16 / vmlal_high_s16"
+    assert finding["reason"] == "transform_requires_context"
+
+
 C_GUARD_REQUIRED_FINDING = Finding(
     type="S", rule="S.pshufb_guard", rule_mechanism="pshufb->tbl guard only",
     evidence=Evidence.C, reason=Reason.GUARD_REQUIRED, file="a.c", line=12, function="kernel", intrinsic="_mm_shuffle_epi8",

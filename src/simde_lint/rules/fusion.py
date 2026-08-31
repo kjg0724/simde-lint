@@ -105,19 +105,19 @@ class FusionRule:
         rule can only answer from the intrinsic's recorded `transform_status`:
         `unknown` means no fused form is recorded at all, so the rationale
         must not name an instruction that may not exist for this call site.
-        `conditional` means one is recorded (madd_epi16's smlal_s16, for a
-        horizontal-reduction consumer) but the condition it needs is not
-        something this rule checks, so the rationale names it without
-        claiming it as the unconditional replacement. A recorded fused form
-        with no instruction count still names the instruction — the count is
-        reported separately, and is absent when SIMDe's expansion leaves it
-        to the compiler.
+        `conditional` means one is recorded (madd_epi16's vmlal_s16 /
+        vmlal_high_s16 pair, for a horizontal-reduction consumer) but the
+        condition it needs is not something this rule checks, so the
+        rationale names it without claiming it as the unconditional
+        replacement. A recorded fused form with no instruction count still
+        names the instruction — the count is reported separately, and is
+        absent when SIMDe's expansion leaves it to the compiler.
         """
         observed = "the multiply and the accumulate are emitted as separate instructions"
         if cost.transform_status is TransformStatus.CONDITIONAL:
             return (
-                f"{observed}; {cost.suggestion} absorbs the accumulate only when the "
-                "consumer permits it, which this rule does not check"
+                f"{observed}; {cost.suggestion} applies only when the consumer is a "
+                "horizontal reduction, which this rule does not check"
             )
         if cost.transform_status is not TransformStatus.ESTABLISHED:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"

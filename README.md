@@ -51,9 +51,9 @@ Every finding carries an evidence grade.
   - **B** — derived from a literal or a link, but through an intermediate
     operation, so the final value isn't pinned.
   - **C** — the rule cannot confirm the transform is safe from source alone.
-    Grade C covers two different situations, distinguished on the finding
-    by a structured `reason` field (`unresolved` or `guard_required`, not
-    free prose):
+    Grade C covers three different situations, distinguished on the finding
+    by a structured `reason` field (`unresolved`, `guard_required`, or
+    `transform_requires_context`, not free prose):
     - **C-unresolved** — the rule could not see far enough to judge at all
       (a runtime-loaded value, a call result with unknown lanes, a symbol
       not defined in the scanned inputs). `reason: "unresolved"`.
@@ -61,12 +61,19 @@ Every finding carries an evidence grade.
       the guard it's examining is load-bearing (rule S: a mask whose lanes
       are fully known but include one outside the safe range).
       `reason: "guard_required"`.
+    - **C-transform-requires-context** — a fused replacement exists, but
+      only under a condition the rule does not check (rule F:
+      `_mm_madd_epi16`'s pairwise reduction reaches `vmlal_s16` /
+      `vmlal_high_s16` only when the consumer is a horizontal reduction).
+      This shares grade C not because nothing could be judged, but because
+      the required context was not verified at this call site.
+      `reason: "transform_requires_context"`.
 
-    Both share grade C because v1's action is identical either way: do not
-    transform without human confirmation. A fourth grade would only be
-    warranted if the two ever needed different `--min-evidence` filtering
-    or other CLI/automation behaviour, which they do not today. `reason`
-    is `null`/absent for grades A and B.
+    All three share grade C because v1's action is identical either way: do
+    not transform without human confirmation. A fourth grade would only be
+    warranted if they ever needed different `--min-evidence` filtering or
+    other CLI/automation behaviour, which they do not today. `reason` is
+    `null`/absent for grades A and B.
 
   Rules that have no source of uncertainty (R, P) always emit A; they still
   carry the field for JSON schema uniformity and consistent

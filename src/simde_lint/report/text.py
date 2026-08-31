@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..finding import Finding, SORT_KEYS
+from ..finding import Finding, Reason, SORT_KEYS
 
 
 def _label(finding: Finding) -> str:
@@ -20,8 +20,10 @@ def _label(finding: Finding) -> str:
 def _evidence_label(finding: Finding) -> str:
     # Reason is set only on grade C, distinguishing "could not resolve"
     # (unresolved) from "resolved, and the guard is load-bearing"
-    # (guard_required). Both share grade C because v1 acts on them
-    # identically: no transform without human confirmation.
+    # (guard_required) from "a transform exists, but the condition it needs
+    # was not verified here" (transform_requires_context). All three share
+    # grade C because v1 acts on them identically: no transform without
+    # human confirmation.
     if finding.reason is not None:
         return f"{finding.evidence.value} ({finding.reason.value})"
     return finding.evidence.value
@@ -52,6 +54,15 @@ def _suggestion_line(finding: Finding) -> str:
         # already states why (unresolved evidence or no known fused/native
         # form), this line just confirms nothing is being recommended.
         return f"    no suggestion offered ({counts})"
+    if finding.reason is Reason.TRANSFORM_REQUIRES_CONTEXT:
+        # A conditional suggestion must not read like the unconditional
+        # replacement line below: the rule has not verified the condition
+        # (a horizontal-reduction consumer) holds at this call site. Read
+        # from `reason`, which the rule has already decided, never from
+        # `transform_status` -- Finding does not carry that field, and a
+        # reporter reasoning about it directly would be re-deciding a
+        # grading question that belongs to the rule.
+        return f"    conditional suggestion: {finding.suggestion} before horizontal reduction ({counts})"
     return f"    suggestion: {finding.suggestion} ({counts})"
 
 

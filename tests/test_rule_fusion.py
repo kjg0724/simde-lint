@@ -68,9 +68,10 @@ def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
     """The def-use path being clean does not make the transform unconditional.
 
     madd_epi16's pairwise reduction has no unconditional AArch64 fused form:
-    smlal_s16 absorbs the accumulate only for a horizontal-reduction consumer
-    this rule does not check. Grading it A or B on the strength of the
-    def-use link alone would report a conditional transform as established.
+    vmlal_s16 / vmlal_high_s16 applies only for a horizontal-reduction
+    consumer this rule does not check. Grading it A or B on the strength of
+    the def-use link alone would report a conditional transform as
+    established.
     """
     findings = sorted(
         (f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "kernel"),
@@ -79,7 +80,7 @@ def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
     assert findings[1].intrinsic == "_mm_madd_epi16"
     assert findings[1].evidence is Evidence.C
     assert findings[1].reason is Reason.TRANSFORM_REQUIRES_CONTEXT
-    assert findings[1].suggestion == "smlal_s16"
+    assert findings[1].suggestion == "vmlal_s16 / vmlal_high_s16"
 
 
 def test_covers_the_256_bit_form(run_rule):
@@ -103,8 +104,8 @@ def test_one_add_is_one_fusion_opportunity(run_rule):
 
 def test_madd_epi16_names_its_conditional_fused_instruction(run_rule):
     # AArch64 has no unconditional pairwise 16-to-32 multiply-accumulate for
-    # madd_epi16, but smlal_s16 absorbs the accumulate when the consumer is a
-    # horizontal reduction (I2) -- a shape this rule does not check, so the
+    # madd_epi16, but vmlal_s16 / vmlal_high_s16 applies when the consumer is
+    # a horizontal reduction (I2) -- a shape this rule does not check, so the
     # rationale must name it as conditional, not as the replacement. Whether
     # a count is knowable is a separate fact from whether a transform is
     # established: native_insns stays unknown even though the suggestion is
@@ -115,10 +116,10 @@ def test_madd_epi16_names_its_conditional_fused_instruction(run_rule):
     ]
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.suggestion == "smlal_s16"
+    assert finding.suggestion == "vmlal_s16 / vmlal_high_s16"
     assert finding.native_insns is None
     assert finding.simde_insns == 4
-    assert "smlal_s16 absorbs the accumulate only when the consumer permits it" in finding.rationale
+    assert "vmlal_s16 / vmlal_high_s16 applies only when the consumer is a horizontal reduction" in finding.rationale
     assert "which this rule does not check" in finding.rationale
     assert "emitted as separate instructions" in finding.rationale
 

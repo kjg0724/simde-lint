@@ -14,10 +14,10 @@ class Evidence(str, Enum):
 
 
 class Reason(str, Enum):
-    """Why a finding graded C, distinguishing two meanings that grade alone can't.
+    """Why a finding graded C, distinguishing meanings that grade alone can't.
 
     Grade C always means "the tool cannot confirm the transform is safe from
-    source alone", but that collapses two different situations:
+    source alone", but that collapses three different situations:
 
     - **UNRESOLVED** — the rule could not see far enough to judge at all (a
       runtime-loaded value, a call result with unknown lanes, a symbol not
@@ -30,10 +30,10 @@ class Reason(str, Enum):
       instance). The rule saw the call clearly; what it did not verify is
       that the condition holds here.
 
-    v1 keeps one grade, C, for both: the action either warrants is identical
-    — do not transform without human confirmation. A fourth grade would only
-    be warranted if the two ever needed different `--min-evidence` filtering
-    or other CLI/automation behaviour, which they do not today.
+    v1 keeps one grade, C, for all three: the action each warrants is
+    identical — do not transform without human confirmation. A fourth grade
+    would only be warranted if they ever needed different `--min-evidence`
+    filtering or other CLI/automation behaviour, which they do not today.
     """
 
     UNRESOLVED = "unresolved"
@@ -71,8 +71,8 @@ class Finding:
     macro: str | None = None
     mask_source: dict[str, Any] | None = None
     # Set only when evidence is C; None for A and B. See Reason's docstring
-    # for why one grade carries two reasons rather than splitting into two
-    # grades.
+    # for why one grade carries several reasons rather than splitting into
+    # several grades.
     reason: Reason | None = None
     # The call's original spelling, set only when it differs from `intrinsic`
     # (a macro-aliased call site, e.g. VVenC's `_my_cmpgt_epi64` resolving to
