@@ -51,18 +51,31 @@ class Coordinates:
     below is written once against `Coordinates` instead of twice against
     `source` and `macro.source` separately.
 
-    `of_file` and `of_macro` are the only two ways to build one, and they
+    `of_file` and `of_macro` are the intended ways to build one, and they
     are asymmetric on purpose: `of_file` returns a node's own `start_point`
     / `start_byte` untouched, `of_macro` recomputes both by mapping the
     synthetic byte through `original_byte` and re-deriving line/column with
     `line_column`. That asymmetry is not an oversight to unify further --
     the function path has never gone through `line_column`, and this class
     must not become the thing that quietly changes that.
+
+    `_macro` and `_source` are paired: a `Coordinates` in file mode has
+    neither, one in macro mode has both. `__post_init__` enforces that
+    pairing on every construction, factory or not, so a half-built instance
+    (macro set, source missing, or the reverse) fails immediately at
+    construction instead of surfacing later as `line_column` reading a
+    `None` source.
     """
 
     text: bytes
     _macro: ReparsedMacro | None
     _source: bytes | None
+
+    def __post_init__(self) -> None:
+        if (self._macro is None) != (self._source is None):
+            raise ValueError(
+                "Coordinates: _macro and _source must be given together or not at all"
+            )
 
     @classmethod
     def of_file(cls, source: bytes) -> Coordinates:

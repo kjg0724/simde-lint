@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+import simde_lint.extract as extract_module
 from simde_lint.analyze import Diagnostic, analyze, is_failure
 from simde_lint.cli import main as cli_main
 from simde_lint.extract import Coordinates, extract_units, extract_units_and_diagnostics
@@ -419,30 +422,59 @@ def test_function_and_macro_paths_agree_on_the_same_body():
     assert _calls_and_definitions_shape(function_unit) == _calls_and_definitions_shape(macro_unit)
 
 
-def test_of_file_reports_tree_sitters_own_start_point_not_a_recomputed_one():
+def test_of_file_never_calls_line_column(monkeypatch):
     # The one behaviour the merge must not change: today the function path
     # reads a call's line and column straight off tree-sitter's own
     # `start_point`, never through `line_column` -- that recomputation is the
     # macro path's job, needed only because a macro body is reparsed inside a
-    # synthetic wrapper. A v1.2 review flagged exactly the risk this pins:
-    # introducing one generic position mapper for both paths could quietly
-    # route `Coordinates.of_file` through `line_column` too, since the two
-    # happen to agree almost everywhere. They would still agree if this
-    # assertion were only `==`; comparing tree-sitter's own values directly,
-    # not a value merely equal to them, is what makes a future switch to
-    # `line_column` fail here.
+    # synthetic wrapper. A v1.2 review flagged exactly the risk this pins.
+    #
+    # A value comparison cannot express this: `line_column` and
+    # `start_point` agree on ordinary source (confirmed across LF, CRLF,
+    # bare CR and UTF-8), so a `place()` that switched `of_file` over to
+    # `line_column` would still satisfy `(line, column, start_byte) ==
+    # (start_point..., start_byte)`. Only forbidding the call itself can
+    # catch that switch: `line_column` is made to raise before `place()`
+    # runs, and an `of_file` that still returns cleanly is the proof it
+    # never called it.
+    def _must_not_be_called(source, byte):
+        raise AssertionError("Coordinates.of_file must not call line_column")
+
+    monkeypatch.setattr(extract_module, "line_column", _must_not_be_called)
+
     source = b"void f(__m128i a, __m128i b) {\n    __m128i r = _mm_add_epi32(a, b);\n}\n"
     root = parse_source(source).root_node
     call = next(iter_nodes(root, "call_expression"))
 
-    coordinates = Coordinates.of_file(source)
-    line, column, start_byte = coordinates.place(call)
+    line, column, start_byte = Coordinates.of_file(source).place(call)
 
     assert (line, column, start_byte) == (
         call.start_point[0] + 1,
         call.start_point[1] + 1,
         call.start_byte,
     )
+
+
+def test_of_macro_always_calls_line_column(monkeypatch):
+    # Symmetric to the pin above: the macro path's recomputation is not
+    # incidental, it is the reason `of_macro` exists. If a future change
+    # gave the macro path the file path's shortcut instead -- the opposite
+    # mistake from the one above -- positions inside a macro body would stop
+    # tracking `original_byte` remapping and this must fail, not merely
+    # continue to agree by coincidence on whatever body this test happens
+    # to use.
+    macro_source = b"#define M(a, b) _mm_add_epi32(a, b)\n"
+    root = parse_source(macro_source).root_node
+    macro = reparse_macros(root, macro_source)[0]
+    call = next(iter_nodes(macro.root, "call_expression"))
+
+    def _must_be_called(source, byte):
+        raise AssertionError("Coordinates.of_macro must call line_column")
+
+    monkeypatch.setattr(extract_module, "line_column", _must_be_called)
+
+    with pytest.raises(AssertionError, match="must call line_column"):
+        Coordinates.of_macro(macro, macro_source).place(call)
 
 
 # Structural reproductions (not literal source) of the confirmed-alias shapes
