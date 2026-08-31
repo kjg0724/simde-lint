@@ -267,6 +267,42 @@ def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     assert "_mm_cvtepi32_epi64" in findings[0].rationale
 
 
+def test_a_compound_assignment_target_is_not_read_as_a_direct_result(run_rule):
+    """Issue #13, shape 1: `x += mullo(...)` must not grade as a direct link.
+
+    Extraction pins that `result_var` is None for this shape
+    (test_extract.py::test_a_compound_assignment_target_is_not_recorded_as_a_direct_result);
+    this is the downstream consequence -- F reads `result_var` to decide
+    membership, so if that pin were wrong, or F ignored it, this would still
+    report an Evidence-A finding.
+    """
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_negative.c")
+        if f.function == "compound_assignment_not_direct_result"
+    ]
+    assert findings == []
+
+
+def test_a_compound_assignments_write_stays_visible_to_fusion(run_rule):
+    """Issue #13, shape 2: the compound write must still count as a redefinition.
+
+    Extraction pins that the second, compound-assigned multiply still
+    records an UNKNOWN definition for its write
+    (test_extract.py::test_a_compound_assignment_still_records_an_unknown_definition);
+    this is the downstream consequence -- without it, F's
+    `redefined_between` check would miss the reassignment and link the
+    first, direct multiply through a value the second one actually
+    overwrote.
+    """
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_negative.c")
+        if f.function == "compound_assignment_overwrites_result"
+    ]
+    assert findings == []
+
+
 def test_changing_only_the_suggestion_cannot_change_the_evidence():
     """The invariant this whole change exists for.
 

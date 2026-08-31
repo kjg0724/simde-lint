@@ -91,6 +91,77 @@ def test_a_nested_call_binds_no_result_variable():
     assert len([d for d in unit.definitions["out"] if d.line == nested.line]) == 1
 
 
+_COMPOUND_ASSIGNMENT_TARGET = b"""
+__m128i f(__m128i a, __m128i b, __m128i c, __m128i x) {
+    x += _mm_mullo_epi32(a, b);
+    return _mm_add_epi32(x, c);
+}
+"""
+
+
+def test_a_compound_assignment_target_is_not_recorded_as_a_direct_result():
+    """Issue #13: `x += call(...)` must not read as the call's direct result.
+
+    `x`'s new value depends on its own old value as well as on the call's
+    result, so the binding is not direct -- neither `result_var` nor
+    `result_lvalue` may name `x`, since both mean "this call's result was
+    bound directly to X." Rules F and P both grade Evidence A on
+    `result_var` membership, so a wrong value here would let either rule
+    make an evidence-A claim about a def-use link that never existed.
+    """
+    knowledge = load_knowledge()
+    (unit,) = extract_units("t.c", _COMPOUND_ASSIGNMENT_TARGET, knowledge)
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+    # The write itself is not lost, only the wrong direct binding -- see the
+    # next test for the case where dropping it entirely would matter.
+    assert unit.definitions["x"][0].value.kind == ValueKind.UNKNOWN
+
+
+_COMPOUND_ASSIGNMENT_OVERWRITE = b"""
+void f(__m128i a, __m128i b, __m128i other_a, __m128i other_b, __m128i c) {
+    __m128i x = _mm_mullo_epi32(a, b);
+    x += _mm_mullo_epi32(other_a, other_b);
+    __m128i y = _mm_add_epi32(x, c);
+}
+"""
+
+
+def test_a_compound_assignment_still_records_an_unknown_definition():
+    """Issue #13, the half easy to forget.
+
+    The compound assignment's own right-hand side is itself a recognized
+    intrinsic call here, deliberately -- that is the shape a fix that only
+    does half the work (stopping `_enclosing_result_var`/`_enclosing_
+    result_lvalue` from naming `x`, without touching
+    `_record_plain_assignments`'s skip condition) drops silently, since that
+    skip condition used to fire for ANY recognized-call right-hand side,
+    compound or not. A version of this test using a non-call right-hand
+    side (`x += other`) would not catch that: `_record_plain_assignments`
+    already recorded a plain-variable overwrite as UNKNOWN before this fix,
+    so it would pass whether or not the fix's second half was done.
+
+    If the definition were dropped, `redefined_between` would not see that
+    `x` was reassigned, and rule F would link the earlier direct multiply
+    through a value that was actually overwritten. Rule P cannot reach that
+    shape -- it pairs adjacent calls only, so the compound assignment's own
+    recognized call already breaks the pair before `redefined_between` is
+    consulted -- which is why only F carries a downstream test for this half.
+    """
+    knowledge = load_knowledge()
+    (unit,) = extract_units("t.c", _COMPOUND_ASSIGNMENT_OVERWRITE, knowledge)
+    first_mul, second_mul = sorted(
+        (c for c in unit.calls if c.name == "_mm_mullo_epi32"), key=lambda c: c.start_byte
+    )
+    add = next(c for c in unit.calls if c.name == "_mm_add_epi32")
+    assert second_mul.result_var is None
+    assert unit.redefined_between("x", first_mul.start_byte, add.start_byte) is True
+    overwrite = unit.definition_before("x", add.start_byte)
+    assert overwrite.value.kind == ValueKind.UNKNOWN
+    assert overwrite.value.text == "_mm_mullo_epi32(other_a, other_b)"
+
+
 def test_literal_lanes_are_recorded_only_for_byte_constructors():
     # Rule S reads lanes to judge a byte shuffle mask. A wider constructor
     # recorded under a byte mask would report truncated values, so it stays
