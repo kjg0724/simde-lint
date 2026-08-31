@@ -33,6 +33,23 @@
   SVT-AV1 3264 and VVenC 449, with identical per-rule and per-evidence
   breakdowns.
 
+- **A compound assignment read its right-hand side as the target's direct
+  producer.** `x += _mm_mullo_epi32(a, b)` recorded the multiply's
+  `result_var` as `x`, so rules F and P treated `x` as the call's result and
+  could report the def-use link at evidence A. `x`'s new value depends on
+  its own old value as well as on the call, so the link is not direct and
+  the grade asserted something untrue about the reader's code.
+
+  Neither `result_var` nor `result_lvalue` now names the target of a
+  compound assignment, and the write is instead recorded as an `UNKNOWN`
+  definition, so `redefined_between` still sees the reassignment. Dropping
+  the definition along with the wrong binding would have traded one false
+  finding for another: rule F would link a multiply through a value the
+  compound assignment had already overwritten.
+
+  Neither reference corpus contains a compound assignment holding a current
+  S, F, M or P anchor, so all published counts are unchanged.
+
 ## 2.1.0 — 2026-08-31
 
 Minor rather than patch: `IntrinsicCall` gains a field, finding counts move
