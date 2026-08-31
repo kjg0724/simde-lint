@@ -187,10 +187,20 @@ def _is_compound_assignment(node: Node, source: bytes) -> bool:
     return operator is not None and node_text(operator, source) != "="
 
 
-# The only nodes a call's value passes through unchanged on its way to a
-# binding. Matches `_unwrap_cast` exactly: a C-style cast is transparent by
-# existing deliberate choice, a C++ `static_cast`-shaped node is not (it is
-# not even named `cast_expression` in the grammar, so it never matches here).
+# The only nodes a call's value passes through unchanged. A C-style cast is
+# transparent by existing deliberate choice; a C++ `static_cast`-shaped node
+# is not, and is not named `cast_expression` in the grammar, so it never
+# matches here.
+#
+# Walking up to a binding and unwrapping down to a right-hand side are the
+# same question asked from the two ends, so both read this one tuple --
+# `_enclosing_binding` to decide what it may cross, `_unwrap_transparent` to
+# decide what it may strip. Letting them disagree gave a parenthesized call
+# two definitions for one write: `_enclosing_binding` crossed the parentheses
+# and recorded a CALL_RESULT, while the unwrapper did not strip them, failed
+# to recognize the intrinsic, and recorded a competing UNKNOWN at the same
+# byte. `definition_before` could then return the UNKNOWN and hide the
+# producer from every rule that traces through it.
 _TRANSPARENT_BINDING_WRAPPERS = ("parenthesized_expression", "cast_expression")
 
 
@@ -286,19 +296,27 @@ def _iter_function_definitions(root: Node) -> Iterator[Node]:
     yield from iter_nodes(root, "function_definition")
 
 
-def _unwrap_cast(node: Node) -> Node:
-    """Strip a leading cast so its inner expression can be classified.
+def _unwrap_transparent(node: Node) -> Node:
+    """Strip transparent wrappers so the inner expression can be classified.
 
-    `(__m128i)_mm_setr_epi8(...)` is a `cast_expression` at the top level, not
-    a `call_expression`; without unwrapping it, `_record_plain_assignments`
-    fails to recognize the call underneath and treats the whole cast as an
-    opaque right-hand side.
+    `(__m128i)_mm_setr_epi8(...)` is a `cast_expression` at the top level and
+    `(_mm_setr_epi8(...))` a `parenthesized_expression`, neither of them a
+    `call_expression`; without stripping them, `_record_plain_assignments`
+    fails to recognize the call underneath and treats the whole right-hand
+    side as opaque.
+
+    The wrappers stripped here are exactly the ones `_enclosing_binding`
+    crosses -- see `_TRANSPARENT_BINDING_WRAPPERS` for why the two must
+    agree.
     """
-    while node is not None and node.type == "cast_expression":
-        value = node.child_by_field_name("value")
-        if value is None:
+    while node is not None and node.type in _TRANSPARENT_BINDING_WRAPPERS:
+        if node.type == "cast_expression":
+            inner = node.child_by_field_name("value")
+        else:
+            inner = next((c for c in node.named_children), None)
+        if inner is None:
             break
-        node = value
+        node = inner
     return node
 
 
@@ -520,7 +538,7 @@ def _record_plain_assignments(
         right = node.child_by_field_name("right")
         if right is None:
             continue
-        unwrapped = _unwrap_cast(right)
+        unwrapped = _unwrap_transparent(right)
         if (
             not _is_compound_assignment(node, coords.text)
             and unwrapped.type == "call_expression"
@@ -543,7 +561,7 @@ def _record_plain_assignments(
         value = node.child_by_field_name("value")
         if value is None or value.type == "initializer_list":
             continue
-        unwrapped = _unwrap_cast(value)
+        unwrapped = _unwrap_transparent(value)
         if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
             unwrapped, coords.text, aliases, knowledge
         ):
