@@ -11,6 +11,7 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
+from ..knowledge import CostInfo, TransformStatus
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
 _MULTIPLIES = {
@@ -55,29 +56,10 @@ class FusionRule:
                 if path is None:
                     continue
                 evidence, via = path
-                # The def-use path says how well the multiply is linked to the
-                # add. It says nothing about whether a fused form exists to
-                # replace them with: madd_epi16's pairwise reduction has no
-                # direct AArch64 equivalent, and reaching smlal is valid only
-                # for a horizontal-reduction consumer this rule does not
-                # check. Grading such a call A would report an unconfirmed
-                # transform as confirmed, which is the one thing the evidence
-                # axis exists to prevent.
-                #
-                # The cap keys on the suggestion alone, not on the
-                # instruction count. Whether a fused form exists and how many
-                # instructions SIMDe emits are separate facts, and only the
-                # first one is what the grade is about. _mm256_mullo_epi32 is
-                # the case that separates them: its expansion is a
-                # SIMDE_VECTORIZE loop whose emitted form is the compiler's
-                # choice, so no count can be read from the source — but the
-                # fused replacement is the established 128-bit one applied
-                # twice, which the rule can see as well as for any other
-                # entry. Capping it for a missing count would report an
-                # established transform as unresolved.
                 reason = None
-                if cost.suggestion is None:
-                    evidence, reason = Evidence.C, Reason.UNRESOLVED
+                capped, cap_reason = self.cap_for(cost)
+                if capped is not None:
+                    evidence, reason = capped, cap_reason
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,
@@ -100,6 +82,17 @@ class FusionRule:
                 )
                 break
 
+    def cap_for(self, cost: CostInfo) -> tuple[Evidence | None, Reason | None]:
+        """The grade ceiling this intrinsic's transform status imposes.
+
+        Returns `(None, None)` when the status imposes none — the def-use
+        path then decides. Reads `transform_status` and never `suggestion`:
+        what the report shows a reader is not what the tool asserts.
+        """
+        if cost.transform_status is TransformStatus.ESTABLISHED:
+            return None, None
+        return Evidence.C, Reason.UNRESOLVED
+
     @staticmethod
     def _fusion_claim(cost) -> str:
         """What the rule can honestly claim about fusion for this intrinsic.
@@ -116,7 +109,7 @@ class FusionRule:
         leaves it to the compiler.
         """
         observed = "the multiply and the accumulate are emitted as separate instructions"
-        if cost.suggestion is None:
+        if cost.transform_status is not TransformStatus.ESTABLISHED:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"
         return (
             f"{observed}; NEON fuses this into {cost.suggestion} for some accumulator shapes"
