@@ -10,7 +10,9 @@ from simde_lint.ir import ValueKind
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, is_forwarding_alias, reparse_macros
 from simde_lint.parser import iter_nodes, parse_source
-from simde_lint.rules import memory, suboptimal, widening
+from simde_lint.rules import fusion, memory, suboptimal, widening
+from simde_lint.rules.base import Context
+from simde_lint.symbols import build_symbol_index
 
 FIXTURE = Path(__file__).parent / "fixtures" / "extract" / "basic.c"
 
@@ -702,3 +704,49 @@ def test_dump_symbols_reports_a_missing_path_too(tmp_path, capsys):
     # and calling it success is the same defect wearing a different flag.
     assert cli_main([str(tmp_path / "gone.c"), "--dump-symbols"]) == 1
     assert "no such path" in capsys.readouterr().err
+
+
+_SUBSCRIPTED_TARGET = b"""
+#include <simde/x86/sse4.1.h>
+
+__m128i f(__m128i *v, __m128i a, __m128i b, __m128i acc) {
+    v[9] = _mm_mullo_epi32(a, b);
+    acc = _mm_add_epi32(acc, v[9]);
+    return acc;
+}
+"""
+
+
+def test_a_subscripted_target_keeps_result_var_narrow():
+    """`result_var` and `result_lvalue` answer different questions.
+
+    `result_var` names the identifier `redefined_between` tracks, so a write
+    to `v[9]` reduces to `v`; `result_lvalue` keeps the subscript, because
+    rule M asks whether writes landed in the same place and `v[9]` and
+    `v[10]` do not. Unifying the function and macro extraction paths put
+    both behind one function, which is exactly where someone later
+    "completes" `result_var` into the full lvalue.
+
+    That would not stay local to rule M. `v[9]` reaches rule F's operand
+    check as `ValueKind.SYMBOL`, which the check ignores; a widened
+    `result_var` would make F match subscripted targets and invent findings
+    that do not exist today. The corpus comparison catches that, but only
+    where the reference checkouts are present -- this pins it without them.
+    """
+    knowledge = load_knowledge()
+    (unit,) = extract_units("sub.c", _SUBSCRIPTED_TARGET, knowledge)
+    multiply = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    add = next(c for c in unit.calls if c.name == "_mm_add_epi32")
+
+    assert multiply.result_var == "v"
+    assert multiply.result_lvalue == "v[9]"
+
+    (operand,) = [arg for arg in add.args if arg.text == "v[9]"]
+    assert operand.kind is ValueKind.SYMBOL
+
+    ctx = Context(
+        symbols=build_symbol_index([("sub.c", _SUBSCRIPTED_TARGET)], knowledge),
+        knowledge=knowledge,
+        config={},
+    )
+    assert list(fusion.FusionRule().match(unit, ctx)) == []
