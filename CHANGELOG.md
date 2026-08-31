@@ -4,6 +4,35 @@
 
 ### Fixed
 
+- **A call buried in a value-transforming expression was still read as its
+  binding target's direct producer.** `_enclosing_result_var` and
+  `_enclosing_result_lvalue` stopped only at `call_expression`,
+  `init_declarator`, `assignment_expression` and `function_definition`, and
+  crossed every other node silently. `x = _mm_mullo_epi32(a, b) ^ c` bound
+  `x` to the multiply even though `x`'s actual value also depends on `c`;
+  the same happened through a conditional's untaken branch, a comma
+  expression's discarded first operand, a unary operator, and an
+  `initializer_list` element bound to the whole array rather than to its own
+  slot. Rules F and P read `result_var` to grade a def-use link at evidence
+  A, so each of these asserted a direct identity link that never existed.
+  The compound-assignment case #13 fixed is a special case of this one and
+  stays fixed the same way, since a compound assignment is still an
+  `assignment_expression` the walk still reaches.
+
+  The walk is now inverted: only `parenthesized_expression` and
+  `cast_expression` are transparent — the same set `_unwrap_cast` already
+  treats as transparent for a plain assignment's right-hand side — and
+  every other node terminates the walk with no binding, exactly as a nested
+  `call_expression` already did.
+
+  Across SVT-AV1 and VVenC, 608 and 79 call sites respectively lost a
+  wrongly claimed direct binding (mostly `initializer_list`,
+  `binary_expression` and `conditional_expression`), but none of them named
+  an intrinsic any of F, P, W or M currently matches on — R and S never
+  read `result_var` at all — so every published count is unchanged:
+  SVT-AV1 3264 and VVenC 449, with identical per-rule and per-evidence
+  breakdowns.
+
 - **A compound assignment read its right-hand side as the target's direct
   producer.** `x += _mm_mullo_epi32(a, b)` recorded the multiply's
   `result_var` as `x`, so rules F and P treated `x` as the call's result and

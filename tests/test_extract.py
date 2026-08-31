@@ -162,6 +162,144 @@ def test_a_compound_assignment_still_records_an_unknown_definition():
     assert overwrite.value.text == "_mm_mullo_epi32(other_a, other_b)"
 
 
+_BINARY_TRANSFORM_RHS = b"""
+__m128i f(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = _mm_mullo_epi32(a, b) ^ c;
+    return _mm_add_epi32(x, d);
+}
+"""
+
+_CONDITIONAL_TRANSFORM_RHS = b"""
+__m128i f(int t, __m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = t ? _mm_mullo_epi32(a, b) : c;
+    return _mm_add_epi32(x, d);
+}
+"""
+
+_COMMA_TRANSFORM_RHS = b"""
+__m128i f(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i x = (_mm_mullo_epi32(a, b), c);
+    return _mm_add_epi32(x, d);
+}
+"""
+
+_UNARY_TRANSFORM_RHS = b"""
+__m128i f(__m128i a, __m128i b, __m128i c) {
+    __m128i m = ~_mm_cmpgt_epi64(a, b);
+    return _mm_and_si128(m, c);
+}
+"""
+
+
+def test_a_call_under_a_binary_expression_binds_no_result():
+    """Issue #15, shape 1: the XOR is x's producer, not the multiply.
+
+    Before the fix, `_enclosing_result_var`/`_enclosing_result_lvalue`
+    crossed the `binary_expression` silently and recorded `x` as the
+    multiply's direct result -- an evidence-A claim about a def-use link
+    that never existed, since x's actual value also depends on `c`.
+    """
+    unit = extract_units("t.c", _BINARY_TRANSFORM_RHS, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+
+
+def test_a_call_under_a_conditional_expression_binds_no_result():
+    """Issue #15, shape 2: x is the multiply's value only on one branch."""
+    unit = extract_units("t.c", _CONDITIONAL_TRANSFORM_RHS, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+
+
+def test_a_call_under_a_comma_expression_binds_no_result():
+    """Issue #15, shape 3: x is c; the multiply's value is discarded."""
+    unit = extract_units("t.c", _COMMA_TRANSFORM_RHS, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var is None
+    assert mul.result_lvalue is None
+
+
+def test_a_call_under_a_unary_expression_binds_no_result():
+    """Issue #15, shape 4: the complement is m's producer, not the compare."""
+    unit = extract_units("t.c", _UNARY_TRANSFORM_RHS, load_knowledge())[0]
+    cmp_call = next(c for c in unit.calls if c.name == "_mm_cmpgt_epi64")
+    assert cmp_call.result_var is None
+    assert cmp_call.result_lvalue is None
+
+
+_PLAIN_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = _mm_mullo_epi32(a, b);
+    return x;
+}
+"""
+
+_PARENTHESIZED_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = (_mm_mullo_epi32(a, b));
+    return x;
+}
+"""
+
+_CAST_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = (__m128i)_mm_mullo_epi32(a, b);
+    return x;
+}
+"""
+
+_PARENTHESIZED_CAST_BINDING = b"""
+__m128i f(__m128i a, __m128i b) {
+    __m128i x = ((__m128i)_mm_mullo_epi32(a, b));
+    return x;
+}
+"""
+
+
+def _assert_binds_x_exactly_once(source: bytes) -> None:
+    """`x` names the multiply, and the write produced one definition saying so.
+
+    Both halves matter. `result_var` alone would pass while the walk and the
+    unwrapper disagreed about a wrapper: `_enclosing_binding` would cross it
+    and record a CALL_RESULT, `_unwrap_transparent` would fail to strip it,
+    not recognize the intrinsic, and record a second UNKNOWN definition at
+    the same byte. `definition_before` could then hand a rule the UNKNOWN and
+    hide the producer. Asserting the definition list pins the two ends
+    against each other.
+    """
+    unit = extract_units("t.c", source, load_knowledge())[0]
+    mul = next(c for c in unit.calls if c.name == "_mm_mullo_epi32")
+    assert mul.result_var == "x"
+    assert mul.result_lvalue == "x"
+    definitions = unit.definitions["x"]
+    assert [d.value.kind for d in definitions] == [ValueKind.CALL_RESULT]
+
+
+def test_a_plain_binding_still_yields_the_target():
+    # Baseline that must keep working after the fix: no wrapper at all.
+    _assert_binds_x_exactly_once(_PLAIN_BINDING)
+
+
+def test_a_parenthesized_binding_still_yields_the_target():
+    # Baseline that must keep working after the fix: parentheses are
+    # explicitly transparent.
+    _assert_binds_x_exactly_once(_PARENTHESIZED_BINDING)
+
+
+def test_a_cast_wrapped_binding_still_yields_the_target():
+    # Baseline that must keep working after the fix: a C-style cast is
+    # transparent by the same existing choice `_unwrap_transparent` makes.
+    _assert_binds_x_exactly_once(_CAST_BINDING)
+
+
+def test_a_parenthesized_cast_binding_still_yields_the_target():
+    # Both wrappers at once, which is where the walk and the unwrapper
+    # disagreeing shows up most plainly.
+    _assert_binds_x_exactly_once(_PARENTHESIZED_CAST_BINDING)
+
+
 def test_literal_lanes_are_recorded_only_for_byte_constructors():
     # Rule S reads lanes to judge a byte shuffle mask. A wider constructor
     # recorded under a byte mask would report truncated values, so it stays

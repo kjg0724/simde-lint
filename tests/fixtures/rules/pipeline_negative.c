@@ -28,3 +28,13 @@ void compound_assignment_not_direct_result(__m128i a, __m128i b, __m128i x, __m1
     __m128i sel = _mm_and_si128(x, c);
     (void)sel;
 }
+
+// Issue #15, shape 4: the complement is m's producer, not the compare.
+// Without the fix, current.result_var == "m" (the unary_expression is
+// crossed silently) and P reports this pair even though m's actual value
+// is the compare's result negated, not the compare's result itself.
+void unary_transform_not_direct_result(__m128i a, __m128i b, __m128i c) {
+    __m128i m = ~_mm_cmpgt_epi64(a, b);
+    __m128i sel = _mm_and_si128(m, c);
+    (void)sel;
+}
