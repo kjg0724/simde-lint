@@ -173,6 +173,20 @@ def _literal_lanes(call: Node, source: bytes) -> tuple[int, ...] | None:
     return tuple(lanes) if "setr" in name else tuple(reversed(lanes))
 
 
+def _is_compound_assignment(node: Node, source: bytes) -> bool:
+    """True when an `assignment_expression` node's operator is not plain `=`.
+
+    tree-sitter renders both `x = ...` and `x += ...` as the same node type,
+    `assignment_expression`; only the `operator` field's text tells them
+    apart. A compound assignment's new value depends on the old value of the
+    target as well as on the right-hand side, so a call on that right-hand
+    side must never be treated as directly bound to the target — see
+    `_enclosing_result_var`.
+    """
+    operator = node.child_by_field_name("operator")
+    return operator is not None and node_text(operator, source) != "="
+
+
 def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     """Variable this call's result is bound to, when the binding is direct.
 
@@ -182,12 +196,21 @@ def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     assignment to the inner call and record a second, wrong definition on the
     same line — and `definition_before` would then name the inner call as the
     producer.
+
+    A compound assignment (`x += call(...)`) is not a direct binding either:
+    `x`'s new value depends on its old value as well as on the call's result,
+    so this returns None there just as it does for a nested call. The write
+    itself is not lost — `_record_plain_assignments` records it as an
+    `UNKNOWN` definition, since a compound assignment's right-hand side never
+    reaches this function's caller as a recognized-call binding.
     """
     parent = call.parent
     while parent is not None:
         if parent.type == "call_expression":
             return None
         if parent.type in ("init_declarator", "assignment_expression"):
+            if parent.type == "assignment_expression" and _is_compound_assignment(parent, source):
+                return None
             field = "declarator" if parent.type == "init_declarator" else "left"
             return _first_identifier(node_text(parent.child_by_field_name(field), source))
         if parent.type == "function_definition":
@@ -203,12 +226,18 @@ def _enclosing_result_lvalue(call: Node, source: bytes) -> str | None:
     what `redefined_between` tracks. A rule asking "did these writes go to
     the same place" needs the other answer, and getting `dd` there merges
     `dd[0]` and `dd[1]` into one target they are not.
+
+    None for a compound assignment for the same reason `_enclosing_result_var`
+    is: `dd[0] += call(...)` does not bind the call's result to `dd[0]`
+    either.
     """
     parent = call.parent
     while parent is not None:
         if parent.type == "call_expression":
             return None
         if parent.type in ("init_declarator", "assignment_expression"):
+            if parent.type == "assignment_expression" and _is_compound_assignment(parent, source):
+                return None
             field = "declarator" if parent.type == "init_declarator" else "left"
             target = parent.child_by_field_name(field)
             if target is None:
@@ -452,13 +481,22 @@ def _record_plain_assignments(
     exactly what callers need to know.
 
     A right-hand side that *is* a recognized intrinsic call (optionally
-    wrapped in a cast) is skipped here: `_extract_calls` already recorded it,
-    with its actual kind (literal vector or call result) rather than UNKNOWN.
-    Recording it again here would double-count the definition. A call to
-    something that is not a recognized intrinsic — `helper_load(c)`,
-    cast-wrapped or not — falls through and is recorded as UNKNOWN, because
-    today's only alternative is to not record it at all, which is the bug
-    this function exists to avoid for non-call right-hand sides.
+    wrapped in a cast) is skipped here only for a *plain* assignment:
+    `_extract_calls` already recorded it there, with its actual kind
+    (literal vector or call result) rather than UNKNOWN. Recording it again
+    here would double-count the definition. A call to something that is not
+    a recognized intrinsic — `helper_load(c)`, cast-wrapped or not — falls
+    through and is recorded as UNKNOWN, because today's only alternative is
+    to not record it at all, which is the bug this function exists to avoid
+    for non-call right-hand sides.
+
+    A *compound* assignment (`x += call(...)`) is never skipped here, even
+    when its right-hand side is a recognized intrinsic call:
+    `_enclosing_result_var` returns None for it, so `_extract_calls` records
+    no definition for the write at all. Falling through to UNKNOWN here is
+    what keeps `redefined_between` seeing the reassignment — dropping it
+    would trade a wrong direct-result link for a missing definition, which is
+    exactly the failure mode this function exists to avoid.
 
     Shared by both extraction paths through `coords` — see `Coordinates`.
     """
@@ -467,8 +505,10 @@ def _record_plain_assignments(
         if right is None:
             continue
         unwrapped = _unwrap_cast(right)
-        if unwrapped.type == "call_expression" and _call_is_recognized_intrinsic(
-            unwrapped, coords.text, aliases, knowledge
+        if (
+            not _is_compound_assignment(node, coords.text)
+            and unwrapped.type == "call_expression"
+            and _call_is_recognized_intrinsic(unwrapped, coords.text, aliases, knowledge)
         ):
             continue
         name = _first_identifier(node_text(node.child_by_field_name("left"), coords.text))

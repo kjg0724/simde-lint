@@ -139,3 +139,39 @@ def test_reports_nothing_when_the_compare_result_was_overwritten_by_a_call(run_r
         if f.function == "overwritten_by_call"
     ]
     assert findings == []
+
+
+def test_a_compound_assignment_target_is_not_read_as_a_direct_result(run_rule):
+    """Issue #13, shape 1: `x += cmpgt(...)` must not grade as a direct link.
+
+    Extraction pins that `result_var` is None for this shape
+    (test_extract.py::test_a_compound_assignment_target_is_not_recorded_as_a_direct_result);
+    this is the downstream consequence -- P reads `result_var` to decide
+    whether to match at all, so if that pin were wrong, or P ignored it,
+    this would still report a finding.
+    """
+    findings = [
+        f
+        for f in run_rule(PipelineRule(), "pipeline_negative.c")
+        if f.function == "compound_assignment_not_direct_result"
+    ]
+    assert findings == []
+
+
+def test_a_compound_assignments_write_stays_visible_to_pipeline(run_rule):
+    """Issue #13, shape 2: the compound write must still count as a redefinition.
+
+    Extraction pins that the second, compound-assigned compare still
+    records an UNKNOWN definition for its write
+    (test_extract.py::test_a_compound_assignment_still_records_an_unknown_definition);
+    this is the downstream consequence -- without it, P's
+    `redefined_between` check would miss the reassignment and link the
+    first, direct compare through a value the second one actually
+    overwrote.
+    """
+    findings = [
+        f
+        for f in run_rule(PipelineRule(), "pipeline_negative.c")
+        if f.function == "compound_assignment_overwrites_result"
+    ]
+    assert findings == []
