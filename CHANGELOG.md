@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 2.1.0 — 2026-08-31
 
 Minor rather than patch: `IntrinsicCall` gains a field, finding counts move
