@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 2.1.0 — 2026-08-31
+
+Minor rather than patch: `IntrinsicCall` gains a field, finding counts move
+on a corpus users may already have measured, and a missing input now sets a
+nonzero exit code where scripts previously saw success. Minor rather than
+major: the JSON schema is unchanged, and every field v2.0.0 emitted is still
+emitted.
+
+**This is the release the paper's figures were measured on.** `v2.0.0`
+predates the rule M fix below and reports `M.scalar_insert_chain` 24 against
+this release's 27, and SVT-AV1 3261 against 3264. Cite this tag, not that one.
 
 ### Fixed
 

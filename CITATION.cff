@@ -14,8 +14,8 @@ authors:
     orcid: "https://orcid.org/0009-0003-1171-8034"
 license: MIT
 repository-code: "https://github.com/kjg0724/simde-lint"
-version: 2.0.0
-date-released: "2026-08-28"
+version: 2.1.0
+date-released: "2026-08-31"
 preferred-citation:
   type: article
   title: >-
