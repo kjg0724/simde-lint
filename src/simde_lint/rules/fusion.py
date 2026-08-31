@@ -91,6 +91,8 @@ class FusionRule:
         """
         if cost.transform_status is TransformStatus.ESTABLISHED:
             return None, None
+        if cost.transform_status is TransformStatus.CONDITIONAL:
+            return Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT
         return Evidence.C, Reason.UNRESOLVED
 
     @staticmethod
@@ -100,15 +102,23 @@ class FusionRule:
         The multiply and the add are always observed as separate SIMDe
         translations — that much is structural. Whether NEON has a fused
         multiply-accumulate that reaches them is a separate question the
-        rule can only answer when a fused form is recorded for the
-        intrinsic; when none is (madd_epi16's pairwise reduction has no
-        direct AArch64 fused form), the rationale must not name an
-        instruction that may not exist for this call site. A recorded fused
-        form with no instruction count still names the instruction — the
-        count is reported separately, and is absent when SIMDe's expansion
-        leaves it to the compiler.
+        rule can only answer from the intrinsic's recorded `transform_status`:
+        `unknown` means no fused form is recorded at all, so the rationale
+        must not name an instruction that may not exist for this call site.
+        `conditional` means one is recorded (madd_epi16's smlal_s16, for a
+        horizontal-reduction consumer) but the condition it needs is not
+        something this rule checks, so the rationale names it without
+        claiming it as the unconditional replacement. A recorded fused form
+        with no instruction count still names the instruction — the count is
+        reported separately, and is absent when SIMDe's expansion leaves it
+        to the compiler.
         """
         observed = "the multiply and the accumulate are emitted as separate instructions"
+        if cost.transform_status is TransformStatus.CONDITIONAL:
+            return (
+                f"{observed}; {cost.suggestion} absorbs the accumulate only when the "
+                "consumer permits it, which this rule does not check"
+            )
         if cost.transform_status is not TransformStatus.ESTABLISHED:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"
         return (

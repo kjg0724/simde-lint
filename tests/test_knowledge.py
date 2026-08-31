@@ -60,14 +60,14 @@ def test_pattern_costs_carry_the_expected_values():
 
 
 def test_unknown_cost_and_suggestion_load_as_none():
-    # AArch64 has no pairwise 16-to-32 multiply-accumulate, so this
-    # intrinsic's native cost and suggested fused instruction cannot be
-    # established (cost-data.md, Rule F). `unknown` in the YAML must load as
-    # None, not as the literal string "unknown" or a zero.
-    madd = load_knowledge().patterns["F.mul_add_no_fuse"]["_mm_madd_epi16"]
-    assert madd.simde_insns == 4
-    assert madd.native_insns is None
-    assert madd.suggestion is None
+    # _mm_insert_epi64 defers to simde_mm_set_epi64x with no lane-insert
+    # branch, so neither its cost nor a fused replacement can be established.
+    # `unknown` in the YAML must load as None, not as the literal string
+    # "unknown" or a zero.
+    insert = load_knowledge().patterns["M.scalar_insert_chain"]["_mm_insert_epi64"]
+    assert insert.simde_insns is None
+    assert insert.native_insns is None
+    assert insert.suggestion is None
 
 
 def test_an_uncountable_expansion_still_records_its_established_fused_form():

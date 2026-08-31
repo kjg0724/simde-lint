@@ -30,13 +30,47 @@ def test_grades_a_path_through_a_widening_conversion_b(run_rule):
     assert findings[0].evidence is Evidence.B
 
 
-def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
-    """The def-use path being clean does not make the transform known.
+def test_a_conditional_transform_caps_at_c_with_its_own_reason():
+    """Grade alone cannot distinguish conditional from unknown.
 
-    madd_epi16's pairwise reduction has no direct AArch64 fused form, and
-    reaching smlal is valid only for a horizontal-reduction consumer this
-    rule does not check. Grading it A or B on the strength of the def-use
-    link alone would report an unconfirmed transform as confirmed.
+    Both cap at C, so a test asserting only the grade would pass with the
+    two statuses swapped. The reason is the whole point: one says the tool
+    could not judge, the other says a transform exists under a condition the
+    rule did not check.
+    """
+    knowledge = load_knowledge()
+    cost = knowledge.patterns["F.mul_add_no_fuse"]["_mm_madd_epi16"]
+    assert cost.transform_status is TransformStatus.CONDITIONAL
+
+    evidence, reason = FusionRule().cap_for(cost)
+
+    assert evidence is Evidence.C
+    assert reason is Reason.TRANSFORM_REQUIRES_CONTEXT
+
+
+def test_an_unknown_transform_caps_at_c_with_the_unresolved_reason():
+    cost = CostInfo(
+        key="_mm_fake",
+        simde_insns=2,
+        native_insns=None,
+        suggestion=None,
+        source="x86/fake.h:1",
+        transform_status=TransformStatus.UNKNOWN,
+    )
+
+    evidence, reason = FusionRule().cap_for(cost)
+
+    assert evidence is Evidence.C
+    assert reason is Reason.UNRESOLVED
+
+
+def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
+    """The def-use path being clean does not make the transform unconditional.
+
+    madd_epi16's pairwise reduction has no unconditional AArch64 fused form:
+    smlal_s16 absorbs the accumulate only for a horizontal-reduction consumer
+    this rule does not check. Grading it A or B on the strength of the
+    def-use link alone would report a conditional transform as established.
     """
     findings = sorted(
         (f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "kernel"),
@@ -44,8 +78,8 @@ def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
     )
     assert findings[1].intrinsic == "_mm_madd_epi16"
     assert findings[1].evidence is Evidence.C
-    assert findings[1].reason is Reason.UNRESOLVED
-    assert findings[1].suggestion is None
+    assert findings[1].reason is Reason.TRANSFORM_REQUIRES_CONTEXT
+    assert findings[1].suggestion == "smlal_s16"
 
 
 def test_covers_the_256_bit_form(run_rule):
@@ -67,22 +101,25 @@ def test_one_add_is_one_fusion_opportunity(run_rule):
     assert len(findings) == 1
 
 
-def test_madd_epi16_names_no_fused_instruction(run_rule):
-    # AArch64 has no pairwise 16-to-32 multiply-accumulate for madd_epi16;
-    # naming smlal here would be wrong for the dominant, non-reduction case
-    # (I2). Cost data backs this: native_insns is unknown for this intrinsic.
+def test_madd_epi16_names_its_conditional_fused_instruction(run_rule):
+    # AArch64 has no unconditional pairwise 16-to-32 multiply-accumulate for
+    # madd_epi16, but smlal_s16 absorbs the accumulate when the consumer is a
+    # horizontal reduction (I2) -- a shape this rule does not check, so the
+    # rationale must name it as conditional, not as the replacement. Whether
+    # a count is knowable is a separate fact from whether a transform is
+    # established: native_insns stays unknown even though the suggestion is
+    # now recorded.
     findings = [
         f for f in run_rule(FusionRule(), "fusion_positive.c")
         if f.function == "kernel" and f.intrinsic == "_mm_madd_epi16"
     ]
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.suggestion is None
+    assert finding.suggestion == "smlal_s16"
     assert finding.native_insns is None
     assert finding.simde_insns == 4
-    assert "smlal" not in finding.rationale
-    assert "vmlal" not in finding.rationale
-    assert "no fused multiply-accumulate form is established" in finding.rationale
+    assert "smlal_s16 absorbs the accumulate only when the consumer permits it" in finding.rationale
+    assert "which this rule does not check" in finding.rationale
     assert "emitted as separate instructions" in finding.rationale
 
 
@@ -235,11 +272,18 @@ def test_changing_only_the_suggestion_cannot_change_the_evidence():
     Before v2.1 rule F read `suggestion is None` for grading, so filling in
     an informative suggestion for an entry with no established fused form
     silently promoted its findings from C to A. Presentation must not move
-    the grade.
+    the grade. This is a synthetic entry, not `_mm_madd_epi16` -- that
+    intrinsic is now `conditional` in the real knowledge table, so no
+    `unknown` entry remains under `F.mul_add_no_fuse` to read this off of.
     """
-    knowledge = load_knowledge()
-    cost = knowledge.patterns["F.mul_add_no_fuse"]["_mm_madd_epi16"]
-    assert cost.transform_status is TransformStatus.UNKNOWN
+    cost = CostInfo(
+        key="_mm_fake",
+        simde_insns=4,
+        native_insns=None,
+        suggestion=None,
+        source="x86/fake.h:1",
+        transform_status=TransformStatus.UNKNOWN,
+    )
 
     with_suggestion = replace(cost, suggestion="smlal_s16")
     graded = _grade_for(with_suggestion)
