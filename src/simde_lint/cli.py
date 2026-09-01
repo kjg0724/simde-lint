@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from . import __version__
 from .analyze import analyze, is_failure, read_sources
 from .finding import Evidence
 from .knowledge import load_knowledge
@@ -21,6 +22,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="simde-lint",
         description="Detect SIMDe emulation inefficiencies in x86 intrinsic code ported to ARM NEON",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
     parser.add_argument("paths", nargs="+", type=Path, help="files or directories to scan")
     parser.add_argument("--format", choices=["text", "json"], default="text")

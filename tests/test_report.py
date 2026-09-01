@@ -3,6 +3,7 @@ import re
 
 import pytest
 
+import simde_lint
 from simde_lint.finding import Evidence, Finding, Reason
 from simde_lint.report.json import render_json
 from simde_lint.report.text import render_text
@@ -77,6 +78,24 @@ def test_json_finding_adds_mask_source_and_raw_name_only_when_present():
     )
     data = json.loads(render_json([finding], simde_version="0.8.4"))
     assert set(data["findings"][0].keys()) == _MANDATORY_JSON_KEYS | {"mask_source", "raw_name"}
+
+
+def test_json_carries_the_tool_version_that_produced_the_report():
+    # A detached JSON report cannot otherwise say which release's analysis
+    # semantics produced it (CHANGELOG 2.1.0: v2.0.0 and v2.1.0 disagree on
+    # rule M's count over the same corpus). The emitted value must track
+    # `simde_lint.__version__` itself, not a copy of it, so the two cannot
+    # drift the way `__version__` once drifted from the package metadata.
+    data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
+    assert data["simde_lint_version"] == simde_lint.__version__
+
+
+def test_json_places_the_tool_version_before_the_simde_version():
+    # Ordering, not just presence: a reader scanning the top of the document
+    # should see which tool version produced it right beside which SIMDe
+    # version it modelled, not buried after the findings.
+    data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
+    assert list(data.keys())[:2] == ["simde_lint_version", "simde_version"]
 
 
 def test_json_summary_counts_by_rule_with_its_mechanism():

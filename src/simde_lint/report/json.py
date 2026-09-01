@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
+from .. import __version__
 from ..finding import Finding, SORT_KEYS
 
 
@@ -15,6 +16,12 @@ def render_json(findings: list[Finding], simde_version: str, *, sort: str = "ben
     types = {f.rule: f.type for f in findings}
     by_rule = Counter(f.rule for f in findings)
     document = {
+        # Read from the package rather than taken as a parameter: the value
+        # a report claims for the tool that produced it must be the tool
+        # that is actually running, not whatever a caller happened to pass,
+        # so there is exactly one place this can drift from
+        # `simde_lint.__version__` -- nowhere.
+        "simde_lint_version": __version__,
         "simde_version": simde_version,
         "findings": [f.to_dict() for f in sorted(findings, key=SORT_KEYS[sort])],
         "summary": {

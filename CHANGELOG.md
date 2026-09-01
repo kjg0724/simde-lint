@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- **The JSON report did not say which version of the tool produced it.**
+  `simde_version` names the SIMDe release the tool models, but nothing named
+  `simde-lint` itself, and the two are not interchangeable: as 2.1.0's own
+  entry below records, v2.0.0 and v2.1.0 disagree on rule M's count over the
+  same corpus, so a detached report file gave a reader no way to tell which
+  analysis semantics produced it. The document now leads with
+  `simde_lint_version`, read from `simde_lint.__version__` at render time so
+  it cannot drift from the field it names — an additive schema change; every
+  key `--format json` already emitted is still emitted, unmoved, in the same
+  order. `--version` prints the same string and exits 0; the text format is
+  untouched, since a header on every terminal report would be noise and
+  would break existing snapshots and scripts.
+
+  `__version__` and `pyproject.toml` now read `2.2.0.dev0` rather than
+  `2.1.0`: `main` has moved past the `v2.1.0` tag with two merged
+  correctness fixes (below), and continuing to report `2.1.0` from a report
+  key meant to answer "which version produced this" would manufacture
+  exactly the ambiguity this change exists to remove. The `.dev0` suffix
+  stays until the commit that cuts `v2.2.0`.
+
 ### Fixed
 
 - **A call buried in a value-transforming expression was still read as its

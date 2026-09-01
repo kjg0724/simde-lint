@@ -9,3 +9,6 @@ build/
 # Local editor and tooling state -- not part of the published project.
 .omc/
 .serena/
+.ruff_cache/
+.claude/settings.local.json
+.superpowers/
