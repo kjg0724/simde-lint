@@ -119,6 +119,54 @@ def test_dump_symbols_survives_an_unreadable_file(tmp_path, capsys):
     assert "m" in capsys.readouterr().out
 
 
+def test_version_flag_prints_the_version_and_exits_zero(capsys):
+    import simde_lint
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+    assert excinfo.value.code == 0
+    assert simde_lint.__version__ in capsys.readouterr().out
+
+
+def test_json_reports_the_tool_version_alongside_the_simde_version(tmp_path, capsys):
+    import simde_lint
+
+    main([_write(tmp_path), "--format", "json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["simde_lint_version"] == simde_lint.__version__
+
+
+# Baseline captured from the pre-change text renderer over the module-level
+# SOURCE fixture, with the temp file's absolute path swapped for a
+# placeholder (the path itself is not stable across runs). This change adds
+# a key to the JSON document only -- the text renderer must not move a
+# single byte, or existing snapshots and scripts that scrape the text format
+# would silently start seeing different output.
+_TEXT_BASELINE = """<FILE>:4  S (pshufb->tbl guard only)  evidence=C (unresolved)
+    _mm_shuffle_epi8 in kernel
+    SIMDe 0.8.4 guards the tbl index on every call; mask is produced by a call with unknown lanes (x86/ssse3.h:346)
+    no suggestion offered (instruction count unknown)
+
+<FILE>:3  R (zero-init before partial load)  evidence=A
+    _mm_loadu_si32 in kernel
+    SIMDe 0.8.4 expands _mm_loadu_si32 to vsetq_lane_s32(*ptr, vdupq_n_s32(0), 0) zeroes the vector before a lane load (x86/sse2.h:5760); removing the zero-init is safe only if the vector's unused lanes are dead in the code that consumes the result, which this rule does not establish
+    suggestion: vld1q_lane_s32 (2 -> 1 instructions)
+
+Summary: 2 findings
+  R (zero-init before partial load) [R.zero_init_partial_load]: 1
+  S (pshufb->tbl guard only) [S.pshufb_guard]: 1
+  evidence A: 1
+  evidence C: 1
+"""
+
+
+def test_text_format_is_byte_unchanged_for_a_fixture_that_previously_produced_output(tmp_path, capsys):
+    path = _write(tmp_path)
+    main([path])
+    output = capsys.readouterr().out.replace(path, "<FILE>")
+    assert output == _TEXT_BASELINE
+
+
 def test_the_declared_version_matches_the_package_metadata():
     """`__version__` drifted from 0.1.0 through four releases unnoticed.
 
