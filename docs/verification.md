@@ -22,10 +22,44 @@ counts, and the file-count footnotes in Section 1 record a case where it did.
 | SVT-AV1 | `094b2a5262c465c60c33fd4e7e0c79a0aa564a32` | 2026-08-18 |
 | VVenC | `0f2e874451d6b194615e5dfefdc96796a7da00f4` | 2026-08-11 |
 
-Every command in this document was re-run on the day this file was last
-updated (v1.2: intrinsic calls inside `#define` bodies are analysed; see
-Section 5). Reference checkouts are given through the `SIMDE_LINT_SVT_AV1`
-and `SIMDE_LINT_VVENC` environment variables (see CONTRIBUTING.md); the
+**Where to get them.** These are the trees the figures in this document and
+in the paper were measured on, and both can be fetched without an account:
+
+| Codebase | Repository | Reachable as |
+|---|---|---|
+| SVT-AV1 | `https://gitlab.com/kjg0724/SVT-AV1.git` | tag `simde-lint-v2.1.0-corpus` |
+| VVenC | `https://github.com/fraunhoferhhi/vvenc.git` | `master` (`v1.14.0-162-g0f2e874`) |
+
+VVenC's revision is an ordinary ancestor of the project's own `master`, so
+nothing beyond the upstream URL is needed for it.
+
+SVT-AV1's is not. It was created on a fork's feature branch that was later
+amended past it, so no branch reaches it and it is not in AOMediaCodec's
+repository. The tag above exists for exactly that reason: it is the durable
+public ref for the tree the published SVT-AV1 figures were measured on, and
+without it the commit's survival would depend on when the host next collects
+unreachable objects. To confirm a copy is the right one:
+
+```bash
+git fetch --depth 1 https://gitlab.com/kjg0724/SVT-AV1.git simde-lint-v2.1.0-corpus
+git rev-parse FETCH_HEAD^{commit}
+# 094b2a5262c465c60c33fd4e7e0c79a0aa564a32
+```
+
+The figures are not re-measured against a newer revision. They describe these
+trees, the paper reports them, and replacing them with numbers from different
+source would make this document appear to corroborate the paper while
+measuring something else. Later measurements, if any, belong beside these as a
+separate baseline rather than in place of them.
+
+The measurement commands in this document were last run in full for v2.1.0,
+against the revisions above (v1.2: intrinsic calls inside `#define` bodies
+are analysed; see Section 5). The anonymous retrieval commands in the
+paragraph above were verified on 2026-09-01. Dating these separately is
+deliberate: an edit that adds provenance is not a re-measurement, and this
+document exists to keep the two apart. Reference checkouts are given through
+the `SIMDE_LINT_SVT_AV1` and `SIMDE_LINT_VVENC` environment variables (see
+CONTRIBUTING.md); the
 checkout-dependent tests skip cleanly when they are unset, the same as for a
 contributor with neither clone.
 
