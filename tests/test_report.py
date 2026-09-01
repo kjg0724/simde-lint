@@ -83,11 +83,25 @@ def test_json_finding_adds_mask_source_and_raw_name_only_when_present():
 def test_json_carries_the_tool_version_that_produced_the_report():
     # A detached JSON report cannot otherwise say which release's analysis
     # semantics produced it (CHANGELOG 2.1.0: v2.0.0 and v2.1.0 disagree on
-    # rule M's count over the same corpus). The emitted value must track
-    # `simde_lint.__version__` itself, not a copy of it, so the two cannot
-    # drift the way `__version__` once drifted from the package metadata.
+    # rule M's count over the same corpus).
     data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
     assert data["simde_lint_version"] == simde_lint.__version__
+
+
+def test_json_reads_the_version_at_render_time_not_at_import_time(monkeypatch):
+    """The assertion above cannot tell a live read from a stale duplicate.
+
+    It compares two values that started out equal, so it passes either way.
+    `from .. import __version__` binds the string when the renderer module is
+    first imported -- a copy, which is exactly what carrying the version is
+    meant not to have -- and the earlier test still passed with that binding
+    in place. Mutating the attribute is what distinguishes the two: only a
+    renderer that dereferences `simde_lint.__version__` at render time
+    follows it.
+    """
+    monkeypatch.setattr(simde_lint, "__version__", "test-version")
+    data = json.loads(render_json(FINDINGS, simde_version="0.8.4"))
+    assert data["simde_lint_version"] == "test-version"
 
 
 def test_json_places_the_tool_version_before_the_simde_version():

@@ -12,7 +12,7 @@
   analysis semantics produced it. The document now leads with
   `simde_lint_version`, read from `simde_lint.__version__` at render time so
   it cannot drift from the field it names — an additive schema change; every
-  key `--format json` already emitted is still emitted, unmoved, in the same
+  key `--format json` already emitted is still emitted, in the same relative
   order. `--version` prints the same string and exits 0; the text format is
   untouched, since a header on every terminal report would be noise and
   would break existing snapshots and scripts.
