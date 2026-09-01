@@ -24,8 +24,30 @@ SIMDE_LINT_SVT_AV1=/path/to/svt-av1 SIMDE_LINT_VVENC=/path/to/vvenc \
 
 Those tests skip cleanly — not fail — when the checkout isn't present (via
 either the environment variable or the default path), so the rest of the
-suite stays runnable without either clone. Run a single test file the same
-way:
+suite stays runnable without either clone.
+
+**Point them at a checkout pinned to the measured revision.** The figures
+those tests assert were measured against specific commits, recorded in
+`_PINNED` in `tests/test_verification.py`, so a checkout at any other
+revision makes them skip with a message naming both revisions. That is the
+guard working — a different tree gives different counts, and a silent pass
+would be the failure — but it means a working tree you are also developing
+in will stop exercising them the moment it moves.
+
+VVenC's revision is an ancestor of the project's own `master`. SVT-AV1's is
+not, and is reachable as the tag `simde-lint-v2.1.0-corpus`:
+
+```bash
+git clone --depth 1 -b simde-lint-v2.1.0-corpus \
+  https://gitlab.com/kjg0724/SVT-AV1.git svt-av1-corpus
+export SIMDE_LINT_SVT_AV1=$PWD/svt-av1-corpus
+```
+
+The same tree is attached to the `v2.2.0` release as a bundle and a source
+snapshot; `docs/verification.md` records their checksums and how to confirm
+one restores the right commit.
+
+Run a single test file the same way:
 
 ```bash
 uv run pytest tests/test_rule_suboptimal.py -v
