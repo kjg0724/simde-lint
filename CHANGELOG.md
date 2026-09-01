@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.2.0 — 2026-09-01
 
 ### Added
 
@@ -17,12 +17,15 @@
   untouched, since a header on every terminal report would be noise and
   would break existing snapshots and scripts.
 
-  `__version__` and `pyproject.toml` now read `2.2.0.dev0` rather than
-  `2.1.0`: `main` has moved past the `v2.1.0` tag with two merged
-  correctness fixes (below), and continuing to report `2.1.0` from a report
-  key meant to answer "which version produced this" would manufacture
-  exactly the ambiguity this change exists to remove. The `.dev0` suffix
-  stays until the commit that cuts `v2.2.0`.
+  When version recording landed, at `a722b1d`, `__version__` and
+  `pyproject.toml` advanced from `2.1.0` to `2.2.0.dev0`. Reporting `2.1.0`
+  from a `main` that had already moved past that tag — by the two
+  correctness fixes below, both of which were on `main` under the old
+  version — would have manufactured, from a key whose whole purpose is
+  answering "which version produced this", exactly the ambiguity the key
+  exists to remove. Reports produced from `a722b1d` until this release
+  therefore identify themselves as `2.2.0.dev0`, which is neither tagged
+  release. Development after this one resumes at the next `.dev0`.
 
 ### Fixed
 

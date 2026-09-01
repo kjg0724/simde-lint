@@ -46,6 +46,48 @@ git rev-parse FETCH_HEAD^{commit}
 # 094b2a5262c465c60c33fd4e7e0c79a0aa564a32
 ```
 
+**A copy that does not depend on that fork.** A tag survives garbage
+collection; it does not survive the fork being deleted, made private, or
+losing its account. The `v2.2.0` release therefore carries the same tree as
+two assets, either of which reconstructs it with no network access:
+
+| Asset | Size | SHA-256 |
+|---|---|---|
+| `svt-av1-corpus-simde-lint-v2.2.0.bundle` | 75 MB | `49a73b16265d8c27b4e82a3d245a34da950c88908c2eac12841c8def00ce6502` |
+| `svt-av1-corpus-simde-lint-v2.2.0.tar.gz` | 11 MB | `90b6e997057d1b6e4423fd01d18abc745746903c0518eb96f6cfc2344a601c4c` |
+
+```bash
+git clone svt-av1-corpus-simde-lint-v2.2.0.bundle svt-av1
+git -C svt-av1 rev-parse HEAD
+git -C svt-av1 rev-parse refs/tags/simde-lint-v2.1.0-corpus^{commit}
+# both: 094b2a5262c465c60c33fd4e7e0c79a0aa564a32
+tar xzf svt-av1-corpus-simde-lint-v2.2.0.tar.gz   # svt-av1-094b2a52.../
+```
+
+The bundle carries the annotated tag and, pointing at the same commit, a
+branch of the same name. That branch is checkout scaffolding and nothing
+else: it exists so a plain `git clone` of the bundle lands on the right tree
+instead of refusing to check anything out. The tag is what carries the
+provenance, which is why both are checked above — `HEAD` says the checkout
+landed where it should, and the tag says the provenance ref points at the
+same commit.
+
+Because the two share a name, spell the tag out as `refs/tags/...`. The bare
+`simde-lint-v2.1.0-corpus` is ambiguous inside this bundle and git will say
+so; it resolves anyway, but not because anything checked which ref it picked.
+
+Three identities are worth keeping apart, because they authenticate
+different things:
+
+| | | Authenticates |
+|---|---|---|
+| commit | `094b2a5262c465c60c33fd4e7e0c79a0aa564a32` | the exact revision, with its history |
+| tree | `93f9f0167c94c8cac54cc5b9903bf60b260dc6d5` | the source tree, independent of history |
+| asset | the SHA-256 values above | the bytes you downloaded |
+
+The snapshot attests the tree only. It cannot show the tree came from that
+commit — the bundle is what does that.
+
 The figures are not re-measured against a newer revision. They describe these
 trees, the paper reports them, and replacing them with numbers from different
 source would make this document appear to corroborate the paper while
