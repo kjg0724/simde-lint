@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding
+from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit
 from .base import Context, location_fields, raw_name_if_aliased
 
@@ -23,7 +23,20 @@ class RedundantRule:
                 type=self.type,
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
-                evidence=Evidence.A,
+                # C, not A: the rationale below says the transform is safe only
+                # when the unused lanes are dead in the consumer, and this rule
+                # never looks at the consumer. Grading A said the opposite of
+                # the sentence it shipped alongside.
+                #
+                # TRANSFORM_REQUIRES_CONTEXT rather than GUARD_REQUIRED, per the
+                # definitions in `finding.py`: GUARD_REQUIRED is for a guard the
+                # rule examined and found load-bearing, as rule S does with a
+                # mask lane provably out of range. Here the call was seen
+                # clearly and a condition was not checked, which is the other
+                # one -- and the vocabulary exists so the two are not
+                # interchangeable.
+                evidence=Evidence.C,
+                reason=Reason.TRANSFORM_REQUIRES_CONTEXT,
                 file=unit.file,
                 line=call.line,
                 **location_fields(unit),

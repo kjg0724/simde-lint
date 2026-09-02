@@ -56,13 +56,19 @@ def _suggestion_line(finding: Finding) -> str:
         return f"    no suggestion offered ({counts})"
     if finding.reason is Reason.TRANSFORM_REQUIRES_CONTEXT:
         # A conditional suggestion must not read like the unconditional
-        # replacement line below: the rule has not verified the condition
-        # (a horizontal-reduction consumer) holds at this call site. Read
-        # from `reason`, which the rule has already decided, never from
-        # `transform_status` -- Finding does not carry that field, and a
-        # reporter reasoning about it directly would be re-deciding a
-        # grading question that belongs to the rule.
-        return f"    conditional suggestion: {finding.suggestion} before horizontal reduction ({counts})"
+        # replacement line below: the rule has not verified that the
+        # condition holds at this call site. Read from `reason`, which the
+        # rule has already decided, never from `transform_status` -- Finding
+        # does not carry that field, and a reporter reasoning about it
+        # directly would be re-deciding a grading question that belongs to
+        # the rule.
+        #
+        # Which condition is deliberately not named here. It is a per-rule
+        # fact and the rationale states it: rule F's is a horizontal-reduction
+        # consumer, drawn from an adjudicated knowledge entry; rule R's is
+        # dead unused lanes, which is rule logic. Naming one of them on this
+        # line made every rule that reports this reason inherit F's sentence.
+        return f"    conditional suggestion: {finding.suggestion} ({counts})"
     return f"    suggestion: {finding.suggestion} ({counts})"
 
 

@@ -1,4 +1,4 @@
-from simde_lint.finding import Evidence
+from simde_lint.finding import Evidence, Reason
 from simde_lint.report.text import render_text
 from simde_lint.rules.redundant import RedundantRule
 
@@ -41,9 +41,23 @@ def test_reports_loadu_si64_with_the_cost_it_inherits_from_cvtsi64_si128(run_rul
     assert "sse2.h:3652" in finding.rationale
 
 
-def test_grades_every_finding_a_and_marks_it_diagnostic(run_rule):
+def test_grades_every_finding_c_for_the_condition_it_does_not_check(run_rule):
+    """Grade and reason together, because the grade alone does not pin this.
+
+    R graded A until this change, with the dead-lane caveat carried in the
+    rationale instead. The two contradicted each other: A asserts the rule
+    resolved everything it depends on, and the sentence beside it said the
+    condition the transform needs is not established.
+
+    The reason is as load-bearing as the grade. `GUARD_REQUIRED` would say
+    this rule examined a guard and found it load-bearing, which is rule S's
+    case, not this one; `UNRESOLVED` would say it could not see far enough,
+    when in fact it saw the call clearly and did not look at the consumer.
+    Asserting only `Evidence.C` would pass under either wrong reason.
+    """
     for finding in run_rule(RedundantRule(), "redundant_positive.c"):
-        assert finding.evidence is Evidence.A
+        assert finding.evidence is Evidence.C
+        assert finding.reason is Reason.TRANSFORM_REQUIRES_CONTEXT
         assert finding.type == "R"
         assert finding.rule_mechanism
 
