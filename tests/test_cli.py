@@ -12,7 +12,12 @@ SOURCE = """
 void kernel(const int *src, __m128i data) {
     __m128i a = _mm_loadu_si32(src);
     __m128i b = _mm_shuffle_epi8(data, _mm_loadu_si128((const __m128i *)src));
-    (void)a; (void)b;
+    /* Grades A, and is here so the --min-evidence filter has something to
+       keep. R and S both grade C on this fixture, so without an A finding
+       that test can only assert over an empty list. */
+    __m128i p = _mm_mullo_epi32(data, data);
+    __m128i s = _mm_add_epi32(p, data);
+    (void)a; (void)b; (void)s;
 }
 """
 
@@ -142,21 +147,27 @@ def test_json_reports_the_tool_version_alongside_the_simde_version(tmp_path, cap
 # a key to the JSON document only -- the text renderer must not move a
 # single byte, or existing snapshots and scripts that scrape the text format
 # would silently start seeing different output.
-_TEXT_BASELINE = """<FILE>:4  S (pshufb->tbl guard only)  evidence=C (unresolved)
+_TEXT_BASELINE = """<FILE>:8  F (multiply-add not fused)  evidence=A
+    _mm_mullo_epi32 in kernel
+    _mm_mullo_epi32 at line 8 reaches _mm_add_epi32 at line 9; the multiply and the accumulate are emitted as separate instructions; NEON fuses this into vmlaq_s32 for some accumulator shapes (x86/sse4.1.h:2077)
+    suggestion: vmlaq_s32 (2 -> 1 instructions)
+
+<FILE>:4  S (pshufb->tbl guard only)  evidence=C (unresolved)
     _mm_shuffle_epi8 in kernel
     SIMDe 0.8.4 guards the tbl index on every call; mask is produced by a call with unknown lanes (x86/ssse3.h:346)
     no suggestion offered (instruction count unknown)
 
-<FILE>:3  R (zero-init before partial load)  evidence=A
+<FILE>:3  R (zero-init before partial load)  evidence=C (transform_requires_context)
     _mm_loadu_si32 in kernel
-    SIMDe 0.8.4 expands _mm_loadu_si32 to vsetq_lane_s32(*ptr, vdupq_n_s32(0), 0) zeroes the vector before a lane load (x86/sse2.h:5760); removing the zero-init is safe only if the vector's unused lanes are dead in the code that consumes the result, which this rule does not establish
-    suggestion: vld1q_lane_s32 (2 -> 1 instructions)
+    SIMDe 0.8.4 implements _mm_loadu_si32 as follows: vsetq_lane_s32(*ptr, vdupq_n_s32(0), 0) zeroes the vector before a lane load (x86/sse2.h:5760). That explicitly constructs the zero-valued lanes the intrinsic is defined to produce; removing the work may be lower-cost where those lanes are dead in the consuming code, but this rule does not analyse the consumer and so offers no replacement
+    no suggestion offered (SIMDe expansion: 2 instructions; replacement count unknown)
 
-Summary: 2 findings
+Summary: 3 findings
+  F (multiply-add not fused) [F.mul_add_no_fuse]: 1
   R (zero-init before partial load) [R.zero_init_partial_load]: 1
   S (pshufb->tbl guard only) [S.pshufb_guard]: 1
   evidence A: 1
-  evidence C: 1
+  evidence C: 2
 """
 
 

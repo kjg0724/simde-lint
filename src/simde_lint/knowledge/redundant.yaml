@@ -1,34 +1,43 @@
-# Intrinsics whose SIMDe AArch64 expansion begins with a zero-initialization
-# that a native NEON load does not need.
+# Intrinsics whose SIMDe AArch64 expansion explicitly constructs the
+# zero-valued lanes the x86 semantics require.
+#
+# No `suggestion` here, deliberately. Removing that construction is only
+# lower-cost when the zeroed lanes are dead in the consuming code, and rule R
+# does not look at the consumer -- so any replacement named here would either
+# restate the expansion (`vsetq_lane_s32` is the idiomatic spelling of what
+# SIMDe already writes) or drop lanes the intrinsic is defined to produce.
+# The rationale states the condition instead.
+#
+# `native_insns: unknown` for the same reason, and deliberately spelled out
+# rather than omitted -- the loader requires the field, so an entry must
+# declare that it does not know rather than leave it out and be defaulted.
+# The SIMDe-side count is not in question and stays; only the replacement
+# side is conditional, and printing it as a bare `2 -> 1` restated in numbers
+# the unconditional claim the missing suggestion withdraws.
 simde_version: "0.8.4"
 intrinsics:
   _mm_loadu_si32:
     simde_insns: 2
-    native_insns: 1
-    suggestion: vld1q_lane_s32
+    native_insns: unknown
     source: x86/sse2.h:5760
     note: vsetq_lane_s32(*ptr, vdupq_n_s32(0), 0) zeroes the vector before a lane load
   _mm_cvtsi32_si128:
     simde_insns: 2
-    native_insns: 1
-    suggestion: vsetq_lane_s32
+    native_insns: unknown
     source: x86/sse2.h:3587
     note: vsetq_lane_s32(a, vdupq_n_s32(0), 0) builds a zero vector before inserting lane 0
   _mm_cvtsi64_si128:
     simde_insns: 2
-    native_insns: 1
-    suggestion: vsetq_lane_s64
+    native_insns: unknown
     source: x86/sse2.h:3652
     note: vsetq_lane_s64(a, vdupq_n_s64(0), 0) builds a zero vector before inserting lane 0
   _mm_loadl_epi64:
     simde_insns: 2
-    native_insns: 1
-    suggestion: vld1q_lane_s64
+    native_insns: unknown
     source: x86/sse2.h:4163
     note: vcombine_s64(vld1_s64(mem_addr), vdup_n_s64(0)) explicitly zeroes the upper half a native 64-bit load already zeroes as a side effect
   _mm_loadu_si64:
     simde_insns: 2
-    native_insns: 1
-    suggestion: vsetq_lane_s64
+    native_insns: unknown
     source: x86/sse2.h:5844
     note: returns simde_mm_cvtsi64_si128(val) (x86/sse2.h:5844), which itself expands to vsetq_lane_s64(a, vdupq_n_s64(0), 0) (x86/sse2.h:3652) — the zero-init and the cost are inherited from that call, not introduced at this line

@@ -1,5 +1,65 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Rule R graded A while disclaiming the condition its transform depends
+  on.** Every R finding carried evidence A -- the grade that says the rule
+  resolved everything it depends on -- beside a rationale ending "removing
+  the zero-init is safe only if the vector's unused lanes are dead in the
+  code that consumes the result, which this rule does not establish". The
+  rule never looks at the consumer, so the sentence was right and the grade
+  was not.
+
+  This was a deliberate choice rather than an oversight: the test carried the
+  comment "R always grades A (evidence is purely structural)", leaving the
+  caveat to the prose. A caveat the grade contradicts is not carried by prose.
+
+  R now grades C with `transform_requires_context` -- not `guard_required`,
+  which is for a guard the rule examined and found load-bearing, as rule S
+  does with a mask lane provably out of range. R saw the call clearly and did
+  not check a condition, which is the other reason. Both grade C, so only the
+  reported reason differs, and the vocabulary exists so they are not
+  interchangeable.
+
+  **1816 SVT-AV1 and 106 VVenC findings move from A to C.** Totals and
+  taxonomy-type counts do not change: SVT-AV1 stays 3264 and VVenC 449, with
+  every type count identical. `docs/verification.md` keeps each tagged
+  release's split as that release emitted it and records the current one
+  beside it. The paper reports taxonomy-type counts, not the evidence
+  distribution, so nothing in print is affected.
+
+- **Rule R suggested the intrinsic its own note called wasteful.** Three of
+  the five entries suggested `vsetq_lane_s32`/`vsetq_lane_s64` while the note
+  identified `vsetq_lane_s32(a, vdupq_n_s32(0), 0)` as the redundancy -- the
+  reader was told to write what SIMDe already writes. The other two named a
+  lane load that still takes a destination vector, so it does not avoid the
+  zero-init either.
+
+  All five suggestions are withdrawn, and `native_insns` with them: only the
+  replacement side was conditional, so `simde_insns` stays and the report now
+  reads "SIMDe expansion: 2 instructions; replacement count unknown" rather
+  than collapsing a known fact into "instruction count unknown". A bare
+  `2 -> 1` restated in numbers the claim the withdrawn suggestion had made.
+
+- **The reporter attached one rule's condition to every rule sharing its
+  reason.** The conditional-suggestion line hardcoded "before horizontal
+  reduction", rule F's condition, for anything carrying
+  `TRANSFORM_REQUIRES_CONTEXT`. Rule R inherited it on the change above and
+  advised a horizontal reduction about zero-initialized lanes. The line is
+  now generic and each rule states its own condition in its rationale, where
+  the ownership already differs: F's comes from an adjudicated knowledge
+  entry, R's is rule logic.
+
+- **`README.md` and `CONTRIBUTING.md` declared evidence grades the code does
+  not emit.** Both listed rule F as `{A, B}`; F emits C on 245 SVT-AV1 and
+  117 VVenC findings, and `tests/test_evidence_conformance.py` -- the table
+  CONTRIBUTING says enforces this -- already declared `{A, B, C}`. README
+  also described the C case in prose three sections earlier. R's entry and
+  the type table's "NEON alternative" column are corrected for the changes
+  above.
+
 ## 2.2.0 — 2026-09-01
 
 ### Added

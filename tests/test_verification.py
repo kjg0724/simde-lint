@@ -418,7 +418,7 @@ def test_published_svt_av1_aggregates_still_hold():
     assert _aggregate(findings) == {
         "total": 3264,
         "type": {"R": 1816, "F": 1019, "S": 341, "M": 56, "P": 31, "W": 1},
-        "evidence": {"A": 2661, "B": 52, "C": 551},
+        "evidence": {"A": 845, "B": 52, "C": 2367},
     }
 
 
@@ -431,5 +431,5 @@ def test_published_vvenc_aggregates_still_hold():
     assert _aggregate(findings) == {
         "total": 449,
         "type": {"S": 164, "F": 135, "R": 106, "M": 23, "W": 17, "P": 4},
-        "evidence": {"A": 207, "B": 87, "C": 155},
+        "evidence": {"A": 101, "B": 87, "C": 261},
     }

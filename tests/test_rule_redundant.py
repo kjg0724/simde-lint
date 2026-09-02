@@ -13,15 +13,17 @@ def test_reports_every_registered_redundant_intrinsic(run_rule):
     }
 
 
-def test_reports_loadl_epi64_with_its_own_suggestion_and_cost(run_rule):
+def test_reports_loadl_epi64_with_its_own_expansion_cost(run_rule):
     findings = [
         f for f in run_rule(RedundantRule(), "redundant_positive.c")
         if f.intrinsic == "_mm_loadl_epi64"
     ]
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.suggestion == "vld1q_lane_s64"
-    assert (finding.simde_insns, finding.native_insns) == (2, 1)
+    assert finding.suggestion is None
+    # The SIMDe side is read straight out of the header and stays; only the
+    # replacement side depends on a consumer this rule does not analyse.
+    assert (finding.simde_insns, finding.native_insns) == (2, None)
 
 
 def test_reports_loadu_si64_with_the_cost_it_inherits_from_cvtsi64_si128(run_rule):
@@ -34,8 +36,8 @@ def test_reports_loadu_si64_with_the_cost_it_inherits_from_cvtsi64_si128(run_rul
     ]
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.suggestion == "vsetq_lane_s64"
-    assert (finding.simde_insns, finding.native_insns) == (2, 1)
+    assert finding.suggestion is None
+    assert (finding.simde_insns, finding.native_insns) == (2, None)
     assert "simde_mm_cvtsi64_si128" in finding.rationale
     assert "sse2.h:5844" in finding.rationale
     assert "sse2.h:3652" in finding.rationale
@@ -81,16 +83,22 @@ def test_a_call_inside_a_macro_body_is_attributed_to_the_macro_not_a_function(ru
     assert "(macro)" in render_text([findings[0]])
 
 
-def test_rationale_states_the_dead_lane_condition_the_rule_does_not_establish(run_rule):
-    # I3: R always grades A (evidence is purely structural), but the
-    # transform is only actually safe when the upper/unused lanes turn out
-    # to be dead afterward — a fact this rule cannot see. The suggestion
-    # stays (it is still the right transform if that condition holds), but
-    # the rationale must say so rather than imply the removal is unconditionally
-    # safe.
+def test_offers_no_replacement_and_says_why(run_rule):
+    """Three places used to claim more than the rule establishes; none may now.
+
+    The grade said the rule had resolved what it depends on, the suggestion
+    named a replacement, and `2 -> 1` put a saving on it. All three rested on
+    the zeroed lanes being dead in the consumer, which this rule never looks
+    at. Asserting only that the suggestion is gone would leave the count free
+    to make the same claim in numbers.
+
+    `simde_insns` stays: the expansion is read straight out of the header and
+    is not in question. Only the replacement side is conditional.
+    """
     for finding in run_rule(RedundantRule(), "redundant_positive.c"):
-        assert finding.suggestion
+        assert finding.suggestion is None
+        assert finding.native_insns is None
         assert finding.simde_insns is not None
-        assert finding.native_insns is not None
         assert "dead" in finding.rationale
-        assert "does not establish" in finding.rationale
+        assert "does not analyse the consumer" in finding.rationale
+        assert "offers no replacement" in finding.rationale

@@ -10,8 +10,12 @@ def test_loads_redundant_intrinsics_with_source_citation():
     knowledge = load_knowledge()
     info = knowledge.redundant["_mm_loadu_si32"]
     assert info.simde_insns == 2
-    assert info.native_insns == 1
-    assert info.suggestion == "vld1q_lane_s32"
+    # Both withheld deliberately, and asserted rather than left unchecked: a
+    # replacement for this expansion is only lower-cost when the zeroed lanes
+    # are dead in the consumer, which rule R does not analyse. The expansion
+    # count itself is read from the header and is not in question.
+    assert info.native_insns is None
+    assert info.suggestion is None
     assert info.source.startswith("x86/sse2.h:")
 
 

@@ -42,11 +42,14 @@ class RedundantRule:
                 **location_fields(unit),
                 intrinsic=call.name,
                 rationale=(
-                    f"SIMDe {ctx.knowledge.simde_version} expands {call.name} to "
+                    f"SIMDe {ctx.knowledge.simde_version} implements {call.name} "
+                    f"as follows: "
                     f"{info.note or 'a zero-initialized vector plus a partial load'} "
-                    f"({info.source}); removing the zero-init is safe only if the "
-                    "vector's unused lanes are dead in the code that consumes the "
-                    "result, which this rule does not establish"
+                    f"({info.source}). That explicitly constructs the zero-valued "
+                    "lanes the intrinsic is defined to produce; removing the work "
+                    "may be lower-cost where those lanes are dead in the consuming "
+                    "code, but this rule does not analyse the consumer and so "
+                    "offers no replacement"
                 ),
                 simde_insns=info.simde_insns,
                 native_insns=info.native_insns,
