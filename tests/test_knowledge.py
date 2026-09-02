@@ -59,7 +59,11 @@ def test_every_cost_entry_cites_a_simde_source_line():
 def test_pattern_costs_carry_the_expected_values():
     knowledge = load_knowledge()
     assert knowledge.patterns["S.pshufb_guard"]["_mm_shuffle_epi8"].suggestion == "vqtbl1q_u8"
-    assert knowledge.rule_costs["W.mul16_widen_roundtrip"].suggestion == "vmull_s16"
+    # W has no table suggestion: which widening multiply replaces the
+    # round-trip depends on which unpack consumes it, and only the rule knows
+    # that. Asserted rather than dropped, so restoring the field would have to
+    # be a deliberate act.
+    assert knowledge.rule_costs["W.mul16_widen_roundtrip"].suggestion is None
     assert knowledge.patterns["F.mul_add_no_fuse"]["_mm_mul_epi32"].suggestion == "vmlal_s32"
 
 

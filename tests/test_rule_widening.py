@@ -52,3 +52,20 @@ def test_picks_the_consumer_that_runs_after_the_multiplies_on_a_shared_line(run_
     assert len(findings) == 1
     assert "_mm_unpacklo_epi16" in findings[0].rationale
     assert "_mm_unpackhi_epi16" not in findings[0].rationale
+
+
+def test_the_suggestion_follows_which_half_the_consumer_rebuilds(run_rule):
+    """The knowledge table can only hold one name; the right one depends here.
+
+    `vmull_s16` rebuilds lanes 0-3 and `vmull_high_s16` lanes 4-7. Both are a
+    single instruction, because the rule matches one unpack and so only four
+    lanes of product are ever reconstructed -- the count is right either way
+    and only the name is wrong when the consumer is the high unpack.
+
+    Asserting both halves in one test on purpose: checking only the high case
+    would pass if the suggestion were hardcoded to `vmull_high_s16` instead,
+    which is the same defect facing the other way.
+    """
+    by_function = {f.function: f for f in run_rule(WideningRule(), "widening_positive.c")}
+    assert by_function["kernel"].suggestion == "vmull_s16"
+    assert by_function["high_half"].suggestion == "vmull_high_s16"

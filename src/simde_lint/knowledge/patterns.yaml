@@ -37,7 +37,15 @@ patterns:
     # exactly; there is no second width to key by.
     simde_insns: 5
     native_insns: 1
-    suggestion: vmull_s16
+    # No `suggestion`: which widening multiply replaces the round-trip depends
+    # on which unpack consumes it -- `vmull_s16` rebuilds lanes 0-3 and
+    # `vmull_high_s16` lanes 4-7 -- and only the rule knows which one it
+    # matched. This field held `vmull_s16` unconditionally, which was the
+    # wrong half whenever the consumer was `_mm_unpackhi_epi16`.
+    #
+    # `native_insns: 1` is right for both: the rule matches a single unpack,
+    # so only four lanes of product are ever reconstructed and one widening
+    # multiply is the whole replacement either way.
     source: x86/sse2.h:5188
     note: >-
       mulhi_epi16 alone expands to a widening multiply pair plus an unzip;

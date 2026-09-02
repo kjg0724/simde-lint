@@ -43,6 +43,24 @@
   than collapsing a known fact into "instruction count unknown". A bare
   `2 -> 1` restated in numbers the claim the withdrawn suggestion had made.
 
+- **Rule W suggested the low-half widening multiply whichever unpack
+  consumed the round-trip.** `vmull_s16` rebuilds lanes 0-3 and
+  `vmull_high_s16` lanes 4-7, but the suggestion came from the knowledge
+  table, which can hold only one name. When the consumer was
+  `_mm_unpackhi_epi16` the reader was handed the intrinsic that computes the
+  other half.
+
+  The rule now derives the suggestion from the unpack it matched, and the
+  table's `suggestion` is gone rather than left holding an answer that is
+  wrong half the time. `native_insns: 1` is unchanged and correct for both:
+  the rule matches a single unpack, so four lanes of product are
+  reconstructed either way and one widening multiply is the whole
+  replacement -- only its name differs.
+
+  Latent in both reference corpora: all 18 W findings consume
+  `_mm_unpacklo_epi16`, so no published figure moves and the fixture added
+  here is the only thing that exercises the high-half path.
+
 - **The reporter attached one rule's condition to every rule sharing its
   reason.** The conditional-suggestion line hardcoded "before horizontal
   reduction", rule F's condition, for anything carrying

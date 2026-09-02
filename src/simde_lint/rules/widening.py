@@ -13,7 +13,17 @@ from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
-_UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
+# Which half of the 16-bit lanes the consumer reconstructs, and therefore
+# which widening multiply replaces the round-trip. Both are one instruction --
+# the rule matches a single unpack, so only four lanes of 32-bit product are
+# ever rebuilt -- but they are different instructions, and the knowledge entry
+# can only hold one name. The consumer is what decides, so the rule reads it
+# here rather than the table encoding lo and hi as separate entries.
+_UNPACK_SUGGESTION = {
+    "_mm_unpacklo_epi16": "vmull_s16",
+    "_mm_unpackhi_epi16": "vmull_high_s16",
+}
+_UNPACK = set(_UNPACK_SUGGESTION)
 
 
 def _operand_key(call: IntrinsicCall) -> tuple[str, ...]:
@@ -85,7 +95,11 @@ class WideningRule:
                 ),
                 simde_insns=cost.simde_insns,
                 native_insns=cost.native_insns,
-                suggestion=cost.suggestion,
+                # Not `cost.suggestion`: the table holds `vmull_s16`, which
+                # rebuilds lanes 0-3. When the consumer is the high unpack the
+                # reader needs lanes 4-7 and the same name computes the wrong
+                # half.
+                suggestion=_UNPACK_SUGGESTION[consumer.name],
                 raw_name=raw_name_if_aliased(lo),
             )
 
