@@ -21,7 +21,7 @@ agree, where they diverge, and why.
 
 | Type | Name | What SIMDe does on this call | NEON alternative |
 |---|---|---|---|
-| **R** | Redundant | Zero-initializes a vector before a partial load | Skipping that work, where the zeroed lanes turn out to be dead |
+| **R** | Redundant | Zero-initializes a vector before a partial load | No replacement offered without proving the unused lanes dead |
 | **S** | Suboptimal | Guards a shuffle index for x86 semantics NEON doesn't share | Use the table lookup directly |
 | **W** | Widening | Computes a 16-to-32 widening multiply as two separate ops plus an unpack | One widening multiply instruction |
 | **F** | Fusion miss | Emits a multiply and its accumulate as two instructions | One fused multiply-accumulate |

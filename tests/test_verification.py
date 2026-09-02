@@ -410,7 +410,7 @@ def _aggregate(findings):
 
 
 @requires_svt
-def test_published_svt_av1_aggregates_still_hold():
+def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
     head = _head(SVT_AV1.parent if SVT_AV1.name == "Source" else SVT_AV1)
     if head and head != _PINNED["svt-av1"]:
         pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
@@ -423,7 +423,7 @@ def test_published_svt_av1_aggregates_still_hold():
 
 
 @requires_vvenc
-def test_published_vvenc_aggregates_still_hold():
+def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
     head = _head(VVENC_X86.parents[3])
     if head and head != _PINNED["vvenc"]:
         pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")

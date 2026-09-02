@@ -40,8 +40,11 @@ def test_min_evidence_a_drops_lower_grades(tmp_path, capsys):
     data = json.loads(capsys.readouterr().out)
     # An empty findings list would satisfy all(...) trivially and hide a
     # filter that dropped everything, so require it to have kept something.
-    assert data["findings"]
-    assert all(f["evidence"] == "A" for f in data["findings"])
+    # Pins all three facts the filter depends on: something survived, exactly
+    # what survived, and that it is the F finding rather than "whatever was
+    # left happened to be A". R and S grade C on this fixture and are the
+    # findings being dropped.
+    assert [(f["type"], f["evidence"]) for f in data["findings"]] == [("F", "A")]
 
 
 def test_type_filter_restricts_output(tmp_path, capsys):
@@ -141,12 +144,20 @@ def test_json_reports_the_tool_version_alongside_the_simde_version(tmp_path, cap
     assert data["simde_lint_version"] == simde_lint.__version__
 
 
-# Baseline captured from the pre-change text renderer over the module-level
-# SOURCE fixture, with the temp file's absolute path swapped for a
-# placeholder (the path itself is not stable across runs). This change adds
-# a key to the JSON document only -- the text renderer must not move a
-# single byte, or existing snapshots and scripts that scrape the text format
-# would silently start seeing different output.
+# The current text output over the module-level SOURCE fixture, with the temp
+# file's absolute path swapped for a placeholder (the path itself is not
+# stable across runs).
+#
+# This is a snapshot of what the renderer produces now, not a historical
+# baseline that must never move. It was written for the version-provenance
+# change, where the contract genuinely was "not a single byte", and the rule R
+# grading correction has since replaced it deliberately -- R's grade, reason,
+# rationale and cost line all changed, and the fixture gained an F call site.
+# Regenerating it is the right response to an intended output change; the test
+# exists so an *unintended* one has to be looked at rather than absorbed.
+#
+# The three findings cover the three suggestion-line shapes: an established
+# replacement, both counts unknown, and one side known.
 _TEXT_BASELINE = """<FILE>:8  F (multiply-add not fused)  evidence=A
     _mm_mullo_epi32 in kernel
     _mm_mullo_epi32 at line 8 reaches _mm_add_epi32 at line 9; the multiply and the accumulate are emitted as separate instructions; NEON fuses this into vmlaq_s32 for some accumulator shapes (x86/sse4.1.h:2077)
@@ -171,7 +182,7 @@ Summary: 3 findings
 """
 
 
-def test_text_format_is_byte_unchanged_for_a_fixture_that_previously_produced_output(tmp_path, capsys):
+def test_text_output_matches_the_current_snapshot(tmp_path, capsys):
     path = _write(tmp_path)
     main([path])
     output = capsys.readouterr().out.replace(path, "<FILE>")
