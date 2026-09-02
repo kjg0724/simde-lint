@@ -410,7 +410,7 @@ def _aggregate(findings):
 
 
 @requires_svt
-def test_published_svt_av1_aggregates_still_hold():
+def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
     head = _head(SVT_AV1.parent if SVT_AV1.name == "Source" else SVT_AV1)
     if head and head != _PINNED["svt-av1"]:
         pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
@@ -418,12 +418,12 @@ def test_published_svt_av1_aggregates_still_hold():
     assert _aggregate(findings) == {
         "total": 3264,
         "type": {"R": 1816, "F": 1019, "S": 341, "M": 56, "P": 31, "W": 1},
-        "evidence": {"A": 2661, "B": 52, "C": 551},
+        "evidence": {"A": 845, "B": 52, "C": 2367},
     }
 
 
 @requires_vvenc
-def test_published_vvenc_aggregates_still_hold():
+def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
     head = _head(VVENC_X86.parents[3])
     if head and head != _PINNED["vvenc"]:
         pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
@@ -431,5 +431,5 @@ def test_published_vvenc_aggregates_still_hold():
     assert _aggregate(findings) == {
         "total": 449,
         "type": {"S": 164, "F": 135, "R": 106, "M": 23, "W": 17, "P": 4},
-        "evidence": {"A": 207, "B": 87, "C": 155},
+        "evidence": {"A": 101, "B": 87, "C": 261},
     }

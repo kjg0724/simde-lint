@@ -210,7 +210,12 @@ what recovery can cost. A reader running the command above should see those
 warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
 3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`. Evidence
-`A 2661, B 52, C 551`.
+`A 2661, B 52, C 551` **as `v2.2.0` emitted it**; on `main` since the rule R
+grading correction the same sweep gives `A 845, B 52, C 2367`. The totals and
+the type split are identical — 1816 rule R findings moved from A to C because
+the earlier implementation graded an unverified consumer-dependent condition
+as established. The figure above is left as the tagged release's output so
+this document continues to reproduce it.
 
 > The evidence split moved twice while the type split did not, and the call
 > sites never changed — only what the tool is willing to claim about them.
@@ -375,7 +380,9 @@ them in the `+40` here.)
 A full recursive sweep of the whole `x86/` directory (47 files: the five
 SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 `avx2/` and `sse41/` subdirectories) totals 449 findings — `R 106, S 164,
-F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155`. By scope: **445 in function bodies, 4 in
+F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
+emitted it**; on `main` the same sweep gives `A 101, B 87, C 261`, the 106
+rule R findings having moved from A to C (see Section 1). By scope: **445 in function bodies, 4 in
 macro bodies**; the 445 and its per-type split (`F 131`, everything else as
 printed) are v1.1.0's figures unchanged, and the 4 macro findings are all F,
 in `AffineGradientSearchX86.h`, which is not one of the five modules in the

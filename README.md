@@ -21,7 +21,7 @@ agree, where they diverge, and why.
 
 | Type | Name | What SIMDe does on this call | NEON alternative |
 |---|---|---|---|
-| **R** | Redundant | Zero-initializes a vector before a partial load | Load straight into the lane |
+| **R** | Redundant | Zero-initializes a vector before a partial load | No replacement offered without proving the unused lanes dead |
 | **S** | Suboptimal | Guards a shuffle index for x86 semantics NEON doesn't share | Use the table lookup directly |
 | **W** | Widening | Computes a 16-to-32 widening multiply as two separate ops plus an unpack | One widening multiply instruction |
 | **F** | Fusion miss | Emits a multiply and its accumulate as two instructions | One fused multiply-accumulate |
@@ -288,10 +288,10 @@ reduced to one "primary" type.
 
 | Rule id | Type | What it matches | Evidence grades | What it does not cover |
 |---|---|---|---|---|
-| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {A} always || Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
+| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {C} always || Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
 | `S.pshufb_guard` | S | `_mm_shuffle_epi8` and `_mm256_shuffle_epi8`, graded on whether the shuffle mask's lanes are known to be safe | {A, B, C} || Transpose and blend sequences the paper also classes as Type S — an explicit v1 exclusion, not an oversight (VVenC's LoopFilter has zero `_mm_shuffle_epi8` sites and is exactly this case) |
 | `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit | {A, B} || Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
-| `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32` (128- and 256-bit) reaching an `add_epi32`/`add_epi64`, directly or through one widening conversion hop | {A, B} || A multiply's product reaching two different adds (only the first is reported); widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
+| `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32` (128- and 256-bit) reaching an `add_epi32`/`add_epi64`, directly or through one widening conversion hop | {A, B, C} || A multiply's product reaching two different adds (only the first is reported); widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
 | `M.scalar_insert_chain` | M | A same-target chain of `_mm_insert_epi16/epi32/epi64`/`_mm256_insert_epi16` at or above a configurable threshold (default 3) | {A, B} || The `_mm_cvtsi32_si128` + unpack variant of the same mechanism; stride-pointer loop forms |
 | `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (all-literal calls excluded as constant vectors, not scalar assembly) | {A, B} || The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
 | `P.cmp_immediate_use` | P | A `cmpgt_*`/`cmpeq_*` result (macro aliases included, e.g. VVenC's `_my_cmpgt_epi64`) consumed by the very next call in source order | {A} always || Anything beyond adjacency in source text — source order is an explicit, documented approximation of scheduling order, not a claim about compiler output |

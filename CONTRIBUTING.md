@@ -167,10 +167,10 @@ Type S, for example).
 
    | Rule | Grades |
    |---|---|
-   | R | {A} |
+   | R | {C} |
    | S | {A, B, C} |
    | W | {A, B} |
-   | F | {A, B} |
+   | F | {A, B, C} |
    | M (either mechanism) | {A, B} |
    | P | {A} |
 

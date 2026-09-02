@@ -42,8 +42,20 @@ def _location_label(finding: Finding) -> str:
 
 
 def _counts(finding: Finding) -> str:
-    if finding.simde_insns is None or finding.native_insns is None:
+    """What is known about the cost, without rounding one side down to nothing.
+
+    The two sides are established separately and one is often known while the
+    other is not: rule R reads the SIMDe expansion straight out of the header
+    but cannot say what replaces it, because that depends on a consumer it
+    does not analyse. Collapsing that to "instruction count unknown" threw
+    away a fact the header states plainly.
+    """
+    if finding.simde_insns is None and finding.native_insns is None:
         return "instruction count unknown"
+    if finding.native_insns is None:
+        return f"SIMDe expansion: {finding.simde_insns} instructions; replacement count unknown"
+    if finding.simde_insns is None:
+        return f"replacement: {finding.native_insns} instructions; SIMDe expansion count unknown"
     return f"{finding.simde_insns} -> {finding.native_insns} instructions"
 
 
@@ -56,13 +68,19 @@ def _suggestion_line(finding: Finding) -> str:
         return f"    no suggestion offered ({counts})"
     if finding.reason is Reason.TRANSFORM_REQUIRES_CONTEXT:
         # A conditional suggestion must not read like the unconditional
-        # replacement line below: the rule has not verified the condition
-        # (a horizontal-reduction consumer) holds at this call site. Read
-        # from `reason`, which the rule has already decided, never from
-        # `transform_status` -- Finding does not carry that field, and a
-        # reporter reasoning about it directly would be re-deciding a
-        # grading question that belongs to the rule.
-        return f"    conditional suggestion: {finding.suggestion} before horizontal reduction ({counts})"
+        # replacement line below: the rule has not verified that the
+        # condition holds at this call site. Read from `reason`, which the
+        # rule has already decided, never from `transform_status` -- Finding
+        # does not carry that field, and a reporter reasoning about it
+        # directly would be re-deciding a grading question that belongs to
+        # the rule.
+        #
+        # Which condition is deliberately not named here. It is a per-rule
+        # fact and the rationale states it: rule F's is a horizontal-reduction
+        # consumer, drawn from an adjudicated knowledge entry; rule R's is
+        # dead unused lanes, which is rule logic. Naming one of them on this
+        # line made every rule that reports this reason inherit F's sentence.
+        return f"    conditional suggestion: {finding.suggestion} ({counts})"
     return f"    suggestion: {finding.suggestion} ({counts})"
 
 

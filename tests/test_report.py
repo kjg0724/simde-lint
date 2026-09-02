@@ -166,7 +166,10 @@ UNKNOWN_COST_FINDING = Finding(
 def test_text_renders_an_unknown_cost_as_unknown_not_as_a_number():
     output = render_text([UNKNOWN_COST_FINDING])
     assert "None" not in output
-    assert "instruction count unknown" in output
+    # Partial knowledge is preserved rather than collapsed: this finding
+    # knows the SIMDe side and not the replacement, and saying only
+    # "unknown" discarded a fact the knowledge table states.
+    assert "SIMDe expansion: 4 instructions; replacement count unknown" in output
     assert "no suggestion offered" in output
 
 
@@ -200,6 +203,39 @@ def test_text_renders_a_conditional_suggestion_as_conditional_not_established():
     output = render_text([CONDITIONAL_SUGGESTION_FINDING])
     assert "conditional suggestion: vmlal_s16 / vmlal_high_s16" in output
     assert "    suggestion: vmlal_s16 / vmlal_high_s16" not in output
+
+
+R_CONDITIONAL_SUGGESTION_FINDING = Finding(
+    type="R", rule="R.zero_init_partial_load", rule_mechanism="zero-init before partial load",
+    evidence=Evidence.C, reason=Reason.TRANSFORM_REQUIRES_CONTEXT, file="a.c", line=2,
+    function="kernel", intrinsic="_mm_loadu_si32",
+    rationale=(
+        "SIMDe 0.8.4 zeroes the vector before a lane load; removing that work "
+        "may be safe when the unused lanes are dead in the consuming code, "
+        "which this rule does not establish"
+    ),
+    simde_insns=2, native_insns=1, suggestion="vld1q_lane_s32",
+)
+
+
+def test_a_conditional_suggestion_does_not_inherit_another_rule_s_condition():
+    """Synthetic on purpose: no production rule emits this shape any more.
+
+    The reporter used to print "before horizontal reduction" for every
+    finding carrying `TRANSFORM_REQUIRES_CONTEXT`, which was rule F's
+    condition. When rule R started reporting that reason it inherited the
+    sentence, and an R finding advised a horizontal reduction that has
+    nothing to do with zero-initialized lanes.
+
+    R no longer ships a suggestion, so ordinary output stops exercising the
+    branch entirely. This finding is built by hand so the decoupling stays
+    pinned regardless: which condition applies is a per-rule fact that
+    belongs in the rationale, and the suggestion line must stay generic.
+    """
+    output = render_text([R_CONDITIONAL_SUGGESTION_FINDING])
+    assert "conditional suggestion: vld1q_lane_s32" in output
+    assert "horizontal reduction" not in output
+    assert "    suggestion: vld1q_lane_s32" not in output
 
 
 def test_json_still_carries_the_suggestion_and_reason_for_a_conditional_finding():

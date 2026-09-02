@@ -29,7 +29,10 @@ from simde_lint.symbols import build_symbol_index
 FIXTURES = Path(__file__).parent / "fixtures" / "rules"
 
 ALLOWED: dict[str, set[str]] = {
-    "R.zero_init_partial_load": {"A"},
+    # C only. R reports a transform whose safety depends on the unused lanes
+    # being dead in the consumer, and it never looks at the consumer, so it
+    # has nothing that could grade higher.
+    "R.zero_init_partial_load": {"C"},
     "S.pshufb_guard": {"A", "B", "C"},
     "W.mul16_widen_roundtrip": {"A", "B"},
     "F.mul_add_no_fuse": {"A", "B", "C"},
