@@ -9,8 +9,10 @@ uv run pytest -v
 This runs the full suite, including fixture-based unit tests for every rule.
 A subset of tests (`tests/test_verification.py`) additionally checks
 detection against two external reference checkouts: SVT-AV1 and VVenC. Their
-locations are read from the environment first, falling back to a local
-checkout path when unset:
+locations are supplied through these environment variables; when one is
+unset, the tests that need it skip. There is deliberately no fallback to a
+default path — this repository is public, and a hardcoded location would
+publish one machine's directory layout for no verification benefit.
 
 - `SIMDE_LINT_SVT_AV1` — path to an SVT-AV1 checkout root (the tests look
   for `<root>/Source`)
@@ -24,8 +26,36 @@ SIMDE_LINT_SVT_AV1=/path/to/svt-av1 SIMDE_LINT_VVENC=/path/to/vvenc \
 
 Those tests skip cleanly — not fail — when the checkout isn't present (via
 either the environment variable or the default path), so the rest of the
-suite stays runnable without either clone. Run a single test file the same
-way:
+suite stays runnable without either clone.
+
+**Point them at a checkout pinned to the measured revision.** The figures
+those tests assert were measured against specific commits, recorded in
+`_PINNED` in `tests/test_verification.py`. For a git checkout, a resolvable
+`HEAD` that differs from `_PINNED` makes the aggregate test skip with both
+revisions named. That is the guard working — a different tree gives
+different counts, and a silent pass would be the failure — but it means a
+working tree you are also developing in stops exercising those tests the
+moment it moves.
+
+The guard reads `git rev-parse HEAD`, so it has nothing to inspect in a tree
+that is not a git checkout: the released source snapshot has no `.git`, and
+against it the aggregate test runs rather than skips. Use the tagged clone
+or the bundle when you want the pinned-revision check itself exercised.
+
+VVenC's revision is an ancestor of the project's own `master`. SVT-AV1's is
+not, and is reachable as the tag `simde-lint-v2.1.0-corpus`:
+
+```bash
+git clone --depth 1 -b simde-lint-v2.1.0-corpus \
+  https://gitlab.com/kjg0724/SVT-AV1.git svt-av1-corpus
+export SIMDE_LINT_SVT_AV1=$PWD/svt-av1-corpus
+```
+
+The same tree is attached to the `v2.2.0` release as a bundle and a source
+snapshot; `docs/verification.md` records their checksums and how to confirm
+one restores the right commit.
+
+Run a single test file the same way:
 
 ```bash
 uv run pytest tests/test_rule_suboptimal.py -v
