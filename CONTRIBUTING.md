@@ -9,8 +9,10 @@ uv run pytest -v
 This runs the full suite, including fixture-based unit tests for every rule.
 A subset of tests (`tests/test_verification.py`) additionally checks
 detection against two external reference checkouts: SVT-AV1 and VVenC. Their
-locations are read from the environment first, falling back to a local
-checkout path when unset:
+locations are supplied through these environment variables; when one is
+unset, the tests that need it skip. There is deliberately no fallback to a
+default path — this repository is public, and a hardcoded location would
+publish one machine's directory layout for no verification benefit.
 
 - `SIMDE_LINT_SVT_AV1` — path to an SVT-AV1 checkout root (the tests look
   for `<root>/Source`)
@@ -28,11 +30,17 @@ suite stays runnable without either clone.
 
 **Point them at a checkout pinned to the measured revision.** The figures
 those tests assert were measured against specific commits, recorded in
-`_PINNED` in `tests/test_verification.py`, so a checkout at any other
-revision makes them skip with a message naming both revisions. That is the
-guard working — a different tree gives different counts, and a silent pass
-would be the failure — but it means a working tree you are also developing
-in will stop exercising them the moment it moves.
+`_PINNED` in `tests/test_verification.py`. For a git checkout, a resolvable
+`HEAD` that differs from `_PINNED` makes the aggregate test skip with both
+revisions named. That is the guard working — a different tree gives
+different counts, and a silent pass would be the failure — but it means a
+working tree you are also developing in stops exercising those tests the
+moment it moves.
+
+The guard reads `git rev-parse HEAD`, so it has nothing to inspect in a tree
+that is not a git checkout: the released source snapshot has no `.git`, and
+against it the aggregate test runs rather than skips. Use the tagged clone
+or the bundle when you want the pinned-revision check itself exercised.
 
 VVenC's revision is an ancestor of the project's own `master`. SVT-AV1's is
 not, and is reachable as the tag `simde-lint-v2.1.0-corpus`:
