@@ -71,11 +71,12 @@ def test_grades_b_when_not_every_argument_is_a_direct_variable(run_rule):
 def test_a_chain_never_crosses_a_control_region(run_rule):
     """Every region shape, because each one failed for a different reason.
 
-    Byte order made all of these look like straight-line code. Exclusive arms
-    were merged into a run no execution path assembles, and a loop body was
-    merged with the code before it into a run that only the first iteration
-    would build -- both at evidence A, with instruction counts summed across
-    code that cannot all run.
+    Byte order made all of these look like straight-line code, but the two
+    shapes fail differently. Exclusive arms were merged into a run no
+    execution path assembles. A loop body merged with the code above it is a
+    weaker case -- that chain can execute, on the first iteration -- and is
+    split because the rule has no model of repetition and will not report a
+    chain whose cost depends on an iteration count it does not know.
 
     The positive cases are here for the same reason the negative ones are: a
     fix that split on every call would make all four disappear and satisfy any

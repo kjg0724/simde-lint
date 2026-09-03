@@ -50,10 +50,14 @@
   instruction counts summed over both arms — when the threshold is three and
   neither arm builds more than two. No execution path assembles that chain.
 
-  The same held across a loop boundary. `pickrst_avx2.c:1900` reported "16
-  scalar inserts assemble dd[0]" where the source has twelve before a `while`
-  and four inside it: the vector holds twelve after zero iterations and
-  12 + 4n after n, never sixteen.
+  A loop boundary is a weaker case and is split for a different reason.
+  `pickrst_avx2.c:1900` reported "16 scalar inserts assemble dd[0]" where the
+  source has twelve before a `while` and four inside it. That chain *can*
+  execute — the outer run and the first iteration run consecutively — so the
+  split is not a claim that it cannot. It is that this rule has no model of
+  repetition: reporting one chain of sixteen states a cost that holds for one
+  iteration count and no other, so a chain is confined to a single syntactic
+  region instead.
 
   `IntrinsicCall` gains `control_region`, the identity of the innermost
   enclosing block, switch arm, or unbraced `if`/loop body. Rule M splits a
@@ -66,12 +70,13 @@
   are split and their finding lost, which costs coverage. The alternative
   costs correctness.
 
-  `M.scalar_insert_chain` rises from 27 to 35 on SVT-AV1, and the total from
-  3264 to 3272. **The aggregate rises because the earlier merging collapsed
-  distinct sites, not because coverage expanded** — thirteen merged findings
-  became twenty-one, all in three files with the same shape, and every split
-  was checked against its source. Lengths of 16 disappear entirely (8 of
-  them), replaced by the 12 + 4 and 8 + 8 the code actually contains.
+  `M.scalar_insert_chain` rises from 27 to 35 on SVT-AV1, the total from 3264
+  to 3272, and evidence B from 52 to 60. **The aggregate rises because
+  thirteen findings were repartitioned into twenty-one region-local ones, not
+  because coverage expanded** — no new call site is reported. All are in three
+  files with the same shape, and every split was read against its source.
+  Lengths of 16 disappear entirely (8 of them), replaced by the 12 + 4 and
+  8 + 8 each site actually splits into.
 
 - **Rule W suggested the low-half widening multiply whichever unpack
   consumed the round-trip.** `vmull_s16` rebuilds lanes 0-3 and

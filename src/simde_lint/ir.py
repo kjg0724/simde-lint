@@ -62,6 +62,13 @@ class IntrinsicCall:
     # Unit-local and never serialized: for a `MacroUnit` the value indexes the
     # synthetic reparse, not the file. Safe because every comparison is
     # between calls from one unit.
+    #
+    # The default is 0 only because the surrounding fields have defaults and
+    # dataclass ordering forbids a required field after them. 0 means "no
+    # region", which would put every call in one region and silently restore
+    # the merging this field exists to stop, so
+    # `test_extraction_gives_every_call_a_region` asserts extraction never
+    # leaves it there.
     control_region: int = 0
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by

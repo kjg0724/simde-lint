@@ -77,18 +77,26 @@ class MemoryRule:
         means the later insert cannot be extending the earlier one's result,
         so it starts a new chain instead.
 
-        A change of `control_region` breaks a chain for a different reason:
-        the calls are in regions that do not run one after the other. Two arms
-        of an `if` are exclusive, and a loop body repeats — byte order made
-        both look like straight-line code, so four inserts split two-and-two
-        across an if/else were reported as a chain of four that no execution
-        path assembles, at evidence A, with the instruction counts summed
-        over both arms.
+        A change of `control_region` breaks a chain for a different reason,
+        and the two shapes it covers are not equally strong.
 
-        Equality only, never nesting. This is fail-closed: consecutive nested
-        blocks that would genuinely chain get split and their finding lost,
-        which costs coverage. The alternative costs correctness, and the IR
-        does not know which regions reach which.
+        Exclusive arms are the clear case: four inserts split two-and-two
+        across an `if`/`else` were reported as a chain of four that no
+        execution path assembles, at evidence A, with the costs summed over
+        both arms.
+
+        A loop or nested-block boundary is weaker. An outer run and the first
+        iteration of a loop below it *can* run consecutively, so a chain
+        crossing that boundary may well execute. Splitting there is not a
+        claim that it cannot: this rule has no model of repetition, so it
+        confines a reported chain to one syntactic region rather than
+        aggregating costs across code whose execution count it does not know.
+        That is a definition of the analysis unit, not a proof about runtime.
+
+        Equality only, never nesting. Fail-closed in both directions: a
+        cross-region chain that really does execute is split and its finding
+        lost, which costs coverage. The alternative reports a chain and a cost
+        the IR cannot support.
         """
         chain: list[IntrinsicCall] = []
         for call in calls:

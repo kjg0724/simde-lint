@@ -959,3 +959,30 @@ def test_a_subscripted_target_keeps_result_var_narrow():
         config={},
     )
     assert list(fusion.FusionRule().match(unit, ctx)) == []
+
+
+def test_extraction_gives_every_call_a_region():
+    """`control_region` defaults to 0, and 0 would merge everything.
+
+    The field is only defaulted because dataclass ordering forbids a required
+    field after the defaulted ones around it. A future extraction path that
+    forgot to pass it would put every call in one region and silently restore
+    the cross-block chaining the field exists to prevent -- no test would fail
+    and no finding would look wrong, they would just be merged again.
+
+    Both unit kinds, because a MacroUnit reparses into a different tree and is
+    where a missing region would be easiest to introduce.
+    """
+    source = b"""
+__m128i f(__m128i d, short v, int t) {
+    d = _mm_insert_epi16(d, v, 0);
+    if (t) { d = _mm_insert_epi16(d, v, 1); }
+    return d;
+}
+#define BUILD(x, v) x = _mm_insert_epi16(x, v, 0); x = _mm_insert_epi16(x, v, 1);
+"""
+    units = extract_units("t.c", source, load_knowledge())
+    calls = [c for unit in units for c in unit.calls]
+    assert calls, "fixture produced no calls"
+    assert all(c.control_region != 0 for c in calls)
+    assert {u.scope for u in units} == {"function", "macro"}

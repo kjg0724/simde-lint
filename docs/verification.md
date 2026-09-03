@@ -217,12 +217,14 @@ gives 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence
 Two changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
 unverified consumer-dependent condition as established, and no finding
-appeared or disappeared. Rule M then rose from 56 to 64, because chains that
-crossed a loop or branch boundary were split into the separate chains the
-source actually contains — thirteen merged findings became twenty-one, all in
-`pickrst_avx2.c`, `pickrst_avx512.c` and `pickrst_sse4.c`. That count rises
-because the earlier merging collapsed distinct sites, not because coverage
-expanded.
+appeared or disappeared. Rule M then rose from 56 to 64, because a chain is
+now confined to one syntactic control region — thirteen findings were
+repartitioned into twenty-one region-local ones, all in `pickrst_avx2.c`,
+`pickrst_avx512.c` and `pickrst_sse4.c`. No new call site is reported. For
+the `if`/`else` shape the old finding described a chain no path executes; for
+a loop boundary it is narrower than that, since the outer run and the first
+iteration do run consecutively — what the rule declines to do is report one
+chain whose cost holds for a single iteration count.
 
 The figures above are left as the tagged release's output so this document
 continues to reproduce it.
