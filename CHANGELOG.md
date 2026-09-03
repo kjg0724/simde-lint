@@ -43,6 +43,41 @@
   than collapsing a known fact into "instruction count unknown". A bare
   `2 -> 1` restated in numbers the claim the withdrawn suggestion had made.
 
+- **Rule M chained inserts across code that cannot all run.** The IR ordered
+  calls by byte offset and knew nothing about blocks, so two arms of an `if`
+  read as one straight-line sequence. Four inserts split two-and-two across
+  an `if`/`else` were reported as a chain of four — at evidence A, with the
+  instruction counts summed over both arms — when the threshold is three and
+  neither arm builds more than two. No execution path assembles that chain.
+
+  A loop boundary is a weaker case and is split for a different reason.
+  `pickrst_avx2.c:1900` reported "16 scalar inserts assemble dd[0]" where the
+  source has twelve before a `while` and four inside it. That chain *can*
+  execute — the outer run and the first iteration run consecutively — so the
+  split is not a claim that it cannot. It is that this rule has no model of
+  repetition: reporting one chain of sixteen states a cost that holds for one
+  iteration count and no other, so a chain is confined to a single syntactic
+  region instead.
+
+  `IntrinsicCall` gains `control_region`, the identity of the innermost
+  enclosing block, switch arm, or unbraced `if`/loop body. Rule M splits a
+  chain wherever consecutive inserts disagree. Equality only — the field says
+  which region a call is in, never which regions reach which, and reading
+  nesting out of it would put back the control flow the parser never
+  established. The field is unit-local and never serialized.
+
+  This is fail-closed: consecutive nested blocks that would genuinely chain
+  are split and their finding lost, which costs coverage. The alternative
+  costs correctness.
+
+  `M.scalar_insert_chain` rises from 27 to 35 on SVT-AV1, the total from 3264
+  to 3272, and evidence B from 52 to 60. **The aggregate rises because
+  thirteen findings were repartitioned into twenty-one region-local ones, not
+  because coverage expanded** — no new call site is reported. All are in three
+  files with the same shape, and every split was read against its source.
+  Lengths of 16 disappear entirely (8 of them), replaced by the 12 + 4 and
+  8 + 8 each site actually splits into.
+
 - **Rule W suggested the low-half widening multiply whichever unpack
   consumed the round-trip.** `vmull_s16` rebuilds lanes 0-3 and
   `vmull_high_s16` lanes 4-7, but the suggestion came from the knowledge

@@ -229,6 +229,47 @@ def _enclosing_binding(call: Node) -> Node | None:
     return None
 
 
+# Node types that begin a region a rule may not chain across. A
+# `compound_statement` is the common case; `case_statement` matters because
+# switch arms share one enclosing block; and an unbraced `if` arm or loop body
+# is a region with no compound statement of its own, so the arm subtree stands
+# in for one.
+_REGION_TYPES = ("compound_statement", "case_statement")
+
+# Fields whose child is a control-construct body. An unbraced body is that
+# child itself; a braced one is a `compound_statement` and is caught above
+# before this matters.
+_UNBRACED_BODY_FIELDS = ("consequence", "alternative", "body")
+
+
+def _control_region(call: Node) -> int:
+    """Identity of the innermost region `call` sits in, for equality only.
+
+    Rules compare two calls' regions for equality and nothing else. They must
+    not read nesting out of it: the IR knows which region a call is in, not
+    which regions can reach which, and treating an ancestor relation as
+    reachability would be inventing control flow the parser never established.
+
+    Deliberately unit-local and never serialized. The value is a tree-sitter
+    node id, which for a `MacroUnit` indexes the synthetic reparse rather than
+    the file -- safe because every comparison is between two calls from one
+    unit, and file and macro units are never combined.
+    """
+    node = call.parent
+    while node is not None:
+        if node.type in _REGION_TYPES:
+            return node.id
+        parent = node.parent
+        if parent is not None:
+            for field in _UNBRACED_BODY_FIELDS:
+                child = parent.child_by_field_name(field)
+                if child is not None and child.id == node.id:
+                    # An unbraced arm or body: the statement is its own region.
+                    return node.id
+        node = parent
+    return 0
+
+
 def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     """Variable this call's result is bound to, when the binding is direct.
 
@@ -382,6 +423,7 @@ def _extract_calls(
             start_byte=start_byte,
             result_var=result_var,
             result_lvalue=result_lvalue,
+            control_region=_control_region(node),
             is_macro_alias=raw_name in aliases.targets,
         )
         calls.append(call)

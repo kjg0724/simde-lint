@@ -209,16 +209,31 @@ what recovery can cost. A reader running the command above should see those
 362 lines — their absence would be the surprise, not their presence. No
 warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
-3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`. Evidence
-`A 2661, B 52, C 551` **as `v2.2.0` emitted it**; on `main` since the rule R
-grading correction the same sweep gives `A 845, B 52, C 2367`. The totals and
-the type split are identical — 1816 rule R findings moved from A to C because
-the earlier implementation graded an unverified consumer-dependent condition
-as established. The figure above is left as the tagged release's output so
-this document continues to reproduce it.
+3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`, evidence
+`A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. On `main` the same sweep
+gives 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence
+`A 845, B 60, C 2367`.
 
-> The evidence split moved twice while the type split did not, and the call
-> sites never changed — only what the tool is willing to claim about them.
+Two changes since the tag, kept apart because they move different things.
+1816 rule R findings moved from A to C: the earlier implementation graded an
+unverified consumer-dependent condition as established, and no finding
+appeared or disappeared. Rule M then rose from 56 to 64, because a chain is
+now confined to one syntactic control region — thirteen findings were
+repartitioned into twenty-one region-local ones, all in `pickrst_avx2.c`,
+`pickrst_avx512.c` and `pickrst_sse4.c`. No new call site is reported. For
+the `if`/`else` shape the old finding described a chain no path executes; for
+a loop boundary it is narrower than that, since the outer run and the first
+iteration do run consecutively — what the rule declines to do is report one
+chain whose cost holds for a single iteration count.
+
+The figures above are left as the tagged release's output so this document
+continues to reproduce it.
+
+> The evidence split moved three times. For the first two the type split did
+> not move and the call sites never changed — only what the tool was willing
+> to claim about them. The third, rule M's control-region split, is different
+> in kind: it changed how many findings one run of inserts is, so the type
+> split moved with it. The call sites still did not change.
 >
 > v1.3 introduced rule F's grade cap: a finding drops to C
 > (`reason: unresolved`) when the knowledge table records no established

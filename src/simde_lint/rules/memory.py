@@ -76,11 +76,35 @@ class MemoryRule:
         between two inserts (any definition strictly between their lines)
         means the later insert cannot be extending the earlier one's result,
         so it starts a new chain instead.
+
+        A change of `control_region` breaks a chain for a different reason,
+        and the two shapes it covers are not equally strong.
+
+        Exclusive arms are the clear case: four inserts split two-and-two
+        across an `if`/`else` were reported as a chain of four that no
+        execution path assembles, at evidence A, with the costs summed over
+        both arms.
+
+        A loop or nested-block boundary is weaker. An outer run and the first
+        iteration of a loop below it *can* run consecutively, so a chain
+        crossing that boundary may well execute. Splitting there is not a
+        claim that it cannot: this rule has no model of repetition, so it
+        confines a reported chain to one syntactic region rather than
+        aggregating costs across code whose execution count it does not know.
+        That is a definition of the analysis unit, not a proof about runtime.
+
+        Equality only, never nesting. Fail-closed in both directions: a
+        cross-region chain that really does execute is split and its finding
+        lost, which costs coverage. The alternative reports a chain and a cost
+        the IR cannot support.
         """
         chain: list[IntrinsicCall] = []
         for call in calls:
-            if chain and unit.redefined_between(
-                target, own_availability(unit, chain[-1]), call.start_byte
+            if chain and (
+                unit.redefined_between(
+                    target, own_availability(unit, chain[-1]), call.start_byte
+                )
+                or call.control_region != chain[-1].control_region
             ):
                 yield chain
                 chain = []

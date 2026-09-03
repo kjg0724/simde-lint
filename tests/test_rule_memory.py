@@ -1,3 +1,5 @@
+import re
+
 from simde_lint.finding import Evidence
 from simde_lint.rules.memory import MemoryRule, ScalarSetBuildRule
 
@@ -64,3 +66,55 @@ def test_grades_b_when_not_every_argument_is_a_direct_variable(run_rule):
     ]
     assert len(findings) == 2
     assert all(f.evidence is Evidence.B for f in findings)
+
+
+def test_a_chain_never_crosses_a_control_region(run_rule):
+    """Every region shape, because each one failed for a different reason.
+
+    Byte order made all of these look like straight-line code, but the two
+    shapes fail differently. Exclusive arms were merged into a run no
+    execution path assembles. A loop body merged with the code above it is a
+    weaker case -- that chain can execute, on the first iteration -- and is
+    split because the rule has no model of repetition and will not report a
+    chain whose cost depends on an iteration count it does not know.
+
+    The positive cases are here for the same reason the negative ones are: a
+    fix that split on every call would make all four disappear and satisfy any
+    test that only checked the merging stopped.
+    """
+    by_function: dict[str, list[int]] = {}
+    for f in run_rule(MemoryRule(), "memory_control_region.c"):
+        by_function.setdefault(f.function, []).append(
+            int(re.match(r"(\d+) scalar", f.rationale).group(1))
+        )
+
+    # Exclusive or repeated regions: neither arm reaches the threshold of 3.
+    assert "braced_branches" not in by_function
+    assert "unbraced_branches" not in by_function
+    assert "switch_arms" not in by_function
+
+    # Separate regions that each qualify stay separate rather than merging.
+    assert sorted(by_function["outer_then_loop"]) == [3, 3]
+    # A loop body is a region of its own, not a reason to report nothing.
+    assert by_function["loop_body_only"] == [3]
+    # Nothing about this splits: one region, no intervening write.
+    assert by_function["same_region_twice"] == [4]
+    # A bare nested block is a region too: the outer pair does not chain into
+    # the inner run, and only the inner run reaches the threshold.
+    assert by_function["nested_block"] == [3]
+
+
+def test_a_macro_body_regions_exactly_as_a_function_body_does(run_rule):
+    """`control_region` is a node id, and in a macro it indexes another tree.
+
+    A `MacroUnit` is a synthetic reparse, so the ids there have nothing to do
+    with the file's tree. That is safe only because every comparison happens
+    between two calls from one unit -- this is the test that says so, and the
+    only place the macro path is exercised at all.
+    """
+    findings = [
+        f for f in run_rule(MemoryRule(), "memory_control_region.c")
+        if f.scope == "macro"
+    ]
+    assert [f.macro for f in findings] == ["BUILD_IN_MACRO"]
+    assert int(re.match(r"(\d+) scalar", findings[0].rationale).group(1)) == 3
