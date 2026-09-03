@@ -98,3 +98,22 @@ def test_a_chain_never_crosses_a_control_region(run_rule):
     assert by_function["loop_body_only"] == [3]
     # Nothing about this splits: one region, no intervening write.
     assert by_function["same_region_twice"] == [4]
+    # A bare nested block is a region too: the outer pair does not chain into
+    # the inner run, and only the inner run reaches the threshold.
+    assert by_function["nested_block"] == [3]
+
+
+def test_a_macro_body_regions_exactly_as_a_function_body_does(run_rule):
+    """`control_region` is a node id, and in a macro it indexes another tree.
+
+    A `MacroUnit` is a synthetic reparse, so the ids there have nothing to do
+    with the file's tree. That is safe only because every comparison happens
+    between two calls from one unit -- this is the test that says so, and the
+    only place the macro path is exercised at all.
+    """
+    findings = [
+        f for f in run_rule(MemoryRule(), "memory_control_region.c")
+        if f.scope == "macro"
+    ]
+    assert [f.macro for f in findings] == ["BUILD_IN_MACRO"]
+    assert int(re.match(r"(\d+) scalar", findings[0].rationale).group(1)) == 3

@@ -68,3 +68,24 @@ void same_region_twice(__m128i d, short v) {
     d = _mm_insert_epi16(d, v, 3);
     (void)d;
 }
+
+// 7. A bare nested block is its own region: the outer two do not chain into
+//    the inner three, and only the inner run reaches the threshold.
+void nested_block(__m128i d, short v) {
+    d = _mm_insert_epi16(d, v, 0);
+    d = _mm_insert_epi16(d, v, 1);
+    {
+        d = _mm_insert_epi16(d, v, 2);
+        d = _mm_insert_epi16(d, v, 3);
+        d = _mm_insert_epi16(d, v, 4);
+    }
+    (void)d;
+}
+
+// 8. A macro body must behave exactly as the same code in a function does.
+//    `control_region` is a node id in the synthetic reparse there, so this is
+//    what says that comparing two of them within one unit still works.
+#define BUILD_IN_MACRO(dst, val) \
+    dst = _mm_insert_epi16(dst, val, 0); \
+    dst = _mm_insert_epi16(dst, val, 1); \
+    dst = _mm_insert_epi16(dst, val, 2);
