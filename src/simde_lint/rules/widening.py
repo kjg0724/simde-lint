@@ -1,8 +1,13 @@
 """Type W: the 16-to-32 widening multiply round-trip.
 
 SSE2 has no direct 16-to-32 widening multiply, so x86 code computes the low
-and high halves separately and interleaves them. NEON provides smull, which
-does the whole job in one instruction.
+and high halves separately and interleaves them with an unpack. NEON has
+smull, which produces four 32-bit products directly.
+
+This rule matches one unpack, so what it reports is the four lanes that
+unpack reconstructs -- replaced by a single widening multiply, `vmull_s16`
+for the low four and `vmull_high_s16` for the high four. Code that rebuilds
+all eight uses both unpacks and is two separate matches here, not one.
 """
 
 from __future__ import annotations
@@ -13,7 +18,17 @@ from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import Context, location_fields, own_availability, raw_name_if_aliased
 
-_UNPACK = {"_mm_unpacklo_epi16", "_mm_unpackhi_epi16"}
+# Which half of the 16-bit lanes the consumer reconstructs, and therefore
+# which widening multiply replaces the round-trip. Both are one instruction --
+# the rule matches a single unpack, so only four lanes of 32-bit product are
+# ever rebuilt -- but they are different instructions, and the knowledge entry
+# can only hold one name. The consumer is what decides, so the rule reads it
+# here rather than the table encoding lo and hi as separate entries.
+_UNPACK_SUGGESTION = {
+    "_mm_unpacklo_epi16": "vmull_s16",
+    "_mm_unpackhi_epi16": "vmull_high_s16",
+}
+_UNPACK = set(_UNPACK_SUGGESTION)
 
 
 def _operand_key(call: IntrinsicCall) -> tuple[str, ...]:
@@ -85,7 +100,13 @@ class WideningRule:
                 ),
                 simde_insns=cost.simde_insns,
                 native_insns=cost.native_insns,
-                suggestion=cost.suggestion,
+                # From the consumer, not the knowledge table. Which widening
+                # multiply rebuilds the half this round-trip feeds is decided
+                # by the unpack, and only the rule knows which one it matched
+                # -- so the entry carries no `suggestion` at all rather than
+                # one that is the wrong half whenever the consumer is the
+                # high unpack.
+                suggestion=_UNPACK_SUGGESTION[consumer.name],
                 raw_name=raw_name_if_aliased(lo),
             )
 
