@@ -44,8 +44,8 @@ patterns:
     # wrong half whenever the consumer was `_mm_unpackhi_epi16`.
     #
     # `native_insns: 1` is right for both: the rule matches a single unpack,
-    # so only four lanes of product are ever reconstructed and one widening
-    # multiply is the whole replacement either way.
+    # so the four lanes that unpack reconstructs are what a finding covers,
+    # and one widening multiply produces them. Only its name differs.
     source: x86/sse2.h:5188
     note: >-
       mulhi_epi16 alone expands to a widening multiply pair plus an unzip;

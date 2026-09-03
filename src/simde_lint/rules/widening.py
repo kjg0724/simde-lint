@@ -1,8 +1,13 @@
 """Type W: the 16-to-32 widening multiply round-trip.
 
 SSE2 has no direct 16-to-32 widening multiply, so x86 code computes the low
-and high halves separately and interleaves them. NEON provides smull, which
-does the whole job in one instruction.
+and high halves separately and interleaves them with an unpack. NEON has
+smull, which produces four 32-bit products directly.
+
+This rule matches one unpack, so what it reports is the four lanes that
+unpack reconstructs -- replaced by a single widening multiply, `vmull_s16`
+for the low four and `vmull_high_s16` for the high four. Code that rebuilds
+all eight uses both unpacks and is two separate matches here, not one.
 """
 
 from __future__ import annotations
@@ -95,10 +100,12 @@ class WideningRule:
                 ),
                 simde_insns=cost.simde_insns,
                 native_insns=cost.native_insns,
-                # Not `cost.suggestion`: the table holds `vmull_s16`, which
-                # rebuilds lanes 0-3. When the consumer is the high unpack the
-                # reader needs lanes 4-7 and the same name computes the wrong
-                # half.
+                # From the consumer, not the knowledge table. Which widening
+                # multiply rebuilds the half this round-trip feeds is decided
+                # by the unpack, and only the rule knows which one it matched
+                # -- so the entry carries no `suggestion` at all rather than
+                # one that is the wrong half whenever the consumer is the
+                # high unpack.
                 suggestion=_UNPACK_SUGGESTION[consumer.name],
                 raw_name=raw_name_if_aliased(lo),
             )
