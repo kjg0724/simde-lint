@@ -48,6 +48,21 @@ class IntrinsicCall:
     # that grouped them by `dd` would treat two short insert runs as one long
     # one. None when the binding is not a simple assignment or declaration.
     result_lvalue: str | None = None
+    # Identity of the innermost control region enclosing this call -- a block,
+    # a switch arm, or an unbraced if/loop body. Compare two calls' values for
+    # equality and nothing else.
+    #
+    # It says which region a call is in, never which regions can reach which.
+    # Rule M splits an insert chain wherever consecutive calls disagree,
+    # because byte order alone read two arms of an `if` as one straight-line
+    # chain and reported a run no execution path builds. Reading nesting out
+    # of this field would put back the control flow the parser never
+    # established.
+    #
+    # Unit-local and never serialized: for a `MacroUnit` the value indexes the
+    # synthetic reparse, not the file. Safe because every comparison is
+    # between calls from one unit.
+    control_region: int = 0
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
     # `macros.build_alias_map`) — a macro whose *body* extraction never sees,

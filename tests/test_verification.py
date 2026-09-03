@@ -416,9 +416,12 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
-        "total": 3264,
-        "type": {"R": 1816, "F": 1019, "S": 341, "M": 56, "P": 31, "W": 1},
-        "evidence": {"A": 845, "B": 52, "C": 2367},
+        "total": 3272,
+        "type": {"R": 1816, "F": 1019, "S": 341, "M": 64, "P": 31, "W": 1},
+        # B rises with M: the eight findings the control-region split adds are
+        # all rule M, and M grades B unless every insert names its own target
+        # directly.
+        "evidence": {"A": 845, "B": 60, "C": 2367},
     }
 
 

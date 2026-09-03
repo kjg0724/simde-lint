@@ -43,6 +43,36 @@
   than collapsing a known fact into "instruction count unknown". A bare
   `2 -> 1` restated in numbers the claim the withdrawn suggestion had made.
 
+- **Rule M chained inserts across code that cannot all run.** The IR ordered
+  calls by byte offset and knew nothing about blocks, so two arms of an `if`
+  read as one straight-line sequence. Four inserts split two-and-two across
+  an `if`/`else` were reported as a chain of four — at evidence A, with the
+  instruction counts summed over both arms — when the threshold is three and
+  neither arm builds more than two. No execution path assembles that chain.
+
+  The same held across a loop boundary. `pickrst_avx2.c:1900` reported "16
+  scalar inserts assemble dd[0]" where the source has twelve before a `while`
+  and four inside it: the vector holds twelve after zero iterations and
+  12 + 4n after n, never sixteen.
+
+  `IntrinsicCall` gains `control_region`, the identity of the innermost
+  enclosing block, switch arm, or unbraced `if`/loop body. Rule M splits a
+  chain wherever consecutive inserts disagree. Equality only — the field says
+  which region a call is in, never which regions reach which, and reading
+  nesting out of it would put back the control flow the parser never
+  established. The field is unit-local and never serialized.
+
+  This is fail-closed: consecutive nested blocks that would genuinely chain
+  are split and their finding lost, which costs coverage. The alternative
+  costs correctness.
+
+  `M.scalar_insert_chain` rises from 27 to 35 on SVT-AV1, and the total from
+  3264 to 3272. **The aggregate rises because the earlier merging collapsed
+  distinct sites, not because coverage expanded** — thirteen merged findings
+  became twenty-one, all in three files with the same shape, and every split
+  was checked against its source. Lengths of 16 disappear entirely (8 of
+  them), replaced by the 12 + 4 and 8 + 8 the code actually contains.
+
 - **Rule W suggested the low-half widening multiply whichever unpack
   consumed the round-trip.** `vmull_s16` rebuilds lanes 0-3 and
   `vmull_high_s16` lanes 4-7, but the suggestion came from the knowledge

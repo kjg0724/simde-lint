@@ -1,3 +1,5 @@
+import re
+
 from simde_lint.finding import Evidence
 from simde_lint.rules.memory import MemoryRule, ScalarSetBuildRule
 
@@ -64,3 +66,35 @@ def test_grades_b_when_not_every_argument_is_a_direct_variable(run_rule):
     ]
     assert len(findings) == 2
     assert all(f.evidence is Evidence.B for f in findings)
+
+
+def test_a_chain_never_crosses_a_control_region(run_rule):
+    """Every region shape, because each one failed for a different reason.
+
+    Byte order made all of these look like straight-line code. Exclusive arms
+    were merged into a run no execution path assembles, and a loop body was
+    merged with the code before it into a run that only the first iteration
+    would build -- both at evidence A, with instruction counts summed across
+    code that cannot all run.
+
+    The positive cases are here for the same reason the negative ones are: a
+    fix that split on every call would make all four disappear and satisfy any
+    test that only checked the merging stopped.
+    """
+    by_function: dict[str, list[int]] = {}
+    for f in run_rule(MemoryRule(), "memory_control_region.c"):
+        by_function.setdefault(f.function, []).append(
+            int(re.match(r"(\d+) scalar", f.rationale).group(1))
+        )
+
+    # Exclusive or repeated regions: neither arm reaches the threshold of 3.
+    assert "braced_branches" not in by_function
+    assert "unbraced_branches" not in by_function
+    assert "switch_arms" not in by_function
+
+    # Separate regions that each qualify stay separate rather than merging.
+    assert sorted(by_function["outer_then_loop"]) == [3, 3]
+    # A loop body is a region of its own, not a reason to report nothing.
+    assert by_function["loop_body_only"] == [3]
+    # Nothing about this splits: one region, no intervening write.
+    assert by_function["same_region_twice"] == [4]
