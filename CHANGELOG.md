@@ -43,6 +43,31 @@
   than collapsing a known fact into "instruction count unknown". A bare
   `2 -> 1` restated in numbers the claim the withdrawn suggestion had made.
 
+- **An invalid `--config` produced a report anyway.** A value of the wrong
+  type raised inside rule M once per unit, after discovery and extraction had
+  run, leaving a well-formed report with an empty findings list; a missing
+  file or malformed JSON reached the user as a raw traceback with nothing on
+  stdout under `--format json`. An unknown key and a negative threshold were
+  accepted silently, so a typo'd config produced output identical to a
+  correct run -- the worst of the four, because nothing distinguishes it from
+  success.
+
+  Rules now declare the options they accept as data -- name, type, default,
+  minimum -- and `validate_config` checks a config against the union of those
+  declarations before any file is opened. Rule M reads the validated value
+  rather than parsing it again, so a validated config and an executed one
+  cannot drift.
+
+  Validation lives at the analysis boundary rather than in the CLI, because
+  `analyze(config=...)` is a public entry point with the same exposure. The
+  CLI keeps what is its own: reading the file and parsing its JSON, both now
+  usage errors that exit 2 with one line and no traceback.
+
+  An unknown key is an error rather than a warning. A version that quietly
+  accepts an option it does not implement claims to have honoured a
+  configuration it ignored; failing tells the reader to upgrade. `true` is
+  not a threshold either -- `bool` is a subclass of `int` and is rejected.
+
 - **Rule M chained inserts across code that cannot all run.** The IR ordered
   calls by byte offset and knew nothing about blocks, so two arms of an `if`
   read as one straight-line sequence. Four inserts split two-and-two across

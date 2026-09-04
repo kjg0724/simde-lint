@@ -6,7 +6,7 @@ reduced to a primary type.
 
 from __future__ import annotations
 
-from .base import Context, Rule
+from .base import ConfigError, Context, Option, Rule, validate_config
 from .fusion import FusionRule
 from .memory import MemoryRule, ScalarSetBuildRule
 from .pipeline import PipelineRule
@@ -24,4 +24,4 @@ ALL_RULES: list[Rule] = [
     PipelineRule(),
 ]
 
-__all__ = ["ALL_RULES", "Context", "Rule"]
+__all__ = ["ALL_RULES", "ConfigError", "Context", "Option", "Rule", "validate_config"]

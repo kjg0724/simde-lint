@@ -23,7 +23,7 @@ from pathlib import Path
 
 from simde_lint.extract import extract_units
 from simde_lint.knowledge import load_knowledge
-from simde_lint.rules import ALL_RULES, Context
+from simde_lint.rules import ALL_RULES, Context, validate_config
 from simde_lint.symbols import build_symbol_index
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rules"
@@ -45,7 +45,7 @@ ALLOWED: dict[str, set[str]] = {
 def _findings_over_all_fixtures():
     sources = [(str(path), path.read_bytes()) for path in sorted(FIXTURES.glob("*.c"))]
     knowledge = load_knowledge()
-    ctx = Context(symbols=build_symbol_index(sources, knowledge), knowledge=knowledge, config={})
+    ctx = Context(symbols=build_symbol_index(sources, knowledge), knowledge=knowledge, config=validate_config({}, ALL_RULES))
     findings = []
     for path, source in sources:
         for unit in extract_units(path, source, knowledge):
