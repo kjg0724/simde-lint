@@ -30,6 +30,7 @@ class PipelineRule:
     type = "P"
     rule_id = "P.cmp_immediate_use"
     mechanism = "compare consumed by the next call"
+    options = ()
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         ordered = sorted(unit.calls, key=lambda c: c.start_byte)

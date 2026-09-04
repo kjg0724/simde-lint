@@ -36,6 +36,7 @@ class FusionRule:
     type = "F"
     rule_id = "F.mul_add_no_fuse"
     mechanism = "multiply-add not fused"
+    options = ()
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.start_byte)

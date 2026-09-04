@@ -142,12 +142,20 @@ simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P
   the scan root was given as absolute or relative.
 - `--config` is a JSON file for rule thresholds, currently
   `{"memory_chain_threshold": N}` for rule M's insert-chain length (default
-  3).
+  3, minimum 1). It is validated before any source is read: an unreadable
+  file, malformed JSON, a non-object, an unknown key, or a value of the wrong
+  type or out of range is a usage error and exits 2 without producing a
+  report. An unknown key is rejected rather than ignored — a version that
+  quietly accepted an option it does not implement would be claiming to have
+  honoured it.
 - `--dump-symbols` prints the cross-file constant-array index the tool built
   and exits, for debugging why a mask did or didn't resolve.
 - Exit code is 0 unless the tool itself errors — this is a reporting tool,
   not a CI gate (`--error-on-findings` is roadmap work, not v1). Findings
-  never set it, however many there are.
+  never set it, however many there are. 1 means the run was incomplete: an
+  input that could not be read, or an isolated extraction or rule failure. 2
+  means the invocation was wrong — an unknown `--type`, or a `--config` the
+  tool will not act on — and nothing was analysed.
 
   What counts as the tool erring: an input path that does not exist, a file
   it cannot open, an extraction or a rule that raised. Each of those means
