@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.1 — 2026-09-07
+
+Same tool as `v2.3.0`: the `src/` tree is byte-identical and every figure
+measured at that tag holds here. The one difference is `docs/verification.md`.
+
+`v2.3.0` was tagged before the census re-run landed, so the document at that
+tag still reads 3713 / 3681 and dates itself to v2.1.0, while the current
+figures are 3721 / 3689. Anyone pinning a citation to `v2.3.0` and following
+its verification document would get numbers that do not match what the tool
+now reports -- which is the exact failure that document exists to prevent.
+
+Tagged so a citation can point at a fixed revision whose verification
+document matches the tool it ships with.
+
 ## 2.3.0 — 2026-09-07
 
 ### Note on version provenance
