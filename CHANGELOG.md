@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Rule F reports a multiply written straight into the add
+
+`acc = _mm_add_epi32(acc, _mm_madd_epi16(a, b))` was never reported. Rule F
+required the product to be bound to a name first, so it saw the multiply-add
+only when the author happened to introduce an intermediate -- a spelling
+choice that changes nothing about the instructions emitted.
+
+Byte position, which decides ordering for a named product, says the opposite
+of the truth here: the add's call expression opens before the operand it is
+waiting on. Containment decides it instead, and only where there is no name;
+a named product still has to be produced before the add that consumes it.
+The same applies one conversion further in, so a nested multiply reaching its
+add through a widening call grades B as the named form does -- supported and
+tested, though it occurs in none of the three corpora.
+
+Findings move, and this is the first change since `v2.2.0` that reports call
+sites the tool had never reported:
+
+| corpus | v2.3.1 | now | rule F |
+|---|---:|---:|---|
+| SVT-AV1 `Source` | 3272 | 3365 | 1019 -> 1112 |
+| VVenC `CommonLib/x86` | 449 | 593 | 135 -> 279 |
+| VVdeC `CommonLib/x86` (holdout) | 516 | 582 | 77 -> 143 |
+
+Every other type is unchanged to the finding in all three, which is what a
+change confined to one rule should look like. VVenC more than doubles on one
+idiom: its adaptive loop filter writes `accumA = _mm_add_epi32(accumA,
+_mm_madd_epi16(val01A, coeff01A))` throughout.
+
+The acceptance gate is unaffected: rule S still reports 204 `_mm_shuffle_epi8`
+call sites against a `grep` count of 204.
+
+The census was re-run over the larger population -- 3958 findings, 3926
+structurally checkable, 100.00% agreement. That re-run is weaker evidence
+than the previous ones and `docs/verification.md` says so: `verify.py` tested
+for a *named* product and disagreed with all 237 new findings, so the checker
+had to be extended alongside the rule. It was written from the claim rather
+than the rule, deciding containment from byte extents in its own parse where
+the rule walks its own argument model, but two implementations that changed
+together prove less than two that did not.
+
+Not addressed: the float family (`_mm_mul_ps` -> `_mm_add_ps`) is still
+unregistered. `vfmaq_f32` rounds once where the separate multiply and add
+round twice, so it is not the semantics-preserving substitution the integer
+cases are, and whether it belongs in rule F at all is a taxonomy question
+rather than a missing table entry. See #40.
+
 ## 2.3.1 — 2026-09-07
 
 Same tool as `v2.3.0`: the `src/` tree is byte-identical and every figure

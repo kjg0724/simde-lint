@@ -258,8 +258,24 @@ def check_name_only(finding, ctx):
     return True, "call to %s present" % wanted
 
 
+def _written_inside(inner, outer):
+    """Whether `inner`'s call expression is written inside `outer`'s.
+
+    The other way a product reaches an add: written straight into it, with no
+    name in between. Decided here from byte extents of this file's own parse,
+    which is a different question from the one the tool answers -- it walks
+    its own argument model -- so an agreement is still two readings meeting.
+    """
+    return outer.start < inner.start and inner.end <= outer.end
+
+
 def check_fusion(finding, ctx):
-    """F: the multiply's result is an operand of the add the claim names."""
+    """F: the multiply's result reaches the add the claim names.
+
+    Two spellings, and the claim does not distinguish them: the product is
+    bound to a name the add then takes as an operand, or the multiply is
+    written as the operand itself.
+    """
     _, by_line, _, _ = ctx
     match = re.search(r"at line (\d+) reaches (\S+) at line (\d+)", finding["rationale"])
     if not match:
@@ -272,19 +288,24 @@ def check_fusion(finding, ctx):
     adds = [c for c in by_line.get(add_line, []) if c.name == add_name]
     if not adds:
         return False, "no %s at line %d" % (add_name, add_line)
+    hop = re.search(r"through (\S+) at line (\d+)", finding["rationale"])
+    hops = ([c for c in by_line.get(int(hop.group(2)), []) if c.name == hop.group(1)]
+            if hop else [])
+
     for mul in muls:
         if mul.target and any(_uses(a, mul.target) for a in adds):
             return True, "%s reaches %s at %d" % (mul.target, add_name, add_line)
+        if any(_written_inside(mul, a) for a in adds):
+            return True, "written as an operand of %s at %d" % (add_name, add_line)
     # A widening hop is a claim about an intermediate, named in the rationale.
-    hop = re.search(r"through (\S+) at line (\d+)", finding["rationale"])
-    if hop:
-        hops = [c for c in by_line.get(int(hop.group(2)), []) if c.name == hop.group(1)]
-        for mul in muls:
-            for h in hops:
-                if mul.target and _uses(h, mul.target) and h.target \
-                        and any(_uses(a, h.target) for a in adds):
-                    return True, "reaches through %s" % hop.group(1)
-    return False, "the multiply's result is not an operand of that add"
+    for mul in muls:
+        for h in hops:
+            if mul.target and _uses(h, mul.target) and h.target \
+                    and any(_uses(a, h.target) for a in adds):
+                return True, "reaches through %s" % hop.group(1)
+            if _written_inside(mul, h) and any(_written_inside(h, a) for a in adds):
+                return True, "written inside %s, itself an operand" % hop.group(1)
+    return False, "the multiply's result does not reach that add"
 
 
 def check_widening(finding, ctx):

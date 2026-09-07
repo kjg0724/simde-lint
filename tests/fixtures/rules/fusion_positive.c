@@ -165,3 +165,45 @@ void widening_hop_precedes_the_multiply(const int *a, const int *b, __m128i acc)
     __m128i s2 = _mm_add_epi64(sum, wide);
     (void)s2;
 }
+
+// The multiply written straight into the add, which is the idiomatic
+// spelling. Byte position says the add starts first here -- the call
+// expression opens before the operand it is waiting on -- so containment,
+// not position, has to decide that this multiply reaches this add.
+void nested_multiply_is_the_operand(__m128i a, __m128i b, __m128i acc) {
+    __m128i sum = _mm_add_epi32(acc, _mm_mullo_epi32(a, b));
+    (void)sum;
+}
+
+// The same, one widening conversion further in.
+void nested_multiply_through_a_widening_hop(__m128i a, __m128i b, __m128i acc) {
+    __m128i sum = _mm_add_epi64(acc, _mm_cvtepi32_epi64(_mm_mullo_epi32(a, b)));
+    (void)sum;
+}
+
+// One add is one fusion opportunity however the products are spelled, so two
+// nested multiplies inside a single add are one finding, not two.
+void two_nested_multiplies_share_one_add(__m128i a, __m128i b, __m128i c, __m128i d) {
+    __m128i sum = _mm_add_epi32(_mm_mullo_epi32(a, b), _mm_mullo_epi32(c, d));
+    (void)sum;
+}
+
+// A nested intermediate that is not a widening conversion. The product does
+// reach the add, but not in a shape any fused multiply-accumulate covers, so
+// F must not claim it -- the `_WIDENING` membership test on the hop is the
+// only thing standing between this and a false B.
+void nested_hop_is_not_a_widening(__m128i a, __m128i b, __m128i acc, __m128i mask) {
+    __m128i sum = _mm_add_epi32(acc, _mm_shuffle_epi8(_mm_mullo_epi32(a, b), mask));
+    (void)sum;
+}
+
+// The add consumes a `prod` produced by something else, and only afterwards
+// is the name rebound to a multiply. Position is what separates the two, and
+// without it the interval handed to the redefinition guard inverts and the
+// add is credited to a multiply that had not run.
+void the_add_precedes_the_multiply_that_reuses_the_name(const int *p, __m128i a, __m128i b, __m128i acc) {
+    __m128i prod = _mm_loadu_si128((const __m128i *)p);
+    __m128i sum = _mm_add_epi32(acc, prod);
+    prod = _mm_mullo_epi32(a, b);
+    (void)sum; (void)prod;
+}

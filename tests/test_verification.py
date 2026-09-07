@@ -478,12 +478,16 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
-        "total": 3272,
-        "type": {"R": 1816, "F": 1019, "S": 341, "M": 64, "P": 31, "W": 1},
-        # B rises with M: the eight findings the control-region split adds are
-        # all rule M, and M grades B unless every insert names its own target
-        # directly.
-        "evidence": {"A": 845, "B": 60, "C": 2367},
+        "total": 3365,
+        # F rises by 93 and nothing else moves: rule F now sees a multiply
+        # written straight into the add, which it previously required to be
+        # bound to a name first.
+        "type": {"R": 1816, "F": 1112, "S": 341, "M": 64, "P": 31, "W": 1},
+        # The 93 split 28/65 between A and C -- the cap the intrinsic's
+        # transform status imposes decides that, not the new path. B does not
+        # move at all: a nested multiply reaching its add through a widening
+        # conversion is supported and tested, and occurs nowhere here.
+        "evidence": {"A": 873, "B": 60, "C": 2432},
     }
 
 
@@ -494,7 +498,11 @@ def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
     findings, _, _ = analyze([VVENC_X86])
     assert _aggregate(findings) == {
-        "total": 449,
-        "type": {"S": 164, "F": 135, "R": 106, "M": 23, "W": 17, "P": 4},
-        "evidence": {"A": 101, "B": 87, "C": 261},
+        "total": 593,
+        # F more than doubles, 135 to 279. VVenC's adaptive loop filter writes
+        # its accumulator as `accum = _mm_add_epi32(accum, _mm_madd_epi16(..))`
+        # throughout, and every one of those was invisible while rule F
+        # required a named product.
+        "type": {"S": 164, "F": 279, "R": 106, "M": 23, "W": 17, "P": 4},
+        "evidence": {"A": 102, "B": 87, "C": 404},
     }
