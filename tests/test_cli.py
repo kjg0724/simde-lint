@@ -200,3 +200,19 @@ def test_the_declared_version_matches_the_package_metadata():
     import simde_lint
 
     assert simde_lint.__version__ == metadata_version("simde-lint")
+
+
+def test_overlapping_paths_do_not_double_the_reported_findings(tmp_path, capsys):
+    # The issue's own repro, at the level the user sees: `.` and the file
+    # inside it name the same call sites, and the totals must not move.
+    target = _write(tmp_path)
+    main([target, "--format", "json"])
+    alone = json.loads(capsys.readouterr().out)
+
+    main([str(tmp_path), target, "--format", "json"])
+    overlapping = json.loads(capsys.readouterr().out)
+
+    assert alone["summary"]["total"] > 0
+    assert overlapping["summary"]["total"] == alone["summary"]["total"]
+    locations = [(f["file"], f["line"], f["rule"]) for f in overlapping["findings"]]
+    assert len(locations) == len(set(locations))

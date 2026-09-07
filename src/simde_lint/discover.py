@@ -56,8 +56,25 @@ def discover_files(
     strings, which `analyze.is_failure` treats as failures — an input that
     does not exist is the tool being unable to do its job, not a file it
     read and could not fully parse.
+
+    A file reachable through more than one input is scanned once. Overlapping
+    inputs are ordinary — `simde-lint . src/main.c` names `main.c` twice — and
+    without this every finding in it would be reported twice, which would put
+    the user's counts on a different footing from the published ones. The
+    identity is the resolved path, so a symlink and its target are one file,
+    but the spelling that reaches the report is the one the user wrote: a scan
+    of `src/` should not answer in absolute paths.
     """
     found: list[Path] = []
+    seen: set[Path] = set()
+
+    def take(path: Path) -> None:
+        key = path.resolve()
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(path)
+
     for entry in paths:
         root = Path(entry)
         if not root.exists():
@@ -70,7 +87,7 @@ def discover_files(
             continue
         if root.is_file():
             if root.suffix in SOURCE_SUFFIXES and not _excluded(root, root.parent, exclude):
-                found.append(root)
+                take(root)
             continue
         for candidate in sorted(root.rglob("*")):
             if (
@@ -78,5 +95,5 @@ def discover_files(
                 and candidate.suffix in SOURCE_SUFFIXES
                 and not _excluded(candidate, root, exclude)
             ):
-                found.append(candidate)
+                take(candidate)
     return found
