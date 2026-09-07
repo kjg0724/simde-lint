@@ -101,7 +101,7 @@ source would make this document appear to corroborate the paper while
 measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
-The measurement commands in this document were last run in full for v2.3.0,
+The measurement commands in this document were last run in full for v2.3.1,
 against the revisions above (v1.2: intrinsic calls inside `#define` bodies
 are analysed; see Section 5). The anonymous retrieval commands in the
 paragraph above were verified on 2026-09-01. Dating these separately is
@@ -111,6 +111,13 @@ the `SIMDE_LINT_SVT_AV1` and `SIMDE_LINT_VVENC` environment variables (see
 CONTRIBUTING.md); the
 checkout-dependent tests skip cleanly when they are unset, the same as for a
 contributor with neither clone.
+
+Those tests now also run in CI, which clones both trees at the revisions
+above on every push. Until then they skipped in every CI run, so every figure
+here rested on the maintainer having run them by hand. The CI job
+sets `SIMDE_LINT_REQUIRE_CORPUS=1`, which withdraws the skip: a clone that does
+not arrive, or arrives at a different revision, fails the job instead of
+emptying it quietly.
 
 **Two counting units appear below and are never mixed.** Sections 1 and 2
 count call sites inside function bodies, which is what every measurement

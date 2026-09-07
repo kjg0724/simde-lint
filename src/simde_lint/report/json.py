@@ -7,7 +7,7 @@ from collections import Counter
 
 import simde_lint
 
-from ..finding import Finding, SORT_KEYS
+from ..finding import SORT_KEYS, Finding
 
 
 def render_json(findings: list[Finding], simde_version: str, *, sort: str = "benchmarked") -> str:

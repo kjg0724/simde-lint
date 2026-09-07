@@ -443,7 +443,6 @@ def _raw_string_start(text: bytes, i: int) -> int | None:
     which is by far the common case and must tokenize as a plain
     identifier, substitutable like any other).
     """
-    n = len(text)
     for prefix in _RAW_STRING_PREFIXES:
         end = i + len(prefix)
         if text[i:end] == prefix and text[end : end + 2] == b'R"':

@@ -24,7 +24,15 @@ from .ir import (
     ValueRef,
 )
 from .knowledge import Knowledge
-from .macros import AliasMap, ReparsedMacro, _is_intrinsic, build_alias_map, line_column, original_byte, reparse_macros
+from .macros import (
+    AliasMap,
+    ReparsedMacro,
+    _is_intrinsic,
+    build_alias_map,
+    line_column,
+    original_byte,
+    reparse_macros,
+)
 from .parser import iter_nodes, node_text, parse_source, unparsed_regions
 from .symbols import parse_int_literal
 

@@ -10,10 +10,10 @@ from typing import Sequence
 
 from . import __version__
 from .analyze import analyze, is_failure, read_sources
-from .rules import ALL_RULES, ConfigError, validate_config
 from .finding import Evidence
 from .knowledge import load_knowledge
 from .report import render_json, render_text
+from .rules import ALL_RULES, ConfigError, validate_config
 from .symbols import build_symbol_index
 
 _TYPES = ("R", "S", "W", "F", "M", "P")

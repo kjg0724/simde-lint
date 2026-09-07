@@ -28,3 +28,116 @@ jobs:
 
       - name: Check the CLI runs
         run: simde-lint --help
+
+  corpus:
+    # The job the matrix above cannot be: every published aggregate in
+    # docs/verification.md is guarded by tests that skip when the reference
+    # checkouts are absent, and they were absent in every CI run. This job
+    # supplies both at the revisions the figures were measured against, and
+    # SIMDE_LINT_REQUIRE_CORPUS=1 turns a missing or drifted checkout into a
+    # failure rather than a skip -- otherwise the job could go green having
+    # checked nothing, which is the state it exists to end.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch the pinned SVT-AV1 corpus
+        # Tagged rather than taken from a branch: the revision is not on any
+        # upstream branch and would eventually be garbage-collected.
+        run: |
+          git clone --depth 1 --filter=blob:none \
+            --branch simde-lint-v2.1.0-corpus \
+            https://gitlab.com/kjg0724/SVT-AV1.git "$RUNNER_TEMP/svt-av1"
+
+      - name: Fetch the pinned VVenC revision
+        # Reachable from upstream master, so a SHA checkout is stable.
+        run: |
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/fraunhoferhhi/vvenc.git "$RUNNER_TEMP/vvenc"
+          git -C "$RUNNER_TEMP/vvenc" checkout 0f2e874451d6b194615e5dfefdc96796a7da00f4
+
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Verify the published figures
+        env:
+          SIMDE_LINT_SVT_AV1: ${{ runner.temp }}/svt-av1
+          SIMDE_LINT_VVENC: ${{ runner.temp }}/vvenc
+          SIMDE_LINT_REQUIRE_CORPUS: "1"
+        run: python -m pytest tests/test_verification.py -q
+
+  wheel:
+    # CI installed editable, so the package data the tool cannot run without
+    # -- the four knowledge/*.yaml tables -- was never checked to ship. That
+    # the wheel works was confirmed by hand at each release and by nothing
+    # else.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the wheel
+        run: python -m pip install --upgrade pip build && python -m build --wheel
+
+      - name: Install the wheel into a clean environment
+        # Deliberately not the checkout: installing from the source tree would
+        # let an unshipped data file be found on disk anyway.
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install dist/*.whl
+
+      - name: The knowledge tables shipped with it
+        run: |
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
+          from simde_lint.knowledge import load_knowledge
+
+          knowledge = load_knowledge()
+          assert knowledge.redundant, "redundant.yaml did not ship"
+          assert knowledge.patterns, "patterns.yaml did not ship"
+          assert knowledge.aliases, "aliases.yaml did not ship"
+          assert knowledge.wrapper_macros is not None, "wrapper_macros.yaml did not ship"
+          PY
+
+      - name: The installed CLI reports a finding
+        run: |
+          cd "$RUNNER_TEMP"
+          cat > probe.c <<'C'
+          void kernel(__m128i data) {
+              __m128i b = _mm_shuffle_epi8(data, data);
+              (void)b;
+          }
+          C
+          "$RUNNER_TEMP/venv/bin/simde-lint" probe.c --format json > probe.json
+          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
+          import json
+
+          report = json.load(open("probe.json"))
+          rules = {finding["type"] for finding in report["findings"]}
+          assert "S" in rules, report
+          PY
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: python -m pip install --upgrade pip && python -m pip install ruff
+
+      - name: Lint
+        run: ruff check .

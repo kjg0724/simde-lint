@@ -4,8 +4,6 @@ from simde_lint.extract import extract_units
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import (
     AliasMap,
-    _call_shape,
-    _forwarding_call,
     _marker,
     _normalized_tokens,
     _splice_lines,
