@@ -150,3 +150,18 @@ void reused_name(const int *a, const int *b, __m128i acc) {
     __m128i sum = _mm_add_epi64(acc, wide);
     (void)sum;
 }
+
+// The ordering guard, which `reused_name` above does not reach: there the
+// first multiply claims the single add and the second never gets as far as
+// the comparison. Two adds give the second multiply a consumer of its own,
+// so the guard is what stops it claiming a widening hop that ran before it.
+void widening_hop_precedes_the_multiply(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i prod = _mm_madd_epi16(va, vb);
+    __m128i wide = _mm_cvtepi32_epi64(prod);
+    prod = _mm_madd_epi16(vb, va);
+    __m128i sum = _mm_add_epi64(acc, wide);
+    __m128i s2 = _mm_add_epi64(sum, wide);
+    (void)s2;
+}

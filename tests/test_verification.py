@@ -24,6 +24,9 @@ from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, reparse_macros
 from simde_lint.parser import parse_source
 from simde_lint.rules import memory, suboptimal, widening
+from simde_lint.rules.fusion import _MULTIPLIES
+from simde_lint.rules.memory import _INSERTS
+from simde_lint.rules.pipeline import _COMPARES
 
 # Reference checkout roots, read only from the environment (see
 # CONTRIBUTING.md for SIMDE_LINT_SVT_AV1 / SIMDE_LINT_VVENC). There is
@@ -92,37 +95,40 @@ def test_macro_findings_are_reported_with_their_macro_name():
     assert all(f.macro and f.function is None for f in macro)
 
 
-@requires_svt
-def test_every_reported_intrinsic_is_a_name_the_knowledge_tables_recognize():
-    """No macro name may leak into a finding's `intrinsic` field.
+def test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize():
+    """The structural fact, rather than a corpus run that cannot fail.
 
-    Before v1.2 a macro was registered as a forwarding alias for whichever
-    identifier appeared first in its body, so a call site of a multi-call
-    macro was reported as a call to an intrinsic it merely happened to
-    mention first. `is_forwarding_alias` now admits only single-call bodies
-    whose callee normalizes to a recognized intrinsic, and macro bodies that
-    fail that test become units of their own instead.
+    This assertion used to sweep SVT-AV1 and check that no finding's
+    `intrinsic` fell outside the recognized set. That could not fail on any
+    input: every rule fills the field from either a literal or a `call.name`
+    it has already filtered against its own anchor set, and every anchor set
+    is drawn from the same tables the recognized set is. It also could not
+    establish the attribution its name claimed -- a finding attributed to the
+    *wrong* recognized intrinsic satisfies it just as well.
 
-    The property is checked against the recognized set derived from the
-    knowledge tables, not against a couple of macro-name prefixes: a
-    misattribution can carry any spelling, including one that looks like an
-    intrinsic (SVT-AV1 defines macros literally named `_mm_loadu_si64` and
-    `_mm256_setr_m128i`), so a prefix heuristic would pass while the field
-    was wrong.
+    What is worth pinning is the containment itself, because it is what makes
+    the leak impossible rather than merely absent: a rule that anchored on a
+    name absent from `knowledge/` would put an unrecognized spelling in the
+    field, and nothing else would notice. Checking the sets directly needs no
+    corpus and fails the moment that stops holding.
 
-    The old defect was silent rather than visible: the 15 misregistrations
-    measured across the two reference checkouts all pointed at names outside
-    every rule's anchor set (`_mm256_inserti128_si256`, `_mm_unpacklo_epi64`
-    and the like), so no finding was emitted on them and the totals did not
-    move. This assertion is what turns "no rule happens to anchor on a
-    misattributed name" into an enforced invariant: register one of those
-    names in `knowledge/` under a rule, and a resurfaced misattribution
-    fails here instead of being reported as a real call site.
+    `WideningRule` is excluded deliberately -- it writes a literal
+    `_mm_mullo_epi16` rather than a matched name -- and that literal is
+    asserted here too, since a typo in it is the same defect by another
+    route.
     """
-    findings, _, _ = analyze([SVT_AV1])
     recognized = _recognized_intrinsic_names()
-    unrecognized = sorted({f.intrinsic for f in findings} - recognized)
-    assert unrecognized == []
+    anchors = {
+        "F.mul_add_no_fuse": set(_MULTIPLIES),
+        "P.cmp_immediate_use": set(_COMPARES),
+        "M.scalar_insert_chain": set(_INSERTS),
+    }
+    for rule_id, names in anchors.items():
+        assert names, rule_id
+        assert names <= recognized, f"{rule_id}: {sorted(names - recognized)}"
+
+    # Rule W reports a fixed name; it has no anchor set to check.
+    assert "_mm_mullo_epi16" in recognized
 
 
 @requires_svt
