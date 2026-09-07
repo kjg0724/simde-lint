@@ -12,7 +12,7 @@ all eight uses both unpacks and is two separate matches here, not one.
 
 from __future__ import annotations
 
-from typing import Iterator
+from typing import Iterable, Iterator
 
 from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
@@ -45,12 +45,15 @@ class WideningRule:
     mechanism = "16-to-32 widening multiply round-trip"
     options = ()
 
+    @staticmethod
+    def _by_position(calls: Iterable[IntrinsicCall]) -> list[IntrinsicCall]:
+        return sorted(calls, key=lambda call: call.start_byte)
+
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         cost = ctx.knowledge.cost(self.rule_id)
-        by_position = lambda calls: sorted(calls, key=lambda c: c.start_byte)
-        los = by_position(c for c in unit.calls if c.name == "_mm_mullo_epi16")
-        his = by_position(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
-        unpacks = by_position(c for c in unit.calls if c.name in _UNPACK)
+        los = self._by_position(c for c in unit.calls if c.name == "_mm_mullo_epi16")
+        his = self._by_position(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
+        unpacks = self._by_position(c for c in unit.calls if c.name in _UNPACK)
 
         # One finding per round-trip, not per matching pair. VVenC's DeQuant
         # repeats this sequence four times in one function reusing the same

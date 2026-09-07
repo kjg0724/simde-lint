@@ -26,3 +26,17 @@ packages = ["src/simde_lint"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+# Superseded verification scripts, kept for provenance rather than for use.
+extend-exclude = ["docs/precision/superseded"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+# Line length is deliberately not enforced. The comments in this codebase carry
+# the reasoning behind each rule, and reflowing 258 prose lines would be churn
+# with no defect behind it. What is selected is the defect classes the absence
+# of a linter was actually costing: unused names, ambiguous names, unsorted
+# imports.
+ignore = ["E501"]

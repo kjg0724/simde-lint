@@ -1,7 +1,7 @@
-from importlib.metadata import version as metadata_version
 import json
 import os
 import re
+from importlib.metadata import version as metadata_version
 
 import pytest
 
@@ -104,7 +104,9 @@ def test_both_formats_agree_on_order_under_the_default_sort(tmp_path, capsys):
     json_order = [(f["file"], f["line"], f["rule"]) for f in json.loads(capsys.readouterr().out)["findings"]]
     main([path, "--format", "text"])
     text_locations = re.findall(r"^(\S+):(\d+)  \S+ \(", capsys.readouterr().out, re.MULTILINE)
-    assert [(loc[0], int(loc[1])) for loc in text_locations] == [(f, l) for f, l, _ in json_order]
+    assert [(loc[0], int(loc[1])) for loc in text_locations] == [
+        (path, line) for path, line, _ in json_order
+    ]
 
 
 def test_dump_symbols_survives_an_unreadable_file(tmp_path, capsys):

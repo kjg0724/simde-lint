@@ -28,6 +28,13 @@ Those tests skip cleanly — not fail — when the checkout isn't present (via
 either the environment variable or the default path), so the rest of the
 suite stays runnable without either clone.
 
+Set `SIMDE_LINT_REQUIRE_CORPUS=1` to withdraw that skip. It is for a caller
+who believes they supplied the corpora and wants to be told if they did not:
+a missing or drifted checkout then fails instead of skipping. CI sets it,
+because a job that clones both trees and goes green on eleven skips has
+verified nothing — which is what every CI run did until the corpus job
+existed.
+
 **Point them at a checkout pinned to the measured revision.** The figures
 those tests assert were measured against specific commits, recorded in
 `_PINNED` in `tests/test_verification.py`. For a git checkout, a resolvable

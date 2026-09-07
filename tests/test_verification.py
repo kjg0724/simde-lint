@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -41,8 +42,63 @@ VVENC_X86 = (
     Path(_VVENC_ENV) / "source/Lib/CommonLib/x86" if _VVENC_ENV else Path("/nonexistent-vvenc-checkout")
 )
 
-requires_svt = pytest.mark.skipif(not SVT_AV1.exists(), reason="SVT-AV1 checkout not present")
-requires_vvenc = pytest.mark.skipif(not VVENC_X86.exists(), reason="VVenC checkout not present")
+# A contributor without a clone gets a clean skip. A CI job whose entire
+# purpose is to supply the clone must not: every published aggregate is
+# guarded by the tests below, and all of them skipped on every CI run because
+# the variables were unset there, so a green run said nothing about the
+# figures. With SIMDE_LINT_REQUIRE_CORPUS=1 the skip is withdrawn and a
+# missing or drifted checkout fails the job instead of quietly emptying it.
+REQUIRE_CORPUS = os.environ.get("SIMDE_LINT_REQUIRE_CORPUS") == "1"
+
+
+def _requires(present: bool, reason: str):
+    return pytest.mark.skipif(not present and not REQUIRE_CORPUS, reason=reason)
+
+
+def _corpus_drifted(message: str) -> None:
+    """Report a checkout that is not the revision the figures were measured at."""
+    if REQUIRE_CORPUS:
+        pytest.fail(message)
+    pytest.skip(message)
+
+
+requires_svt = _requires(SVT_AV1.exists(), "SVT-AV1 checkout not present")
+requires_vvenc = _requires(VVENC_X86.exists(), "VVenC checkout not present")
+
+
+def test_a_missing_corpus_stops_skipping_when_ci_says_it_supplied_one(monkeypatch):
+    # The bug this guards: the eleven corpus tests skipped on every CI run, so
+    # the published figures were checked only on a developer machine and a
+    # green run proved nothing about them. A job that clones the corpora must
+    # fail if the clone did not arrive, not go green on eleven skips.
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REQUIRE_CORPUS", False)
+    assert _requires(False, "absent").args[0] is True
+    monkeypatch.setattr(module, "REQUIRE_CORPUS", True)
+    assert _requires(False, "absent").args[0] is False
+    # Present is present either way -- the variable only withdraws the skip.
+    assert _requires(True, "present").args[0] is False
+
+
+def test_a_drifted_checkout_fails_rather_than_skips_when_ci_says_it_supplied_one(monkeypatch):
+    # The second silent emptying: the aggregate tests skip themselves when the
+    # checkout is not the pinned revision, which in CI would turn a wrong
+    # clone into a pass.
+    module = sys.modules[__name__]
+
+    def outcome(require: bool) -> BaseException:
+        monkeypatch.setattr(module, "REQUIRE_CORPUS", require)
+        # Catching the base class and asserting the type afterwards is what
+        # makes this test able to fail. `pytest.raises(pytest.fail.Exception)`
+        # does not catch a Skipped, so a regression that always skips would
+        # skip this test rather than fail it -- an inert test guarding the
+        # very thing it exists to prevent.
+        with pytest.raises(BaseException) as raised:
+            _corpus_drifted("drifted")
+        return raised.value
+
+    assert isinstance(outcome(True), pytest.fail.Exception)
+    assert isinstance(outcome(False), pytest.skip.Exception)
 
 
 def _grep_count(root: Path, needle: str) -> int:
@@ -419,7 +475,7 @@ def _aggregate(findings):
 def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
     head = _head(SVT_AV1.parent if SVT_AV1.name == "Source" else SVT_AV1)
     if head and head != _PINNED["svt-av1"]:
-        pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
+        _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
         "total": 3272,
@@ -435,7 +491,7 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
 def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
     head = _head(VVENC_X86.parents[3])
     if head and head != _PINNED["vvenc"]:
-        pytest.skip(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
+        _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
     findings, _, _ = analyze([VVENC_X86])
     assert _aggregate(findings) == {
         "total": 449,

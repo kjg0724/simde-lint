@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ..finding import Finding, Reason, SORT_KEYS
+from ..finding import SORT_KEYS, Finding, Reason
 
 
 def _label(finding: Finding) -> str:

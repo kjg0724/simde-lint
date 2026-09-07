@@ -1,4 +1,4 @@
-from simde_lint.parser import parse_source, iter_nodes, node_text
+from simde_lint.parser import iter_nodes, node_text, parse_source
 
 SRC = b"""
 void f(void) {

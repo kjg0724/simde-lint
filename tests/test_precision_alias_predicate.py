@@ -94,8 +94,7 @@ def test_an_aliased_finding_is_not_credited_without_its_definition():
     # on trust is checking the tool with the tool.
     module = _load()
     source = b"void f(void *p) {\n    _mm_alias(p);\n}\n"
-    calls, by_line, _ = [], {2: []}, None
-    tree = _PARSER.parse(source)
+    calls = []
     ctx = (calls, {2: [module.Call("_mm_alias", 2, ["p"], None, 0, 0)]}, source, {})
     finding = {"line": 2, "intrinsic": "_mm_loadl_epi64", "raw_name": "_mm_alias"}
     ok, detail = module.check_name_only(finding, ctx)
