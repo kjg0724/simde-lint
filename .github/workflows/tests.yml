@@ -2,7 +2,20 @@ name: tests
 
 on:
   push:
+    # Branch pushes are covered by the pull_request trigger. Without this every
+    # job ran twice on a branch with an open PR, which the corpus job -- two
+    # clones and a two-minute sweep -- makes expensive rather than merely
+    # untidy. Pushes to main still run: a merge commit is not what any PR
+    # tested.
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Superseded runs on a branch are worth cancelling. A run on main is not: it
+  # is the merge commit's own verification, and nothing else ever repeats it.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   pytest:
