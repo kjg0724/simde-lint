@@ -13,6 +13,13 @@ Section 3), a different and larger unit. Divergences below are recorded as
 results, with an established cause for each — not smoothed over and not
 treated as failures.
 
+**On "spec Section N".** The design spec those references point at is not in
+this repository: it is a working document that lives with the author's notes,
+and it is cited here because these measurements were written against it, not
+because a reader is expected to open it. Every claim below stands on the
+commands and figures given here. Where a spec section is named, it says where
+a decision was made and by what reasoning -- not where the evidence is.
+
 **The reference checkouts are pinned.** Every figure below was measured
 against these exact revisions; a different checkout will give different
 counts, and the file-count footnotes in Section 1 record a case where it did.
@@ -94,7 +101,7 @@ source would make this document appear to corroborate the paper while
 measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
-The measurement commands in this document were last run in full for v2.1.0,
+The measurement commands in this document were last run in full for v2.3.0,
 against the revisions above (v1.2: intrinsic calls inside `#define` bodies
 are analysed; see Section 5). The anonymous retrieval commands in the
 paragraph above were verified on 2026-09-01. Dating these separately is
@@ -616,7 +623,7 @@ By intrinsic: SVT-AV1's 18 R are `_mm_loadl_epi64` (12) and
 
 **These 32 are not comparable to any figure in the paper, in either
 direction.** They are call sites inside macro bodies that earlier versions of
-this tool could not see, found by the same six rules that were already
+this tool could not see, found by the same seven rules that were already
 running against function bodies. The paper counted assembly instances; a
 macro-body call site is neither one of those nor a substitute for one, and no
 row of the Table III comparison in Section 2 is affected by them — that
@@ -1074,13 +1081,20 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 3713 (census, not a sample)
+findings checked: 3721 (census, not a sample)
 
-  agree          3681   99.1%
+  agree          3689   99.1%
   macro            32    0.9%
 
-agreement on structurally checkable findings: 3681 / 3681 = 100.00%
+agreement on structurally checkable findings: 3689 / 3689 = 100.00%
 ```
+
+Re-run at `v2.3.0` against both pinned checkouts. The population is every
+finding from both sweeps -- 3272 + 449 = 3721 -- so it moves with them: at
+`v2.1.0` it read 3713 / 3681, and the eight-finding difference is SVT-AV1's
+3264 becoming 3272 under rule M's control-region split, which repartitions
+thirteen findings into twenty-one. The 32 unchecked and the 100.00%
+agreement are unchanged.
 
 The 32 unchecked are calls written inside a `#define` body. Confirming them
 means reparsing macro bodies the way `macros.py` does, and a second macro
