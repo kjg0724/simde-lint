@@ -132,15 +132,30 @@ $ uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --type S --format json \
 'by_evidence': {'A': 35, 'C': 306}}
 ```
 
-341 is the combined total of both shuffle widths rule S matches. Filtering
-the tool's own findings to `_mm_shuffle_epi8` alone and comparing against the
-grep count directly:
+341 is the combined total of both shuffle widths rule S matches. **`--type S`
+is not the gate**: the gate is over one intrinsic, and rule S covers two.
+Reproducing it from the command line means filtering on the intrinsic, which
+is what the `jq` below does:
+
+```
+$ uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --type S --format json \
+    | jq '[.findings[] | select(.intrinsic == "_mm_shuffle_epi8")] | length'
+204
+```
+
+or from Python:
 
 ```python
 findings, _, _ = analyze([SVT_AV1], types=["S"])
 tool_count = sum(1 for f in findings if f.intrinsic == "_mm_shuffle_epi8")
 # tool_count == 204 == grep count
 ```
+
+Comparing the 341 against the 204 grep count is the mistake this section
+exists to prevent, and it is an easy one: `--type S` reads as the natural
+command-line spelling of "the rule S findings" and the difference is exactly
+the 137 `_mm256_shuffle_epi8` sites, which looks like a discrepancy rather
+than a second population.
 
 **Result: 204 == 204, exact match**, across 16 files. `_mm256_shuffle_epi8`
 accounts for the remaining 341 − 204 = 137 findings and is counted
