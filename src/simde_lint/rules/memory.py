@@ -21,7 +21,7 @@ from typing import Iterator
 from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
-from .base import Context, location_fields, own_availability, raw_name_if_aliased
+from .base import Context, Option, location_fields, own_availability, raw_name_if_aliased
 
 _INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
 _DEFAULT_THRESHOLD = 3
@@ -36,9 +36,15 @@ class MemoryRule:
     type = "M"
     rule_id = "M.scalar_insert_chain"
     mechanism = "scalar insert chain"
+    options = (
+        Option("memory_chain_threshold", int, _DEFAULT_THRESHOLD, minimum=1),
+    )
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
-        threshold = int(ctx.config.get("memory_chain_threshold", _DEFAULT_THRESHOLD))
+        # Read, not parsed. `validate_config` has already checked the type
+        # and filled the default; an `int(...)` here would be a second
+        # interpretation of the same key, and the two would drift.
+        threshold = ctx.config["memory_chain_threshold"]
 
         # Grouped by the assignment target as written, not by the variable
         # name. `dd[0]` and `dd[1]` are different vectors, and a lane load
@@ -176,6 +182,7 @@ class ScalarSetBuildRule:
     type = "M"
     rule_id = "M.scalar_set_build"
     mechanism = "vector built from runtime scalars"
+    options = ()
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         for call in unit.calls:

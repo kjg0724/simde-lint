@@ -43,6 +43,7 @@ class WideningRule:
     type = "W"
     rule_id = "W.mul16_widen_roundtrip"
     mechanism = "16-to-32 widening multiply round-trip"
+    options = ()
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         cost = ctx.knowledge.cost(self.rule_id)

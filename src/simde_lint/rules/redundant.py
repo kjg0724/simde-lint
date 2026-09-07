@@ -13,6 +13,7 @@ class RedundantRule:
     type = "R"
     rule_id = "R.zero_init_partial_load"
     mechanism = "zero-init before partial load"
+    options = ()
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         for call in unit.calls:

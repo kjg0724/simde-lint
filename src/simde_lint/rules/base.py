@@ -49,10 +49,32 @@ class Context:
     config: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class Option:
+    """One `--config` key a rule accepts, declared rather than parsed.
+
+    Data, not behaviour: the rule states what it takes and the validator
+    enforces it, so nothing outside a rule has to know that rule's options and
+    no rule has to implement a hook that exists only for validation.
+
+    `minimum` is inclusive. A rule reads the validated value straight out of
+    `ctx.config` and does not re-parse it -- two interpretations of the same
+    key is how a validated config and an executed one drift apart.
+    """
+
+    name: str
+    type: type
+    default: object
+    minimum: int | None = None
+
+
 class Rule(Protocol):
     type: str
     rule_id: str
     mechanism: str
+    # Every registered rule declares this, even when empty, so the union of
+    # accepted keys is knowable without asking each rule in turn.
+    options: tuple[Option, ...]
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]: ...
 
@@ -87,3 +109,58 @@ def raw_name_if_aliased(call: IntrinsicCall) -> str | None:
     redundant field.
     """
     return call.raw_name if call.raw_name != call.name else None
+
+
+class ConfigError(ValueError):
+    """A `--config` value the tool will not act on.
+
+    Raised before any source is read. A config that cannot be honoured must
+    not produce a report: a run that silently ignored what it was asked to do
+    looks exactly like one that did it.
+    """
+
+
+def validate_config(config: dict, rules) -> dict:
+    """Check `config` against what `rules` declare, and fill in defaults.
+
+    Unknown keys are an error rather than a warning. An older version that
+    quietly accepts a newer option claims to have honoured a configuration it
+    did not implement; failing tells the reader to upgrade instead. Ignoring
+    requested behaviour is not forward compatibility.
+    """
+    declared: dict[str, Option] = {}
+    for rule in rules:
+        for option in getattr(rule, "options", ()):
+            if option.name in declared:
+                raise ConfigError(
+                    f"{option.name} is declared by more than one rule; "
+                    "config keys must be unique across rules"
+                )
+            declared[option.name] = option
+
+    if not isinstance(config, dict):
+        raise ConfigError(
+            f"config must be a JSON object, not {type(config).__name__}"
+        )
+
+    for key in config:
+        if key not in declared:
+            known = ", ".join(sorted(declared)) or "none"
+            raise ConfigError(f"unsupported option {key!r}; this version accepts: {known}")
+
+    resolved: dict[str, object] = {}
+    for name, option in declared.items():
+        if name not in config:
+            resolved[name] = option.default
+            continue
+        value = config[name]
+        # `bool` is a subclass of `int`, and `true` is not a threshold.
+        if isinstance(value, bool) or type(value) is not option.type:
+            raise ConfigError(
+                f"{name} must be {option.type.__name__}, "
+                f"not {type(value).__name__}"
+            )
+        if option.minimum is not None and value < option.minimum:
+            raise ConfigError(f"{name} must be at least {option.minimum}, not {value}")
+        resolved[name] = value
+    return resolved

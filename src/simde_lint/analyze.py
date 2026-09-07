@@ -11,7 +11,7 @@ from .extract import extract_units_and_diagnostics
 from .finding import Evidence, Finding
 from .ir import AnalysisUnit
 from .knowledge import Knowledge, load_knowledge
-from .rules import ALL_RULES, Context, Rule
+from .rules import ALL_RULES, Context, Rule, validate_config
 from .symbols import build_symbol_index
 
 # Ordered by strictness. --min-evidence is a floor: passing "B" keeps grades
@@ -178,6 +178,13 @@ def analyze(
     tool never saw, all of them past the point where one 3398-line header
     stopped parsing, and nothing in the output said so.
     """
+    # Before any file is opened. A config the tool will not honour must not
+    # produce a report -- a run that quietly ignored what it was asked to do
+    # is indistinguishable from one that did it. This is here rather than in
+    # the CLI because `analyze` is a public entry point with the same
+    # exposure.
+    resolved_config = validate_config(config or {}, ALL_RULES)
+
     knowledge = load_knowledge()
     errors: list[str] = []
     sources = read_sources(paths, exclude, errors)
@@ -185,7 +192,7 @@ def analyze(
     ctx = Context(
         symbols=build_symbol_index(sources, knowledge),
         knowledge=knowledge,
-        config=config or {},
+        config=resolved_config,
     )
 
     findings: list[Finding] = []

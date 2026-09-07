@@ -48,6 +48,7 @@ class SuboptimalRule:
     type = "S"
     rule_id = "S.pshufb_guard"
     mechanism = "pshufb->tbl guard only"
+    options = ()
 
     def match(self, unit: AnalysisUnit, ctx: Context) -> Iterator[Finding]:
         for call in unit.calls:

@@ -10,6 +10,7 @@ from typing import Sequence
 
 from . import __version__
 from .analyze import analyze, is_failure, read_sources
+from .rules import ALL_RULES, ConfigError, validate_config
 from .finding import Evidence
 from .knowledge import load_knowledge
 from .report import render_json, render_text
@@ -59,7 +60,21 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     config = {}
     if args.config:
-        config = json.loads(args.config.read_text(encoding="utf-8"))
+        # Reading the file and parsing its JSON belong here; what the keys
+        # mean belongs to the rules. All three failures are usage errors and
+        # exit 2 through `parser.error`, rather than reaching the user as a
+        # traceback -- which is what they did, with no message and an empty
+        # report under `--format json`.
+        try:
+            config = json.loads(args.config.read_text(encoding="utf-8"))
+        except OSError as exc:
+            parser.error(f"--config: cannot read {args.config}: {exc.strerror}")
+        except json.JSONDecodeError as exc:
+            parser.error(f"--config: {args.config} is not valid JSON: {exc}")
+        try:
+            validate_config(config, ALL_RULES)
+        except ConfigError as exc:
+            parser.error(f"--config: {exc}")
 
     if args.dump_symbols:
         knowledge = load_knowledge()
