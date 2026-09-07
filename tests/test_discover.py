@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from simde_lint.discover import discover_files
 
 
@@ -61,3 +63,31 @@ def test_nested_directory_patterns_still_match(tmp_path):
     (tmp_path / "keep.c").write_text("")
     names = {p.name for p in discover_files([tmp_path.resolve()], exclude=["build/*"])}
     assert names == {"keep.c"}
+
+
+def test_a_file_named_directly_and_reached_through_a_directory_is_taken_once(tmp_path):
+    # `simde-lint . src/main.c` is an ordinary invocation. Without collapsing
+    # it, every finding in main.c is reported twice and the user's totals stop
+    # being comparable with the published ones.
+    target = tmp_path / "a.c"
+    target.write_text("")
+    assert discover_files([target, tmp_path], exclude=[]) == [target]
+
+
+def test_the_surviving_spelling_is_the_one_the_user_wrote(tmp_path, monkeypatch):
+    # De-duplicating on the resolved path must not let the resolved path reach
+    # the report: a scan of `.` answers in the paths the user can recognise.
+    (tmp_path / "a.c").write_text("")
+    monkeypatch.chdir(tmp_path)
+    relative = Path("a.c")
+    found = discover_files([relative, tmp_path], exclude=[])
+    assert found == [relative]
+    assert not found[0].is_absolute()
+
+
+def test_two_names_for_one_file_inside_a_tree_are_taken_once(tmp_path):
+    # A symlinked source appears twice in one rglob sweep, so a caller who
+    # never repeated a path still gets doubled counts.
+    (tmp_path / "a.c").write_text("")
+    (tmp_path / "link.c").symlink_to(tmp_path / "a.c")
+    assert discover_files([tmp_path], exclude=[]) == [tmp_path / "a.c"]
