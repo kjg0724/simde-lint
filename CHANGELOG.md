@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-09-07
+
+### Note on version provenance
+
+`__version__` stayed at `2.2.0` between that release and this one rather than
+moving to a development suffix, so a report produced from `main` in that
+interval identifies itself as `2.2.0` while carrying the corrections below.
+The v2.2.0 entry said development would resume at the next `.dev0`, and that
+did not happen.
+
+Nothing published is affected -- the tagged v2.2.0 artefact reports 2.2.0 and
+is what it says it is -- but a JSON report saved from an untagged `main`
+during that window cannot be told apart from the release by its version
+field. If you have one, the finding counts distinguish them: v2.2.0 gives
+SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
 
 ### Fixed
 
