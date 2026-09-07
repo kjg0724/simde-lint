@@ -1,3 +1,4 @@
+import re
 from dataclasses import replace
 
 from simde_lint.finding import Evidence, Reason
@@ -254,12 +255,30 @@ def test_widening_hop_abstains_only_for_a_macro_resolved_intermediate(run_rule):
 
 
 def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
-    # The widening conversion runs before the second multiply, so only the
-    # first can own it. Attributing it to the second would invert the interval
-    # handed to redefined_between and pass the guard vacuously.
-    findings = [
-        f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == "reused_name"
-    ]
+    """The guard at `fusion.py`'s ordering check, on a shape that reaches it.
+
+    This assertion used to run against `reused_name`, which has one add: the
+    first multiply claims it and the second never gets as far as the ordering
+    comparison, so neutralising the guard changed that function's output not
+    at all. A count of 1 held for a reason unrelated to what the test named.
+
+    `widening_hop_precedes_the_multiply` gives the second multiply an add of
+    its own. Without the guard it claims the widening hop at line 8 -- which
+    ran before it -- and the function reports two findings instead of one.
+    """
+    by_function: dict[str, list] = {}
+    for f in run_rule(FusionRule(), "fusion_positive.c"):
+        by_function.setdefault(f.function, []).append(f)
+
+    guarded = by_function["widening_hop_precedes_the_multiply"]
+    assert len(guarded) == 1
+    # The survivor is the multiply that precedes the hop, not the one after
+    # it. Asserted by relative position rather than a line number, which
+    # would break whenever anything is added to the fixture above it.
+    hop_line = int(re.search(r"_mm_cvtepi32_epi64 at line (\d+)", guarded[0].rationale).group(1))
+    assert guarded[0].line < hop_line
+
+    findings = by_function["reused_name"]
     assert len(findings) == 1
     # madd caps at C (see test_an_unestablished_fused_form_caps_the_grade_at_c);
     # what this test pins is that the widening hop was claimed at all.

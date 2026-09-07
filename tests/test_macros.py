@@ -8,6 +8,7 @@ from simde_lint.macros import (
     _forwarding_call,
     _marker,
     _normalized_tokens,
+    _splice_lines,
     _tokenize,
     build_alias_map,
     is_forwarding_alias,
@@ -1700,3 +1701,40 @@ def test_a_forwarding_macro_using_a_digit_separator_literal_registers():
     assert is_forwarding_alias(macro) == "_mm_set_epi32"
     alias_map = _alias_map(_DIGIT_SEPARATOR_FORWARDING_MACRO, knowledge)
     assert alias_map.targets == {"X": "_mm_set_epi32"}
+
+
+def test_a_continued_call_normalizes_to_the_same_tokens_as_a_one_line_one():
+    """`_splice_lines`'s actual contract, which nothing exercised.
+
+    Two tests named backslash continuations and both survived
+    `_splice_lines` returning its input unchanged -- as did the whole suite,
+    397 tests, and both reference corpora. The function had no effective
+    coverage at all.
+
+    Their fixtures put the continuation between arguments, where the shape
+    comparison tokenizes each argument separately and never sees it. It has
+    to sit inside a token sequence that is compared as a unit, which is what
+    a continued argument list is: `_tokenize` emits the `\\` as an `other`
+    token, so without splicing the continued spelling and the one-line
+    spelling of the same call compare unequal for a reason that has nothing
+    to do with what either macro forwards.
+    """
+    one_line = _normalized_tokens(b"_mm_add_epi32(a, b)", ("a", "b"))
+    continued = _normalized_tokens(b"_mm_add_epi32(a, \\\n              b)", ("a", "b"))
+    assert one_line is not None
+    assert continued == one_line
+
+
+def test_the_tokenizer_alone_does_not_drop_a_continuation():
+    """Why the splice is needed rather than the tokenizer handling it.
+
+    Asserting only that the two normalize alike would also pass if
+    `_tokenize` ignored backslashes on its own, in which case
+    `_splice_lines` would be dead code rather than load-bearing. It does
+    not: the backslash arrives as a token, and the splice is what removes
+    it.
+    """
+    assert (b"other", b"\\") in [
+        (kind.encode(), value) for kind, value in _tokenize(b"a + \\\n b")
+    ]
+    assert all(v != b"\\" for _, v in _tokenize(_splice_lines(b"a + \\\n b")))
