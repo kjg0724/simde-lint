@@ -58,6 +58,13 @@ class CostInfo:
     # Set only for `F.mul_add_no_fuse` entries; None elsewhere, where no rule
     # asks the question.
     transform_status: "TransformStatus | None" = None
+    # The lane width `suggestion` accumulates into, which is not always the
+    # width of the multiply that names it: `vmlal_s32` takes 32-bit inputs and
+    # accumulates into 64. A rule that prints the instruction has to check
+    # this against the accumulator actually in front of it, or it names one
+    # that cannot be dropped in. Set with `suggestion` on `F.mul_add_no_fuse`
+    # entries; None elsewhere.
+    accumulator_lanes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +132,11 @@ def _cost_entry(key: str, entry: dict, requires_transform_status: bool = False) 
         source=entry["source"],
         note=entry.get("note", ""),
         transform_status=status,
+        # KeyError for the same reason as transform_status: an entry naming an
+        # instruction without saying what it accumulates into cannot be
+        # checked against a call site, and a default would make the unchecked
+        # case indistinguishable from the checked one.
+        accumulator_lanes=entry["accumulator_lanes"] if requires_transform_status else None,
     )
 
 

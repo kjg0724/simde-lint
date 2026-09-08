@@ -207,3 +207,30 @@ void the_add_precedes_the_multiply_that_reuses_the_name(const int *p, __m128i a,
     prod = _mm_mullo_epi32(a, b);
     (void)sum; (void)prod;
 }
+
+// vmlal_s32 accumulates into 64-bit lanes. This accumulator is 32, so the
+// recorded instruction is not the replacement here even though the
+// multiply-add is real and unfused.
+void product_accumulated_at_the_wrong_width(__m128i a, __m128i b, __m128i acc) {
+    __m128i p = _mm_mul_epi32(a, b);
+    acc = _mm_add_epi32(acc, p);
+    (void)acc;
+}
+
+// The same multiply against the accumulator the suggestion was recorded for.
+void product_accumulated_at_the_recorded_width(__m128i a, __m128i b, __m128i acc) {
+    __m128i p = _mm_mul_epi32(a, b);
+    acc = _mm_add_epi64(acc, p);
+    (void)acc;
+}
+
+// madd_epi16 accumulated at the width vmlal_s16 produces. `kernel`'s madd
+// reaches a 64-bit add through a widening hop, so it is now a width mismatch
+// and no longer exercises the conditional-transform path.
+void madd_accumulated_at_its_own_width(const int *a, const int *b, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i vb = _mm_loadu_si128((const __m128i *)b);
+    __m128i pair = _mm_madd_epi16(va, vb);
+    __m128i sum = _mm_add_epi32(acc, pair);
+    (void)sum;
+}

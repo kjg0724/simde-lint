@@ -51,9 +51,10 @@ Every finding carries an evidence grade.
   - **B** — derived from a literal or a link, but through an intermediate
     operation, so the final value isn't pinned.
   - **C** — the rule cannot confirm the transform is safe from source alone.
-    Grade C covers three different situations, distinguished on the finding
-    by a structured `reason` field (`unresolved`, `guard_required`, or
-    `transform_requires_context`, not free prose):
+    Grade C covers four different situations, distinguished on the finding
+    by a structured `reason` field (`unresolved`, `guard_required`,
+    `transform_requires_context` or `transform_width_mismatch`, not free
+    prose):
     - **C-unresolved** — the rule could not see far enough to judge at all
       (a runtime-loaded value, a call result with unknown lanes, a symbol
       not defined in the scanned inputs). `reason: "unresolved"`.
@@ -68,8 +69,16 @@ Every finding carries an evidence grade.
       This shares grade C not because nothing could be judged, but because
       the required context was not verified at this call site.
       `reason: "transform_requires_context"`.
+    - **C-transform-width-mismatch** — a fused replacement is recorded, the
+      rule checked it, and it does not fit: the instruction accumulates at a
+      different lane width than the accumulator at this call site (rule F:
+      `vmlal_s32` writes 64-bit lanes, and a `_mm_mul_epi32` product
+      accumulated by `_mm_add_epi32` lands in 32). The inefficiency is real
+      and reported; the recorded replacement is not the fix for it, so the
+      finding carries no `suggestion`.
+      `reason: "transform_width_mismatch"`.
 
-    All three share grade C because v1's action is identical either way: do
+    All four share grade C because v1's action is identical either way: do
     not transform without human confirmation. A fourth grade would only be
     warranted if they ever needed different `--min-evidence` filtering or
     other CLI/automation behaviour, which they do not today. `reason` is

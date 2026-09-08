@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Rule F stops naming an instruction that cannot be dropped in
+
+`_mm_mul_epi32` products accumulated by `_mm_add_epi32` were reported at grade
+**A** suggesting `vmlal_s32`, which accumulates into 64-bit lanes. The
+accumulator there is 32. Five call sites in SVT-AV1, all grade A -- the layer
+`--min-evidence A` exists to isolate. VVenC and the VVdeC holdout have none.
+
+The cost table maps a suggestion per intrinsic, so the multiply alone picked
+it; which add the product reaches is what decides whether it can be used, and
+nothing consulted that. `accumulator_lanes` now sits beside `suggestion` in
+`knowledge/patterns.yaml`, required for every `F.mul_add_no_fuse` entry the
+same way `transform_status` is -- a `KeyError`, not a default, so an entry
+that names an instruction without saying what it accumulates into cannot go
+unchecked.
+
+The findings stay. The multiply-add is real and unfused, so what is withdrawn
+is the replacement: `suggestion` becomes null and the grade drops to C with a
+new `reason`, `transform_width_mismatch`. It is distinct from the three
+existing reasons because the rule reached an answer rather than declining to
+-- neither "could not see" nor "did not check".
+
+Counts do not move; the evidence split does, by exactly those five:
+
+| corpus | total | evidence |
+|---|---:|---|
+| SVT-AV1 | 3365 (unchanged) | A 873 -> 868, C 2432 -> 2437 |
+| VVenC | 593 (unchanged) | unchanged |
+
+The census re-ran unchanged at 3958 / 3926 / 100.00%, and this time
+`verify.py` needed no edit: it checks that the mechanism is present, not
+which instruction is suggested. That makes it the independent confirmation
+the previous entry's re-run could not be.
+
+**A consequence worth stating.** Rule F emits no grade **B** on any of the
+three corpora, because a widening hop moves the product to a width the recorded
+fused form does not accumulate at -- which is what widening means. It emitted
+no B on them before this check existed either, so nothing observed was lost. What changes is that the gap is now visible: the knowledge table
+records no fused form for multiply-then-widen-then-accumulate, and
+`vmlal_s32` is not the missing entry, because it takes the full 64-bit
+product where `_mm_mullo_epi32` truncates to 32 first. The two disagree
+exactly when the product overflows.
+
 ### Rule F reports a multiply written straight into the add
 
 `acc = _mm_add_epi32(acc, _mm_madd_epi16(a, b))` was never reported. Rule F

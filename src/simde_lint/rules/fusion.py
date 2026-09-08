@@ -23,7 +23,17 @@ _MULTIPLIES = {
     "_mm256_madd_epi16",
     "_mm256_mul_epi32",
 }
-_ADDS = {"_mm_add_epi32", "_mm_add_epi64", "_mm256_add_epi32", "_mm256_add_epi64"}
+# The accumulator's lane width, which is what a suggested multiply-accumulate
+# has to accumulate into. Keyed by the add rather than the multiply because
+# the multiply does not decide it: `_mm_mul_epi32` produces 64-bit products
+# and can still be accumulated 32 bits at a time, and was.
+_ADD_LANES = {
+    "_mm_add_epi32": 32,
+    "_mm256_add_epi32": 32,
+    "_mm_add_epi64": 64,
+    "_mm256_add_epi64": 64,
+}
+_ADDS = set(_ADD_LANES)
 _WIDENING = {
     "_mm_cvtepi32_epi64",
     "_mm_cvtepi16_epi32",
@@ -92,6 +102,16 @@ class FusionRule:
                 capped, cap_reason = self.cap_for(cost)
                 if capped is not None:
                     evidence, reason = capped, cap_reason
+                claim = self._fusion_claim(cost)
+                suggestion = cost.suggestion
+                mismatch = self._width_mismatch(cost, add)
+                if mismatch is not None:
+                    # The multiply-add is still there and still unfused. What
+                    # is not there is the replacement, so the finding keeps
+                    # the observation and drops the instruction rather than
+                    # naming one that cannot be dropped in.
+                    evidence, reason = Evidence.C, Reason.TRANSFORM_WIDTH_MISMATCH
+                    claim, suggestion = mismatch, None
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,
@@ -105,14 +125,36 @@ class FusionRule:
                     intrinsic=mul.name,
                     rationale=(
                         f"{mul.name} at line {mul.line} reaches {add.name} at line "
-                        f"{add.line}{via}; {self._fusion_claim(cost)} ({cost.source})"
+                        f"{add.line}{via}; {claim} ({cost.source})"
                     ),
                     simde_insns=cost.simde_insns,
                     native_insns=cost.native_insns,
-                    suggestion=cost.suggestion,
+                    suggestion=suggestion,
                     raw_name=raw_name_if_aliased(mul),
                 )
                 break
+
+    @staticmethod
+    def _width_mismatch(cost: CostInfo, add: IntrinsicCall) -> str | None:
+        """The reason the recorded instruction does not fit this accumulator.
+
+        Returns None when it fits, or when there is nothing to compare. The
+        cost table maps a suggestion per intrinsic, so the multiply alone
+        picks it; which add the product reaches is what decides whether it can
+        be used, and nothing consulted that. `_mm_mul_epi32` reaching
+        `_mm_add_epi32` is the case that shows it: `vmlal_s32` accumulates
+        into 64-bit lanes and the accumulator here is 32.
+        """
+        wanted = cost.accumulator_lanes
+        actual = _ADD_LANES.get(add.name)
+        if wanted is None or actual is None or wanted == actual:
+            return None
+        return (
+            "the multiply and the accumulate are emitted as separate "
+            f"instructions; the recorded fused form {cost.suggestion} accumulates "
+            f"into {wanted}-bit lanes, but {add.name} accumulates into {actual}, "
+            "so it is not the replacement here"
+        )
 
     def cap_for(self, cost: CostInfo) -> tuple[Evidence | None, Reason | None]:
         """The grade ceiling this intrinsic's transform status imposes.
