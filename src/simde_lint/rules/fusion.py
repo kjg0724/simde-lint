@@ -32,6 +32,35 @@ _WIDENING = {
 }
 
 
+# Two absences that must never collapse into one: "written as a direct operand
+# of the add" and "not an operand of the add at all". `None` means the first,
+# so the second needs a value of its own.
+_NOT_AN_OPERAND = object()
+
+
+def _operand_hop(unit: AnalysisUnit, add: IntrinsicCall, mul: IntrinsicCall):
+    """Where `mul` sits inside `add`, if it is written inside it at all.
+
+    Returns `None` when the multiply is a direct operand, the widening call
+    between them when it reaches the add through one, and `_NOT_AN_OPERAND`
+    when it is not written inside the add.
+    """
+    for arg in add.args:
+        if arg.kind is not ValueKind.CALL_RESULT or arg.call_id is None:
+            continue
+        if arg.call_id == mul.id:
+            return None
+        hop = unit.call_by_id(arg.call_id)
+        if hop is None or hop.name not in _WIDENING or hop.is_macro_alias:
+            continue
+        if any(
+            inner.kind is ValueKind.CALL_RESULT and inner.call_id == mul.id
+            for inner in hop.args
+        ):
+            return hop
+    return _NOT_AN_OPERAND
+
+
 class FusionRule:
     type = "F"
     rule_id = "F.mul_add_no_fuse"
@@ -47,11 +76,13 @@ class FusionRule:
         claimed_adds: set[int] = set()
 
         for mul in sorted(unit.calls, key=lambda c: c.start_byte):
-            if mul.name not in _MULTIPLIES or not mul.result_var:
+            if mul.name not in _MULTIPLIES:
                 continue
             cost = ctx.knowledge.cost(self.rule_id, mul.name)
             for add in adds:
-                if add.id in claimed_adds or add.start_byte <= mul.start_byte:
+                if add.id in claimed_adds:
+                    continue
+                if not self._reaches_by_position(unit, mul, add):
                     continue
                 path = self._path(unit, mul, add)
                 if path is None:
@@ -126,6 +157,23 @@ class FusionRule:
             f"{observed}; NEON fuses this into {cost.suggestion} for some accumulator shapes"
         )
 
+    @staticmethod
+    def _reaches_by_position(
+        unit: AnalysisUnit, mul: IntrinsicCall, add: IntrinsicCall
+    ) -> bool:
+        """Whether `add` can be consuming this multiply's product at all.
+
+        A multiply written into a variable reaches an add that comes after
+        it, which byte position decides. A multiply written directly as an
+        operand reaches the add that contains it, and there byte position
+        says the opposite of the truth: the add's call expression opens
+        first, so the add starts *before* a product it is waiting on.
+        Containment settles that case, and nothing else has to.
+        """
+        if _operand_hop(unit, add, mul) is not _NOT_AN_OPERAND:
+            return True
+        return bool(mul.result_var) and add.start_byte > mul.start_byte
+
     def _path(
         self, unit: AnalysisUnit, mul: IntrinsicCall, add: IntrinsicCall
     ) -> tuple[Evidence, str] | None:
@@ -145,6 +193,16 @@ class FusionRule:
             # body -- that correspondence is exact by SIMDe's own naming
             # convention, so it must not abstain here.
             return None
+        hop = _operand_hop(unit, add, mul)
+        if hop is not _NOT_AN_OPERAND:
+            # The product is never named, so there is no window in which it
+            # could be redefined and nothing for `redefined_between` to
+            # answer. Written as an operand it reaches the add, or the
+            # program does not compile.
+            if hop is None:
+                return Evidence.A, ""
+            return Evidence.B, f" through {hop.name} at line {hop.line}"
+
         operands = {arg.text for arg in add.args if arg.kind is ValueKind.VARIABLE}
 
         if mul.result_var in operands:

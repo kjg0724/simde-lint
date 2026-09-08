@@ -382,3 +382,81 @@ def test_changing_only_the_suggestion_cannot_change_the_evidence():
     graded = _grade_for(with_suggestion)
 
     assert graded is Evidence.C
+
+
+def test_a_multiply_written_as_the_adds_operand_is_reported(run_rule):
+    # Rule F used to require a named product: `mul.result_var` gated the loop,
+    # so the idiomatic `_mm_add_epi32(acc, _mm_mullo_epi32(a, b))` was never
+    # looked at. Whether the author named the product is a spelling choice and
+    # the emitted sequence is the same either way.
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "nested_multiply_is_the_operand"
+    ]
+    assert len(findings) == 1
+    assert findings[0].intrinsic == "_mm_mullo_epi32"
+    # A, not B: with no name there is no window in which the product could be
+    # redefined between producing it and consuming it.
+    assert findings[0].evidence is Evidence.A
+
+
+def test_a_nested_multiply_through_a_widening_hop_grades_b(run_rule):
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "nested_multiply_through_a_widening_hop"
+    ]
+    assert len(findings) == 1
+    assert findings[0].evidence is Evidence.B
+    assert "_mm_cvtepi32_epi64" in findings[0].rationale
+
+
+def test_two_nested_multiplies_in_one_add_report_once(run_rule):
+    # An add is one fusion opportunity. The claim that stops a flat pair of
+    # products reporting twice has to hold for nested ones too, and each
+    # finding is anchored at its own multiply -- here both are on the same
+    # line, so a repeated-line check would not reveal a double report either.
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "two_nested_multiplies_share_one_add"
+    ]
+    assert len(findings) == 1
+
+
+def test_position_still_decides_for_a_named_product(run_rule):
+    # Containment must not replace the byte-position test, only stand in for
+    # it where there is no name. A named product still has to be produced
+    # before the add that consumes it.
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "widening_hop_precedes_the_multiply"
+    ]
+    assert len(findings) == 1
+
+
+def test_a_nested_hop_that_is_not_a_widening_is_not_reported(run_rule):
+    # Containment alone must not be enough. The product reaches the add, but
+    # through a shuffle -- no fused multiply-accumulate covers that shape, and
+    # reporting it would name a widening hop that is not one.
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "nested_hop_is_not_a_widening"
+    ]
+    assert findings == []
+
+
+def test_an_add_before_the_multiply_that_reuses_the_name_is_not_reported(run_rule):
+    # The add consumed an earlier value bound to the same name. Without the
+    # byte-position test the interval handed to the redefinition guard
+    # inverts, the guard passes vacuously, and the add is credited to a
+    # multiply that had not executed.
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "the_add_precedes_the_multiply_that_reuses_the_name"
+    ]
+    assert findings == []
