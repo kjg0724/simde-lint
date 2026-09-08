@@ -10,8 +10,11 @@ Computer Architecture Letters*, 2026, doi:
 **Absolute agreement with the paper is not a criterion.** The paper counted
 instances in GCC `-O3` assembly; this tool counts source call sites (spec
 Section 3), a different and larger unit. Divergences below are recorded as
-results, with an established cause for each — not smoothed over and not
-treated as failures.
+results rather than smoothed over or treated as failures, and a cause is
+given wherever one has been established. Not every cell is accounted for:
+the FGA `F` row of Section 2 is 5 in the paper and 0 here with no cause
+recorded, and it is not alone. Read the claim as "no divergence is hidden",
+not as "every divergence is explained".
 
 **On "spec Section N".** The design spec those references point at is not in
 this repository: it is a working document that lives with the author's notes,
