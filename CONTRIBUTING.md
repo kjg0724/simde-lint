@@ -191,7 +191,7 @@ Type S, for example).
    rule drift.
 
    **Grade C carries a structured `reason`, not free prose.** Any rule that
-   can emit C must set `Finding.reason` to one of four `Reason` values:
+   can emit C must set `Finding.reason` to one of five `Reason` values:
    - `Reason.UNRESOLVED` — the rule could not see far enough to judge at
      all (a runtime-loaded value, a call result with unknown lanes, a
      symbol not defined in the scanned inputs).
@@ -203,13 +203,19 @@ Type S, for example).
      rule does not check (rule F: `vmlal_s16` needs a horizontal-reduction
      consumer; rule R: the zero-init is dead only for a consumer the rule
      cannot see).
+   - `Reason.TRANSFORM_CHANGES_RESULT` — a replacement applies with no
+     condition attached and does not produce the same answer (rule F:
+     `vfmaq_f32` rounds once where the separate multiply and add round
+     twice). Every reason above it is conditionally exact; this one never
+     is, so the question for a reader is numerical, not structural. The
+     `suggestion` is kept — the instruction is real.
    - `Reason.TRANSFORM_WIDTH_MISMATCH` — a replacement is recorded, the rule
      checked it, and it does not fit: the instruction accumulates at a
      different lane width than the accumulator at this call site. A finding
      with this reason carries no `suggestion` — the observation stands, the
      named replacement does not.
 
-   All four share grade C because v1 acts on them identically: do not
+   All five share grade C because v1 acts on them identically: do not
    transform without human confirmation. `reason` is `None` for grades A
    and B — see `Reason`'s docstring in `finding.py` for the full rationale,
    including why a fourth grade isn't warranted today. Rules S, R and F all

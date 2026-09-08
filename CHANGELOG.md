@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Rule F covers the single-precision float family
+
+`_mm_mul_ps` reaching `_mm_add_ps` was never reported. The taxonomy defines
+type F by mechanism -- SIMDe translating one intrinsic at a time and missing a
+fusion -- and this is that mechanism: `_mm_mul_ps` expands to `vmulq_f32`
+alone (`x86/sse.h:3516`), `_mm_add_ps` to `vaddq_f32` (`:901`), and
+`vfmaq_f32` sits unused. Leaving it unregistered left the tool silent about an
+inefficiency its own taxonomy covers.
+
+What separates it from every integer case is the price, and that needed a
+reason of its own. The three existing grade-C reasons all describe a transform
+that is *conditionally* exact: satisfy the condition and the substitution
+preserves results, and what a reader checks is whether the condition holds.
+`vfmaq_f32` is never exact -- it rounds once where the separate multiply and
+add round twice -- so what a reader settles is whether a different answer is
+acceptable. In an encoder that is a quality question; in a decoder it can be a
+conformance one. Labelling it `transform_requires_context` would have sent the
+reader to check a code shape instead. So `transform_changes_result` is a fifth
+`Reason`, backed by a fourth `TransformStatus`, `changes_result`.
+
+The `suggestion` is kept, unlike a width mismatch. There the named instruction
+was wrong and null was the honest answer; here it is right and has a cost.
+What is withdrawn is "use it freely", not "it exists".
+
+Thirteen findings, all grade C by construction:
+
+| corpus | total | rule F | float |
+|---|---:|---:|---:|
+| SVT-AV1 | 3365 -> 3366 | 1112 -> 1113 | 1 |
+| VVenC | 593 -> 605 | 279 -> 291 | 12 |
+| VVdeC (holdout) | 582 (unchanged) | 143 (unchanged) | 0 |
+
+VVenC's twelve are two Horner polynomials in its film-grain analysis, which is
+what FMA exists for. Census re-ran at 3971 / 3939 / 100.00% with no change to
+`verify.py`.
+
 ### Rule F stops naming an instruction that cannot be dropped in
 
 `_mm_mul_epi32` products accumulated by `_mm_add_epi32` were reported at grade

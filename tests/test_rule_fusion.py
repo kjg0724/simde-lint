@@ -529,3 +529,30 @@ def test_every_recorded_fused_form_declares_what_it_accumulates_into():
     table = load_knowledge().patterns[FusionRule.rule_id]
     missing = [name for name, cost in table.items() if cost.accumulator_lanes is None]
     assert missing == []
+
+
+def test_the_float_pair_is_reported_with_its_cost_named(run_rule):
+    # Type F is defined by mechanism -- one-to-one translation missing a
+    # fusion -- and this is that mechanism. What separates it from the
+    # integer cases is that no condition makes the substitution exact.
+    finding = _only(run_rule, "float_multiply_add")
+    assert finding.intrinsic == "_mm_mul_ps"
+    assert finding.evidence is Evidence.C
+    assert finding.reason is Reason.TRANSFORM_CHANGES_RESULT
+    # The suggestion stays, unlike a width mismatch: the instruction is real
+    # and correct. What is withdrawn is "use it freely", not "it exists".
+    assert finding.suggestion == "vfmaq_f32"
+    assert "rounds once where the separate multiply and add round twice" in finding.rationale
+
+
+def test_changes_result_is_not_collapsed_into_requires_context():
+    # Both cap at C, so a test asserting only the grade would pass with the
+    # two statuses swapped -- and they say different things to a reader: one
+    # is "go check a condition", the other "decide whether a different answer
+    # is acceptable".
+    table = load_knowledge().patterns[FusionRule.rule_id]
+    rule = FusionRule()
+    conditional = rule.cap_for(table["_mm_madd_epi16"])
+    changing = rule.cap_for(table["_mm_mul_ps"])
+    assert conditional == (Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT)
+    assert changing == (Evidence.C, Reason.TRANSFORM_CHANGES_RESULT)
