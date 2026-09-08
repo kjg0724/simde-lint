@@ -1,6 +1,85 @@
 # Changelog
 
-## Unreleased
+## 2.4.0 — 2026-09-08
+
+Rule F only. Every other rule is unchanged finding-for-finding on all three
+corpora, and the acceptance gate still reads 204 against `grep`'s 204.
+
+`main` reported `simde_lint_version: 2.3.1` for the whole of this work: the
+`v2.3.2` version bump lived on that tag and was never merged back, so every
+JSON report produced from `main` since then named a version it was not. That
+is the third time a version here stopped describing its tree, so the release
+checklist now ends with reading the version out of the tool rather than out
+of a file.
+
+| corpus | v2.3.1 | v2.4.0 | rule F |
+|---|---:|---:|---|
+| SVT-AV1 `Source` | 3272 | 3402 | 1019 -> 1149 |
+| VVenC `CommonLib/x86` | 449 | 614 | 135 -> 300 |
+| VVdeC `CommonLib/x86` (holdout) | 516 | 597 | 77 -> 158 |
+
+Census 4016 checked, 3984 structurally checkable, 100.00% agreement. The
+`reason` field gained two values, `transform_changes_result` and
+`transform_width_mismatch`, so a consumer matching on the full set needs
+updating; nothing was removed or renamed.
+
+### Review findings: a missing family, two grade-A false positives
+
+An independent review of the three rule F changes above. Everything here was
+reproduced before being fixed.
+
+**The 16-lane family was never registered.** `_ADD_LANES` had no 16-bit add and
+`_mm256_mullo_epi16` was not a registered multiply, so `vmlaq_s16` sat in the
+knowledge table unable to be printed: every 16-bit multiply met a wider add and
+had its suggestion withdrawn as a width mismatch. SVT-AV1's CDEF filters
+accumulate `_mm256_add_epi16(acc, _mm256_mullo_epi16(tap, x))` in fourteen
+places and rule F reported nothing on them. A test now asserts the mirror of
+the table-completeness check -- every declared accumulator width is reachable
+by some registered add -- which fails on the table as it stood.
+
+**Two grade-A false positives, both older than any change above.**
+
+- An add written inside the *multiply's* argument list runs first and feeds it.
+  Byte position says it comes later, and the redefinition guard could not
+  object: the interval it was handed inverted and passed vacuously -- the same
+  inversion the widening-hop branch already guarded against, with no analogue
+  on the direct path. Comparing against the multiply's binding statement, not
+  its opening byte, rejects it.
+- A multiply in one arm of an `if` and an add in the other were reported as a
+  fusion, though they never run in the same pass. This is what rule M carries
+  `control_region` for; rule F did not ask.
+
+Neither occurs in any of the three corpora. They are recorded because "not
+observed" is not "cannot happen", and the census cannot see either class.
+
+**Three smaller corrections.** A width-mismatched finding withdrew its
+suggestion but kept `native_insns`, so the report read "no suggestion offered
+(4 -> 3 instructions)" -- no replacement, and the replacement is three
+instructions; the count now goes with the instruction, as the v2.3.0 entry
+records doing for rule R. A result-changing suggestion rendered through the
+unqualified `suggestion:` line, which hands a reader a drop-in they must not
+treat as one; it now reads `result-changing suggestion:`. And the width check
+compared lane widths only, so an integer product reaching `_mm_add_ps` -- both
+32-lane -- graded A naming an integer multiply-accumulate for a float
+accumulator; it now carries the element kind beside the width.
+
+Two claims in comments and documentation were overstated and are corrected
+rather than restated. "A widening hop moves the product to a width the
+recorded form does not accumulate at, by definition of widening" is not a
+property rule F enforces -- it reads names, not types, and a hop that widens
+nothing still grades B. The checked statement is narrower and holds entry by
+entry. "Nothing pairs an integer add with a float multiply, the types do not
+admit it" was false: it compiles under the lax vector conversions clang
+applies by default, which is the configuration SIMDe-on-NEON is built with.
+
+| corpus | before | after | rule F |
+|---|---:|---:|---|
+| SVT-AV1 | 3366 | 3402 | 1113 -> 1149 |
+| VVenC | 605 | 614 | 291 -> 300 |
+| VVdeC (holdout) | 582 | 597 | 143 -> 158 |
+
+Gate unchanged at 204. Census 4016 / 3984 / 100.00%, with no edit to
+`verify.py`.
 
 ### Rule F covers the single-precision float family
 

@@ -104,11 +104,13 @@ source would make this document appear to corroborate the paper while
 measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
-The measurement commands in this document were last run in full on `main`
-after rule F gained the nested multiply-add, the accumulator-width check on
-the instruction it names, and the single-precision float family. `v2.3.1` is
-the last release they were run in full for, and is what the paper cites; both
-sets of figures appear below, each labelled. They were run against the
+The measurement commands in this document were last run in full for
+`v2.4.0`, the release this document ships with. `v2.3.1` — and `v2.3.2`, which
+is documentation-only on top of it and is what the paper cites — is the
+previous baseline. Both sets of figures appear below, each labelled by the
+release it belongs to and never by a branch name: a branch name read from a
+tag points at something ahead of the tag, which is how `v2.3.1` came to need a
+correcting release. They were run against the
 revisions above (v1.2: intrinsic calls inside `#define` bodies are analysed;
 see Section 5). The anonymous retrieval commands in the
 paragraph above were verified on 2026-09-01. Dating these separately is
@@ -246,10 +248,11 @@ what recovery can cost. A reader running the command above should see those
 warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
 3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`, evidence
-`A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1`, the release the
-paper cites, gives 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
-evidence `A 845, B 60, C 2367`. On `main` the same sweep gives 3366 findings,
-`F 1113, R 1816, S 341, M 64, P 31, W 1`, evidence `A 868, B 60, C 2438`.
+`A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1` — and `v2.3.2`,
+which is documentation-only on top of it and is what the paper cites — gives
+3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
+evidence `A 845, B 60, C 2367`. `v2.4.0` gives 3402 findings,
+`F 1149, R 1816, S 341, M 64, P 31, W 1`, evidence `A 904, B 60, C 2438`.
 
 Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -282,14 +285,17 @@ instruction that cannot be dropped in. They stay as findings, because the
 multiply-add is real and unfused; what is withdrawn is the replacement, and
 the grade goes to C with `reason: transform_width_mismatch`. VVenC has none.
 
-That check also means rule F emits no grade **B** on either corpus. A
-widening hop moves the product to a width the recorded fused form does not
-accumulate at, which is what widening means. Rule F emitted no B on either
-corpus before the check existed either, so nothing observed was lost -- but
-it is now visible as a gap in the knowledge table rather than as silence:
-no fused form is recorded for multiply-then-widen-then-accumulate, and
-`vmlal_s32` is not the missing entry, since it takes the full 64-bit product
-where `_mm_mullo_epi32` truncates to 32 first.
+That check also means rule F emits no grade **B** on any of the three
+corpora. Not that none can exist: rule F reads names, not types, so nothing
+in it enforces that a widening hop widens, and a hop that widens nothing
+still grades B. The checked statement is narrower -- for every intrinsic in
+the table, a hop doing real work lands at twice the multiply's own product
+width while `accumulator_lanes` equals that product width, so the check
+always fires. Rule F emitted no B on any of them before the check existed
+either, so nothing observed was lost, but the gap is now visible rather than
+silent: no fused form is recorded for multiply-then-widen-then-accumulate,
+and `vmlal_s32` is not the missing entry, since it takes the full 64-bit
+product where `_mm_mullo_epi32` truncates to 32 first.
 
 A fifth change registers the single-precision float family. The taxonomy
 defines type F by mechanism -- SIMDe translating one intrinsic at a time and
@@ -309,6 +315,25 @@ correct, and what is withdrawn is "use it freely", not "it exists".
 Thirteen findings, all grade C by construction: one `_mm256_mul_ps` pair in
 SVT-AV1 and twelve in VVenC, where film-grain analysis evaluates two Horner
 polynomials -- which is what FMA is for. The VVdeC holdout has none.
+
+A sixth change is a review's findings, and it moves the count in both
+directions. Rule F never registered a 16-lane accumulator: `vmlaq_s16` was in
+the table but unreachable, because every 16-bit multiply met a wider add and
+had its suggestion withdrawn as a width mismatch. SVT-AV1's CDEF filters
+accumulate `_mm256_add_epi16(acc, _mm256_mullo_epi16(tap, x))` throughout and
+reported no rule F finding at all. Registering the family adds 36 here, 9 in
+VVenC and 15 in the holdout.
+
+Two grade-A false positives went the other way, both older than any change
+above. An add written inside the *multiply's* own argument list runs first and
+feeds it, and byte position says the opposite; the redefinition guard could
+not object because the interval it was handed inverted and passed vacuously.
+And a multiply in one arm of an `if` with an add in the other were reported as
+a fusion though they never run in the same pass -- the condition rule M
+carries `control_region` for, which rule F did not ask. Neither occurs in any
+of the three corpora, so the counts above do not move for them; both are
+reported here because "not observed" is not "cannot happen", and the census
+cannot see either class.
 
 The 3264 figures above are left as `v2.2.0`'s output so this document
 continues to reproduce that release too.
@@ -482,8 +507,8 @@ SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
 emitted it**; `v2.3.1` gives the same 449 with evidence `A 101, B 87, C 261`,
 the 106 rule R findings having moved from A to C (see Section 1). On `main`
-the sweep totals 605 — `R 106, S 164, F 291, W 17, M 23, P 4` — evidence
-`A 102, B 87, C 416`. Rule F more than doubles here, 135 to 279, and the
+`v2.4.0` totals 614 — `R 106, S 164, F 300, W 17, M 23, P 4` — evidence
+`A 117, B 87, C 410`. Rule F more than doubles here, 135 to 300, and the
 reason is one idiom: VVenC's adaptive loop filter writes its accumulator as
 `accumA = _mm_add_epi32(accumA, _mm_madd_epi16(val01A, coeff01A))` throughout,
 and every one of those was invisible while rule F required a named product. By scope: **445 in function bodies, 4 in
@@ -1071,19 +1096,18 @@ concealed.
 
 ```
 $ uv run simde-lint "$VVDEC/source/Lib/CommonLib/x86" --format json
-582 findings: R 224, S 196, F 143, W 9, M 8, P 2
+597 findings: R 224, S 196, F 158, W 9, M 8, P 2
 $ echo $?
 0
 ```
 
-Rule F's nested multiply-add (Section 1) moves this too, 77 to 143. Every
-other type is unchanged to the finding, which is what a change confined to
-one rule should look like on a corpus it was not fitted to. `v2.3.1` gave
-516 here — `F 77`, the rest as printed.
+Rule F's changes since `v2.3.1` move this too, 77 to 158, and every other
+type is unchanged to the finding -- what a change confined to one rule should
+look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora on `main`: SVT-AV1 3366 findings / 362 warnings, VVenC
-605 / 11, VVdeC 582 / 10 — every one exit 0. The warning counts do not move
+all three corpora at `v2.4.0`: SVT-AV1 3402 findings / 362 warnings, VVenC
+614 / 11, VVdeC 597 / 10 — every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -1154,20 +1178,21 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 3971 (census, not a sample)
+findings checked: 4016 (census, not a sample)
 
-  agree          3939   99.2%
+  agree          3984   99.2%
   macro            32    0.8%
 
-agreement on structurally checkable findings: 3939 / 3939 = 100.00%
+agreement on structurally checkable findings: 3984 / 3984 = 100.00%
 ```
 
 Re-run against both pinned checkouts. The population is every finding from
-both sweeps -- 3366 + 605 = 3971 -- so it moves with them: at `v2.1.0` it read
+both sweeps -- 3402 + 614 = 4016 -- so it moves with them: at `v2.1.0` it read
 3713 / 3681 and at `v2.3.0` 3721 / 3689. The eight-finding step is SVT-AV1's
 3264 becoming 3272 under rule M's control-region split, which repartitions
 thirteen findings into twenty-one; the 237 after it are rule F's nested
-multiply-add and the 13 after those its float family. The 32 unchecked and the 100.00% agreement are unchanged.
+multiply-add, the 13 after those its float family, and the 45 after
+those the sixteen-lane family plus the two false-positive classes removed. The 32 unchecked and the 100.00% agreement are unchanged.
 
 Those 237 are the reason to say what re-running the census cost. `verify.py`
 tested for a *named* product reaching the add, so it disagreed with all 237 --

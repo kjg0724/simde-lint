@@ -244,3 +244,45 @@ void float_multiply_add(__m128 a, __m128 b, __m128 acc) {
     acc = _mm_add_ps(acc, m);
     (void)acc;
 }
+
+// A 16-lane accumulator, which is what vmlaq_s16 was recorded for. Without a
+// 16-lane add registered, the entry could never be printed and SVT-AV1's CDEF
+// filters -- which accumulate exactly this shape -- reported no rule F
+// finding at all.
+void sixteen_lane_accumulator(__m256i a, __m256i b, __m256i acc) {
+    acc = _mm256_add_epi16(acc, _mm256_mullo_epi16(a, b));
+    (void)acc;
+}
+
+// The add is nested inside the MULTIPLY, so it runs first and feeds it.
+// Position alone says the add comes later and would report a fusion that is
+// not there; the interval handed to the redefinition guard inverts and passes
+// vacuously, so only comparing against the multiply's binding statement
+// rejects it.
+void the_add_is_an_operand_of_the_multiply(const int *p, __m128i b, __m128i c) {
+    __m128i prod = _mm_loadu_si128((const __m128i *)p);
+    prod = _mm_mullo_epi32(_mm_add_epi32(prod, c), b);
+    (void)prod;
+}
+
+// Multiply and add in arms that cannot both execute. Rule M carries
+// control_region for exactly this; rule F did not ask.
+void multiply_and_add_in_exclusive_arms(int t, __m128i a, __m128i b, __m128i c) {
+    __m128i prod = _mm_loadu_si128((const __m128i *)&a);
+    __m128i sum = prod;
+    if (t) {
+        prod = _mm_mullo_epi32(a, b);
+    } else {
+        sum = _mm_add_epi32(prod, c);
+    }
+    (void)sum; (void)prod;
+}
+
+// An integer product reaching a float add. The lane widths are both 32, so
+// width alone cannot separate them; this compiles under the lax vector
+// conversions clang applies by default.
+void integer_product_into_a_float_add(__m128i a, __m128i b, __m128 acc) {
+    __m128i p = _mm_mullo_epi32(a, b);
+    acc = _mm_add_ps(acc, p);
+    (void)acc;
+}

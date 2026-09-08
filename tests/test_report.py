@@ -407,3 +407,27 @@ def test_text_marks_a_macro_finding():
         simde_insns=2, native_insns=1, suggestion="vld1q_lane_s64",
     )
     assert "_mm_loadl_epi64 in LOAD4 (macro)" in render_text([macro])
+
+
+RESULT_CHANGING_FINDING = Finding(
+    type="F", rule="F.mul_add_no_fuse", rule_mechanism="multiply-add not fused",
+    evidence=Evidence.C, reason=Reason.TRANSFORM_CHANGES_RESULT, file="a.c", line=2,
+    function="k", intrinsic="_mm_mul_ps",
+    rationale=(
+        "_mm_mul_ps at line 2 reaches _mm_add_ps at line 3; vfmaq_f32 fuses them "
+        "but rounds once where the separate multiply and add round twice"
+    ),
+    simde_insns=2, native_insns=1, suggestion="vfmaq_f32",
+)
+
+
+def test_text_renders_a_result_changing_suggestion_as_result_changing():
+    # Same argument as the conditional line, for a different cost: this
+    # replacement applies unconditionally and does not produce the same
+    # answer, so the unconditional `suggestion:` line would hand a reader a
+    # drop-in they must not treat as one. Rejecting the bare form matters --
+    # asserting only the qualified label would pass if both were emitted.
+    output = render_text([RESULT_CHANGING_FINDING])
+    assert "result-changing suggestion: vfmaq_f32" in output
+    assert "    suggestion: vfmaq_f32" not in output
+    assert "conditional suggestion: vfmaq_f32" not in output
