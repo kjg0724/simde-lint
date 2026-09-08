@@ -20,7 +20,21 @@ def test_grades_a_direct_mul_to_add_path_a(run_rule):
     assert findings[0].evidence is Evidence.A
 
 
-def test_grades_a_path_through_a_widening_conversion_b(run_rule):
+def test_a_widening_hop_is_found_but_outruns_the_recorded_fused_form(run_rule):
+    """The hop is what grade B is for, and no B survives the width check.
+
+    A widening hop moves the product to a width the recorded fused form does
+    not accumulate at, by definition of widening: `vmlaq_s32` writes 32-bit
+    lanes and the add after a `_mm_cvtepi32_epi64` is 64. That is a gap in
+    the knowledge table -- it records no fused form for multiply-then-widen-
+    then-accumulate -- not a defect in the check, and `vmlal_s32` is not the
+    missing entry: it computes the full 64-bit product where `mullo_epi32`
+    truncates to 32 first, so the two disagree exactly when the product
+    overflows.
+
+    Rule F emitted no B on either reference corpus before this check existed
+    either, so nothing observed was lost.
+    """
     findings = [
         f
         for f in run_rule(FusionRule(), "fusion_positive.c")
@@ -28,7 +42,12 @@ def test_grades_a_path_through_a_widening_conversion_b(run_rule):
     ]
     assert len(findings) == 1
     assert findings[0].intrinsic == "_mm_mullo_epi32"
-    assert findings[0].evidence is Evidence.B
+    # The path is still found and still named -- only the replacement is
+    # withdrawn.
+    assert "through _mm_cvtepi32_epi64" in findings[0].rationale
+    assert findings[0].evidence is Evidence.C
+    assert findings[0].reason is Reason.TRANSFORM_WIDTH_MISMATCH
+    assert findings[0].suggestion is None
 
 
 def test_a_conditional_transform_caps_at_c_with_its_own_reason():
@@ -80,8 +99,12 @@ def test_an_unestablished_fused_form_caps_the_grade_at_c(run_rule):
     )
     assert findings[1].intrinsic == "_mm_madd_epi16"
     assert findings[1].evidence is Evidence.C
-    assert findings[1].reason is Reason.TRANSFORM_REQUIRES_CONTEXT
-    assert findings[1].suggestion == "vmlal_s16 / vmlal_high_s16"
+    # This one reaches a 64-bit add through a widening hop, so the width
+    # check answers before the conditional cap does: `vmlal_s16` accumulates
+    # into 32-bit lanes. `madd_accumulated_at_its_own_width` carries the
+    # conditional case now.
+    assert findings[1].reason is Reason.TRANSFORM_WIDTH_MISMATCH
+    assert findings[1].suggestion is None
 
 
 def test_covers_the_256_bit_form(run_rule):
@@ -113,10 +136,11 @@ def test_madd_epi16_names_its_conditional_fused_instruction(run_rule):
     # now recorded.
     findings = [
         f for f in run_rule(FusionRule(), "fusion_positive.c")
-        if f.function == "kernel" and f.intrinsic == "_mm_madd_epi16"
+        if f.function == "madd_accumulated_at_its_own_width"
     ]
     assert len(findings) == 1
     finding = findings[0]
+    assert finding.reason is Reason.TRANSFORM_REQUIRES_CONTEXT
     assert finding.suggestion == "vmlal_s16 / vmlal_high_s16"
     assert finding.native_insns is None
     assert finding.simde_insns == 4
@@ -408,7 +432,10 @@ def test_a_nested_multiply_through_a_widening_hop_grades_b(run_rule):
         if f.function == "nested_multiply_through_a_widening_hop"
     ]
     assert len(findings) == 1
-    assert findings[0].evidence is Evidence.B
+    # Same width story as `widening_known_cost`: the hop is found and named,
+    # and the recorded form does not accumulate at the width it lands on.
+    assert findings[0].evidence is Evidence.C
+    assert findings[0].reason is Reason.TRANSFORM_WIDTH_MISMATCH
     assert "_mm_cvtepi32_epi64" in findings[0].rationale
 
 
@@ -460,3 +487,45 @@ def test_an_add_before_the_multiply_that_reuses_the_name_is_not_reported(run_rul
         if f.function == "the_add_precedes_the_multiply_that_reuses_the_name"
     ]
     assert findings == []
+
+
+def _only(run_rule, function):
+    findings = [
+        f for f in run_rule(FusionRule(), "fusion_positive.c") if f.function == function
+    ]
+    assert len(findings) == 1
+    return findings[0]
+
+
+def test_a_suggestion_that_accumulates_at_another_width_is_not_named(run_rule):
+    # The cost table maps a suggestion per intrinsic, so the multiply alone
+    # picked it. `vmlal_s32` accumulates into 64-bit lanes; this accumulator
+    # is 32, and naming it at grade A was the defect -- A is the layer
+    # `--min-evidence A` exists to isolate.
+    finding = _only(run_rule, "product_accumulated_at_the_wrong_width")
+    assert finding.suggestion is None
+    assert finding.evidence is Evidence.C
+    assert finding.reason is Reason.TRANSFORM_WIDTH_MISMATCH
+    # The observation survives: what is withdrawn is the replacement, not the
+    # report that the multiply and the add are emitted separately.
+    assert "emitted as separate instructions" in finding.rationale
+    assert "vmlal_s32 accumulates into 64-bit lanes" in finding.rationale
+    assert "_mm_add_epi32 accumulates into 32" in finding.rationale
+
+
+def test_the_same_multiply_at_the_recorded_width_still_names_it(run_rule):
+    # Without this the test above passes for a rule that dropped every
+    # suggestion rule F has.
+    finding = _only(run_rule, "product_accumulated_at_the_recorded_width")
+    assert finding.suggestion == "vmlal_s32"
+    assert finding.evidence is Evidence.A
+    assert finding.reason is None
+
+
+def test_every_recorded_fused_form_declares_what_it_accumulates_into():
+    # The check above is only as good as the table behind it: an entry that
+    # names an instruction without declaring its accumulator width would make
+    # `_width_mismatch` return None and the call site go unchecked, silently.
+    table = load_knowledge().patterns[FusionRule.rule_id]
+    missing = [name for name, cost in table.items() if cost.accumulator_lanes is None]
+    assert missing == []

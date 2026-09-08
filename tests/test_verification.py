@@ -487,7 +487,13 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         # transform status imposes decides that, not the new path. B does not
         # move at all: a nested multiply reaching its add through a widening
         # conversion is supported and tested, and occurs nowhere here.
-        "evidence": {"A": 873, "B": 60, "C": 2432},
+        #
+        # Five more moved A to C when rule F started checking that the
+        # instruction it names accumulates at the width the add uses:
+        # `vmlal_s32` writes 64-bit lanes and four `_mm_mul_epi32` call sites
+        # accumulate into 32, one `_mm_mullo_epi16` likewise. The findings
+        # stay -- the multiply-add is real -- and the suggestion is withdrawn.
+        "evidence": {"A": 868, "B": 60, "C": 2437},
     }
 
 

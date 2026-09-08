@@ -247,7 +247,7 @@ not the tool erring.
 `A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1`, the release the
 paper cites, gives 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
 evidence `A 845, B 60, C 2367`. On `main` the same sweep gives 3365 findings,
-`F 1112, R 1816, S 341, M 64, P 31, W 1`, evidence `A 873, B 60, C 2432`.
+`F 1112, R 1816, S 341, M 64, P 31, W 1`, evidence `A 868, B 60, C 2437`.
 
 Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -270,8 +270,27 @@ C on the cap the intrinsic's transform status imposes. B does not move: a
 nested multiply reaching its add through a widening conversion is supported
 and tested, and occurs nowhere in either corpus.
 
-The figures above are left as the tagged release's output so this document
-continues to reproduce it.
+A fourth change moves five findings without moving any count. Rule F now
+checks that the instruction it names accumulates at the width the add uses.
+`vmlal_s32` writes 64-bit lanes; four `_mm_mul_epi32` call sites in
+`highbd_inv_txfm_sse4.c` accumulate into 32, and one `_mm_mullo_epi16` in
+`intrapred_ssse3.c` does the same against `vmlaq_s16`. All five were grade
+**A** -- the layer `--min-evidence A` exists to isolate -- while naming an
+instruction that cannot be dropped in. They stay as findings, because the
+multiply-add is real and unfused; what is withdrawn is the replacement, and
+the grade goes to C with `reason: transform_width_mismatch`. VVenC has none.
+
+That check also means rule F emits no grade **B** on either corpus. A
+widening hop moves the product to a width the recorded fused form does not
+accumulate at, which is what widening means. Rule F emitted no B on either
+corpus before the check existed either, so nothing observed was lost -- but
+it is now visible as a gap in the knowledge table rather than as silence:
+no fused form is recorded for multiply-then-widen-then-accumulate, and
+`vmlal_s32` is not the missing entry, since it takes the full 64-bit product
+where `_mm_mullo_epi32` truncates to 32 first.
+
+The 3264 figures above are left as `v2.2.0`'s output so this document
+continues to reproduce that release too.
 
 > The evidence split moved three times. For the first two the type split did
 > not move and the call sites never changed — only what the tool was willing
