@@ -478,11 +478,11 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
-        "total": 3365,
+        "total": 3366,
         # F rises by 93 and nothing else moves: rule F now sees a multiply
         # written straight into the add, which it previously required to be
         # bound to a name first.
-        "type": {"R": 1816, "F": 1112, "S": 341, "M": 64, "P": 31, "W": 1},
+        "type": {"R": 1816, "F": 1113, "S": 341, "M": 64, "P": 31, "W": 1},
         # The 93 split 28/65 between A and C -- the cap the intrinsic's
         # transform status imposes decides that, not the new path. B does not
         # move at all: a nested multiply reaching its add through a widening
@@ -493,7 +493,10 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         # `vmlal_s32` writes 64-bit lanes and four `_mm_mul_epi32` call sites
         # accumulate into 32, one `_mm_mullo_epi16` likewise. The findings
         # stay -- the multiply-add is real -- and the suggestion is withdrawn.
-        "evidence": {"A": 868, "B": 60, "C": 2437},
+        # One more C: the single `_mm256_mul_ps` pair in this corpus, now that
+        # rule F registers the float family. It grades C by construction --
+        # `vfmaq_f32` is never an exact substitution.
+        "evidence": {"A": 868, "B": 60, "C": 2438},
     }
 
 
@@ -504,11 +507,13 @@ def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
     findings, _, _ = analyze([VVENC_X86])
     assert _aggregate(findings) == {
-        "total": 593,
+        "total": 605,
         # F more than doubles, 135 to 279. VVenC's adaptive loop filter writes
         # its accumulator as `accum = _mm_add_epi32(accum, _mm_madd_epi16(..))`
         # throughout, and every one of those was invisible while rule F
         # required a named product.
-        "type": {"S": 164, "F": 279, "R": 106, "M": 23, "W": 17, "P": 4},
-        "evidence": {"A": 102, "B": 87, "C": 404},
+        # F gains the twelve float pairs; VVenC's film-grain analysis
+        # evaluates two Horner polynomials, which is what FMA is for.
+        "type": {"S": 164, "F": 291, "R": 106, "M": 23, "W": 17, "P": 4},
+        "evidence": {"A": 102, "B": 87, "C": 416},
     }

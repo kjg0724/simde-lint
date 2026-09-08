@@ -30,11 +30,17 @@ class TransformStatus(str, Enum):
     - **CONDITIONAL** — one applies, but under a condition rule F does not
       check (a consumer shape, for instance). Caps at C, with its own reason,
       because the rule has not verified the condition holds here.
+    - **CHANGES_RESULT** — one applies unconditionally and does not produce
+      the same answer. Caps at C for a different reason from CONDITIONAL:
+      there is no condition under which the substitution is exact, so what a
+      reader has to settle is not whether a condition holds but whether a
+      different answer is acceptable.
     - **UNKNOWN** — not established. Caps at C.
     """
 
     ESTABLISHED = "established"
     CONDITIONAL = "conditional"
+    CHANGES_RESULT = "changes_result"
     UNKNOWN = "unknown"
 
 

@@ -29,6 +29,13 @@ class Reason(str, Enum):
       under a condition this rule does not check (a consumer shape, for
       instance). The rule saw the call clearly; what it did not verify is
       that the condition holds here.
+    - **TRANSFORM_CHANGES_RESULT** — a fused replacement applies with no
+      condition attached, and it does not produce the same answer. Every
+      reason above it is conditionally exact: satisfy the condition and the
+      substitution preserves results. This one never is, so what a reader
+      has to settle is whether a different answer is acceptable — a
+      numerical decision, not a code-shape one. In a decoder it can be a
+      conformance question rather than a quality one.
     - **TRANSFORM_WIDTH_MISMATCH** — a fused replacement is recorded, the rule
       checked it, and it does not fit: the instruction accumulates at a
       different lane width than the accumulator at this call site. The
@@ -45,6 +52,7 @@ class Reason(str, Enum):
     UNRESOLVED = "unresolved"
     GUARD_REQUIRED = "guard_required"
     TRANSFORM_REQUIRES_CONTEXT = "transform_requires_context"
+    TRANSFORM_CHANGES_RESULT = "transform_changes_result"
     TRANSFORM_WIDTH_MISMATCH = "transform_width_mismatch"
 
 

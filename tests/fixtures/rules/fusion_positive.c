@@ -234,3 +234,13 @@ void madd_accumulated_at_its_own_width(const int *a, const int *b, __m128i acc) 
     __m128i sum = _mm_add_epi32(acc, pair);
     (void)sum;
 }
+
+// The float family. The mechanism is the taxonomy's: SIMDe expands
+// _mm_mul_ps to vmulq_f32 alone and _mm_add_ps to vaddq_f32, leaving
+// vfmaq_f32 unused. What is different is the price -- FMA rounds once where
+// the pair rounds twice, so the substitution is never exact.
+void float_multiply_add(__m128 a, __m128 b, __m128 acc) {
+    __m128 m = _mm_mul_ps(a, b);
+    acc = _mm_add_ps(acc, m);
+    (void)acc;
+}

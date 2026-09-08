@@ -22,6 +22,14 @@ _MULTIPLIES = {
     "_mm256_mullo_epi32",
     "_mm256_madd_epi16",
     "_mm256_mul_epi32",
+    # Single-precision float. The taxonomy defines type F by mechanism --
+    # SIMDe translating one intrinsic at a time and missing a fusion -- and
+    # `_mm_mul_ps` expands to `vmulq_f32` alone with `vfmaq_f32` sitting
+    # unused, which is that mechanism exactly. The substitution is not
+    # result-preserving, which the entry's `transform_status` records rather
+    # than this set.
+    "_mm_mul_ps",
+    "_mm256_mul_ps",
 }
 # The accumulator's lane width, which is what a suggested multiply-accumulate
 # has to accumulate into. Keyed by the add rather than the multiply because
@@ -32,6 +40,11 @@ _ADD_LANES = {
     "_mm256_add_epi32": 32,
     "_mm_add_epi64": 64,
     "_mm256_add_epi64": 64,
+    # f32 lanes are 32 bits wide, the same as `epi32`. Nothing pairs an
+    # integer add with a float multiply -- the types do not admit it -- so
+    # the two never meet here.
+    "_mm_add_ps": 32,
+    "_mm256_add_ps": 32,
 }
 _ADDS = set(_ADD_LANES)
 _WIDENING = {
@@ -167,6 +180,8 @@ class FusionRule:
             return None, None
         if cost.transform_status is TransformStatus.CONDITIONAL:
             return Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT
+        if cost.transform_status is TransformStatus.CHANGES_RESULT:
+            return Evidence.C, Reason.TRANSFORM_CHANGES_RESULT
         return Evidence.C, Reason.UNRESOLVED
 
     @staticmethod
@@ -192,6 +207,11 @@ class FusionRule:
             return (
                 f"{observed}; {cost.suggestion} applies only when the consumer is a "
                 "horizontal reduction, which this rule does not check"
+            )
+        if cost.transform_status is TransformStatus.CHANGES_RESULT:
+            return (
+                f"{observed}; {cost.suggestion} fuses them but rounds once where the "
+                "separate multiply and add round twice, so the results differ"
             )
         if cost.transform_status is not TransformStatus.ESTABLISHED:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"

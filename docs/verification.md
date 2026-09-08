@@ -246,8 +246,8 @@ not the tool erring.
 3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`, evidence
 `A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1`, the release the
 paper cites, gives 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
-evidence `A 845, B 60, C 2367`. On `main` the same sweep gives 3365 findings,
-`F 1112, R 1816, S 341, M 64, P 31, W 1`, evidence `A 868, B 60, C 2437`.
+evidence `A 845, B 60, C 2367`. On `main` the same sweep gives 3366 findings,
+`F 1113, R 1816, S 341, M 64, P 31, W 1`, evidence `A 868, B 60, C 2438`.
 
 Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -288,6 +288,25 @@ it is now visible as a gap in the knowledge table rather than as silence:
 no fused form is recorded for multiply-then-widen-then-accumulate, and
 `vmlal_s32` is not the missing entry, since it takes the full 64-bit product
 where `_mm_mullo_epi32` truncates to 32 first.
+
+A fifth change registers the single-precision float family. The taxonomy
+defines type F by mechanism -- SIMDe translating one intrinsic at a time and
+missing a fusion -- and `_mm_mul_ps` expands to `vmulq_f32` alone
+(`x86/sse.h:3516`) with `_mm_add_ps` to `vaddq_f32` (`:901`), leaving
+`vfmaq_f32` unused. That is the mechanism, so it is reported.
+
+What separates it from every integer case is the price. Each existing grade-C
+reason describes a transform that is *conditionally* exact: satisfy the
+condition and the substitution preserves results. `vfmaq_f32` never does -- it
+rounds once where the separate multiply and add round twice -- so the reader
+has to settle whether a different answer is acceptable rather than whether a
+condition holds. That is a fourth reason, `transform_changes_result`, and not
+a shade of the third. The suggestion is kept: the instruction is real and
+correct, and what is withdrawn is "use it freely", not "it exists".
+
+Thirteen findings, all grade C by construction: one `_mm256_mul_ps` pair in
+SVT-AV1 and twelve in VVenC, where film-grain analysis evaluates two Horner
+polynomials -- which is what FMA is for. The VVdeC holdout has none.
 
 The 3264 figures above are left as `v2.2.0`'s output so this document
 continues to reproduce that release too.
@@ -461,8 +480,8 @@ SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
 emitted it**; `v2.3.1` gives the same 449 with evidence `A 101, B 87, C 261`,
 the 106 rule R findings having moved from A to C (see Section 1). On `main`
-the sweep totals 593 — `R 106, S 164, F 279, W 17, M 23, P 4` — evidence
-`A 102, B 87, C 404`. Rule F more than doubles here, 135 to 279, and the
+the sweep totals 605 — `R 106, S 164, F 291, W 17, M 23, P 4` — evidence
+`A 102, B 87, C 416`. Rule F more than doubles here, 135 to 279, and the
 reason is one idiom: VVenC's adaptive loop filter writes its accumulator as
 `accumA = _mm_add_epi32(accumA, _mm_madd_epi16(val01A, coeff01A))` throughout,
 and every one of those was invisible while rule F required a named product. By scope: **445 in function bodies, 4 in
@@ -1061,8 +1080,8 @@ one rule should look like on a corpus it was not fitted to. `v2.3.1` gave
 516 here — `F 77`, the rest as printed.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora on `main`: SVT-AV1 3365 findings / 362 warnings, VVenC
-593 / 11, VVdeC 582 / 10 — every one exit 0. The warning counts do not move
+all three corpora on `main`: SVT-AV1 3366 findings / 362 warnings, VVenC
+605 / 11, VVdeC 582 / 10 — every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -1133,20 +1152,20 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 3958 (census, not a sample)
+findings checked: 3971 (census, not a sample)
 
-  agree          3926   99.2%
+  agree          3939   99.2%
   macro            32    0.8%
 
-agreement on structurally checkable findings: 3926 / 3926 = 100.00%
+agreement on structurally checkable findings: 3939 / 3939 = 100.00%
 ```
 
 Re-run against both pinned checkouts. The population is every finding from
-both sweeps -- 3365 + 593 = 3958 -- so it moves with them: at `v2.1.0` it read
+both sweeps -- 3366 + 605 = 3971 -- so it moves with them: at `v2.1.0` it read
 3713 / 3681 and at `v2.3.0` 3721 / 3689. The eight-finding step is SVT-AV1's
 3264 becoming 3272 under rule M's control-region split, which repartitions
 thirteen findings into twenty-one; the 237 after it are rule F's nested
-multiply-add. The 32 unchecked and the 100.00% agreement are unchanged.
+multiply-add and the 13 after those its float family. The 32 unchecked and the 100.00% agreement are unchanged.
 
 Those 237 are the reason to say what re-running the census cost. `verify.py`
 tested for a *named* product reaching the add, so it disagreed with all 237 --

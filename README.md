@@ -51,10 +51,10 @@ Every finding carries an evidence grade.
   - **B** — derived from a literal or a link, but through an intermediate
     operation, so the final value isn't pinned.
   - **C** — the rule cannot confirm the transform is safe from source alone.
-    Grade C covers four different situations, distinguished on the finding
+    Grade C covers five different situations, distinguished on the finding
     by a structured `reason` field (`unresolved`, `guard_required`,
-    `transform_requires_context` or `transform_width_mismatch`, not free
-    prose):
+    `transform_requires_context`, `transform_changes_result` or
+    `transform_width_mismatch`, not free prose):
     - **C-unresolved** — the rule could not see far enough to judge at all
       (a runtime-loaded value, a call result with unknown lanes, a symbol
       not defined in the scanned inputs). `reason: "unresolved"`.
@@ -69,6 +69,16 @@ Every finding carries an evidence grade.
       This shares grade C not because nothing could be judged, but because
       the required context was not verified at this call site.
       `reason: "transform_requires_context"`.
+    - **C-transform-changes-result** — a fused replacement applies with no
+      condition attached, and it does not produce the same answer (rule F:
+      `_mm_mul_ps` and `_mm_add_ps` reach `vfmaq_f32`, which rounds once
+      where the separate multiply and add round twice). Every reason above
+      is conditionally exact — satisfy the condition and results are
+      preserved. This one never is, so what has to be settled is whether a
+      different answer is acceptable, which in a decoder can be a
+      conformance question. The `suggestion` is kept: the instruction is
+      real, and what is withdrawn is "use it freely", not "it exists".
+      `reason: "transform_changes_result"`.
     - **C-transform-width-mismatch** — a fused replacement is recorded, the
       rule checked it, and it does not fit: the instruction accumulates at a
       different lane width than the accumulator at this call site (rule F:
@@ -78,7 +88,7 @@ Every finding carries an evidence grade.
       finding carries no `suggestion`.
       `reason: "transform_width_mismatch"`.
 
-    All four share grade C because v1's action is identical either way: do
+    All five share grade C because v1's action is identical either way: do
     not transform without human confirmation. A fourth grade would only be
     warranted if they ever needed different `--min-evidence` filtering or
     other CLI/automation behaviour, which they do not today. `reason` is
