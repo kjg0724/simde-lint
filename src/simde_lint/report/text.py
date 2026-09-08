@@ -21,7 +21,7 @@ def _evidence_label(finding: Finding) -> str:
     # Reason is set only on grade C, distinguishing "could not resolve"
     # (unresolved) from "resolved, and the guard is load-bearing"
     # (guard_required) from "a transform exists, but the condition it needs
-    # was not verified here" (transform_requires_context). All three share
+    # was not verified here" (transform_requires_context). All of them share
     # grade C because v1 acts on them identically: no transform without
     # human confirmation.
     if finding.reason is not None:
@@ -81,6 +81,14 @@ def _suggestion_line(finding: Finding) -> str:
         # dead unused lanes, which is rule logic. Naming one of them on this
         # line made every rule that reports this reason inherit F's sentence.
         return f"    conditional suggestion: {finding.suggestion} ({counts})"
+    if finding.reason is Reason.TRANSFORM_CHANGES_RESULT:
+        # Same argument as the conditional line above, for a different cost.
+        # This replacement applies with no condition attached and does not
+        # produce the same answer, so printing it as `suggestion:` -- the
+        # unconditional line -- hands a reader a drop-in they must not treat
+        # as one. The rationale says what changes; this line says that
+        # something does.
+        return f"    result-changing suggestion: {finding.suggestion} ({counts})"
     return f"    suggestion: {finding.suggestion} ({counts})"
 
 

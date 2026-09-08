@@ -134,9 +134,20 @@ patterns:
       native_insns: 2
       suggestion: vfmaq_f32
       accumulator_lanes: 32
-      source: x86/avx.h:5081
+      source: x86/avx.h:5092
       transform_status: changes_result
       note: the 128-bit expansion applied twice
+    _mm256_mullo_epi16:
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: vmlaq_s16
+      accumulator_lanes: 16
+      source: x86/avx2.h:4055
+      transform_status: established
+      note: >-
+        no NEON branch — falls through to the portable per-element loop over
+        the 16 i16 lanes, as the epi32 sibling does, so no instruction count
+        can be read from the SIMDe source; both counts are unknown
     _mm256_mullo_epi32:
       simde_insns: unknown
       native_insns: unknown

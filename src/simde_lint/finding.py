@@ -17,7 +17,7 @@ class Reason(str, Enum):
     """Why a finding graded C, distinguishing meanings that grade alone can't.
 
     Grade C always means "the tool cannot confirm the transform is safe from
-    source alone", but that collapses three different situations:
+    source alone", but that collapses five different situations:
 
     - **UNRESOLVED** — the rule could not see far enough to judge at all (a
       runtime-loaded value, a call result with unknown lanes, a symbol not

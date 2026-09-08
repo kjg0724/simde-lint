@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from simde_lint.finding import Evidence, Reason
 from simde_lint.knowledge import CostInfo, TransformStatus, load_knowledge
-from simde_lint.rules.fusion import FusionRule
+from simde_lint.rules.fusion import _ADD_LANES, FusionRule
 
 
 def _grade_for(cost: CostInfo) -> Evidence:
@@ -21,18 +21,23 @@ def test_grades_a_direct_mul_to_add_path_a(run_rule):
 
 
 def test_a_widening_hop_is_found_but_outruns_the_recorded_fused_form(run_rule):
-    """The hop is what grade B is for, and no B survives the width check.
+    """The hop is what grade B is for, and this shape does not survive.
 
-    A widening hop moves the product to a width the recorded fused form does
-    not accumulate at, by definition of widening: `vmlaq_s32` writes 32-bit
-    lanes and the add after a `_mm_cvtepi32_epi64` is 64. That is a gap in
-    the knowledge table -- it records no fused form for multiply-then-widen-
-    then-accumulate -- not a defect in the check, and `vmlal_s32` is not the
-    missing entry: it computes the full 64-bit product where `mullo_epi32`
-    truncates to 32 first, so the two disagree exactly when the product
-    overflows.
+    Not "no B can survive": rule F reads names, not types, so nothing in it
+    enforces that a hop widens. The true statement is narrower and was
+    checked entry by entry -- for every intrinsic in the table, a hop that
+    does real work lands at twice the multiply's own product width, and
+    `accumulator_lanes` equals that product width, so the check always fires.
+    A hop that widens nothing (`_mm_cvtepi16_epi32` on a 32-bit product) is
+    type-legal, matches, and still grades B.
 
-    Rule F emitted no B on either reference corpus before this check existed
+    So the gap is in the knowledge table -- it records no fused form for
+    multiply-then-widen-then-accumulate -- not in the check. `vmlal_s32` is
+    not the missing entry: it computes the full 64-bit product where
+    `mullo_epi32` truncates to 32 first, so the two disagree exactly when the
+    product overflows.
+
+    Rule F emitted no B on any reference corpus before this check existed
     either, so nothing observed was lost.
     """
     findings = [
@@ -509,8 +514,8 @@ def test_a_suggestion_that_accumulates_at_another_width_is_not_named(run_rule):
     # The observation survives: what is withdrawn is the replacement, not the
     # report that the multiply and the add are emitted separately.
     assert "emitted as separate instructions" in finding.rationale
-    assert "vmlal_s32 accumulates into 64-bit lanes" in finding.rationale
-    assert "_mm_add_epi32 accumulates into 32" in finding.rationale
+    assert "vmlal_s32 accumulates into 64-bit integer lanes" in finding.rationale
+    assert "_mm_add_epi32 accumulates into 32-bit integer lanes" in finding.rationale
 
 
 def test_the_same_multiply_at_the_recorded_width_still_names_it(run_rule):
@@ -556,3 +561,66 @@ def test_changes_result_is_not_collapsed_into_requires_context():
     changing = rule.cap_for(table["_mm_mul_ps"])
     assert conditional == (Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT)
     assert changing == (Evidence.C, Reason.TRANSFORM_CHANGES_RESULT)
+
+
+def test_a_sixteen_lane_accumulator_names_its_fused_form(run_rule):
+    # `vmlaq_s16` was unreachable: no 16-lane add was registered, so every
+    # 16-bit multiply met a wider add and had its suggestion withdrawn. The
+    # entry was dead knowledge and SVT-AV1's CDEF filters reported nothing.
+    finding = _only(run_rule, "sixteen_lane_accumulator")
+    assert finding.intrinsic == "_mm256_mullo_epi16"
+    assert finding.evidence is Evidence.A
+    assert finding.suggestion == "vmlaq_s16"
+
+
+def test_every_recorded_accumulator_width_is_reachable_by_some_add():
+    # The mirror of the table-completeness test: a declared width that no
+    # registered add can match makes its entry unprintable, which is how
+    # `vmlaq_s16` went dead without anything failing.
+    table = load_knowledge().patterns[FusionRule.rule_id]
+    declared = {cost.accumulator_lanes for cost in table.values()}
+    reachable = {lanes for _, lanes in _ADD_LANES.values()}
+    assert declared <= reachable
+
+
+def test_an_add_nested_inside_the_multiply_is_not_a_fusion(run_rule):
+    # It runs first and feeds the multiply. Byte position says "later" and
+    # the redefinition guard cannot object, because the interval inverts.
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "the_add_is_an_operand_of_the_multiply"
+    ]
+    assert findings == []
+
+
+def test_a_multiply_and_add_in_exclusive_arms_are_not_a_fusion(run_rule):
+    findings = [
+        f
+        for f in run_rule(FusionRule(), "fusion_positive.c")
+        if f.function == "multiply_and_add_in_exclusive_arms"
+    ]
+    assert findings == []
+
+
+def test_an_integer_product_reaching_a_float_add_is_not_named(run_rule):
+    # Both are 32-lane, so width alone passes them. The element kind is what
+    # separates them, and without it this graded A suggesting an integer
+    # multiply-accumulate for a float accumulator.
+    finding = _only(run_rule, "integer_product_into_a_float_add")
+    assert finding.evidence is Evidence.C
+    assert finding.reason is Reason.TRANSFORM_WIDTH_MISMATCH
+    assert finding.suggestion is None
+    assert "32-bit float lanes" in finding.rationale
+
+
+def test_a_withdrawn_suggestion_takes_its_instruction_count_with_it(run_rule):
+    # The count belongs to the instruction. Reporting `native_insns` for a
+    # replacement the rationale has just called inapplicable made the text
+    # output say "no suggestion offered (4 -> 3 instructions)" -- no
+    # replacement, and the replacement is three instructions. `simde_insns`
+    # stays: only the replacement side was withdrawn.
+    finding = _only(run_rule, "product_accumulated_at_the_wrong_width")
+    assert finding.suggestion is None
+    assert finding.native_insns is None
+    assert finding.simde_insns == 4

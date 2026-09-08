@@ -20,6 +20,7 @@ _MULTIPLIES = {
     "_mm_madd_epi16",
     "_mm_mul_epi32",
     "_mm256_mullo_epi32",
+    "_mm256_mullo_epi16",
     "_mm256_madd_epi16",
     "_mm256_mul_epi32",
     # Single-precision float. The taxonomy defines type F by mechanism --
@@ -36,17 +37,32 @@ _MULTIPLIES = {
 # the multiply does not decide it: `_mm_mul_epi32` produces 64-bit products
 # and can still be accumulated 32 bits at a time, and was.
 _ADD_LANES = {
-    "_mm_add_epi32": 32,
-    "_mm256_add_epi32": 32,
-    "_mm_add_epi64": 64,
-    "_mm256_add_epi64": 64,
-    # f32 lanes are 32 bits wide, the same as `epi32`. Nothing pairs an
-    # integer add with a float multiply -- the types do not admit it -- so
-    # the two never meet here.
-    "_mm_add_ps": 32,
-    "_mm256_add_ps": 32,
+    # 16-lane adds. Without these `vmlaq_s16` could never be printed -- every
+    # 16-bit multiply would meet a wider add and be withdrawn as a width
+    # mismatch -- and SVT-AV1's CDEF filters, which accumulate
+    # `_mm256_add_epi16(acc, _mm256_mullo_epi16(tap, x))` throughout, reported
+    # no rule F finding at all.
+    "_mm_add_epi16": ("i", 16),
+    "_mm256_add_epi16": ("i", 16),
+    "_mm_add_epi32": ("i", 32),
+    "_mm256_add_epi32": ("i", 32),
+    "_mm_add_epi64": ("i", 64),
+    "_mm256_add_epi64": ("i", 64),
+    # f32 lanes are 32 bits wide, the same as `epi32`, so width alone cannot
+    # tell them apart. The element kind is carried beside it rather than
+    # relying on the C type system to keep them apart: this rule has no type
+    # model, and a translation unit pairing an integer product with
+    # `_mm_add_ps` does compile under the lax vector conversions clang
+    # applies by default -- the configuration SIMDe-on-NEON is built with.
+    "_mm_add_ps": ("f", 32),
+    "_mm256_add_ps": ("f", 32),
 }
 _ADDS = set(_ADD_LANES)
+# The element kind each registered multiply produces, paired with the lane
+# width the knowledge table records. Width alone does not separate `epi32`
+# from `ps`, and the rule cannot fall back on the C type system: it reads
+# names, not types.
+_ELEMENT_KIND = {name: ("f" if name.endswith("_ps") else "i") for name in _MULTIPLIES}
 _WIDENING = {
     "_mm_cvtepi32_epi64",
     "_mm_cvtepi16_epi32",
@@ -117,6 +133,7 @@ class FusionRule:
                     evidence, reason = capped, cap_reason
                 claim = self._fusion_claim(cost)
                 suggestion = cost.suggestion
+                native_insns = cost.native_insns
                 mismatch = self._width_mismatch(cost, add)
                 if mismatch is not None:
                     # The multiply-add is still there and still unfused. What
@@ -125,6 +142,13 @@ class FusionRule:
                     # naming one that cannot be dropped in.
                     evidence, reason = Evidence.C, Reason.TRANSFORM_WIDTH_MISMATCH
                     claim, suggestion = mismatch, None
+                    # The count goes with the instruction. Only the
+                    # replacement side is withdrawn, so `simde_insns` stays
+                    # and `native_insns` -- which counted the instruction the
+                    # rationale has just called inapplicable -- does not.
+                    # Leaving it made the report say "no replacement" and
+                    # "the replacement is 3 instructions" in adjacent lines.
+                    native_insns = None
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,
@@ -141,7 +165,7 @@ class FusionRule:
                         f"{add.line}{via}; {claim} ({cost.source})"
                     ),
                     simde_insns=cost.simde_insns,
-                    native_insns=cost.native_insns,
+                    native_insns=native_insns,
                     suggestion=suggestion,
                     raw_name=raw_name_if_aliased(mul),
                 )
@@ -159,13 +183,18 @@ class FusionRule:
         into 64-bit lanes and the accumulator here is 32.
         """
         wanted = cost.accumulator_lanes
-        actual = _ADD_LANES.get(add.name)
-        if wanted is None or actual is None or wanted == actual:
+        entry = _ADD_LANES.get(add.name)
+        if wanted is None or entry is None:
             return None
+        kind, actual = entry
+        if kind == _ELEMENT_KIND[cost.key] and wanted == actual:
+            return None
+        described = f"{actual}-bit {'float' if kind == 'f' else 'integer'} lanes"
         return (
             "the multiply and the accumulate are emitted as separate "
             f"instructions; the recorded fused form {cost.suggestion} accumulates "
-            f"into {wanted}-bit lanes, but {add.name} accumulates into {actual}, "
+            f"into {wanted}-bit {'float' if _ELEMENT_KIND[cost.key] == 'f' else 'integer'} "
+            f"lanes, but {add.name} accumulates into {described}, "
             "so it is not the replacement here"
         )
 
@@ -225,16 +254,34 @@ class FusionRule:
     ) -> bool:
         """Whether `add` can be consuming this multiply's product at all.
 
-        A multiply written into a variable reaches an add that comes after
-        it, which byte position decides. A multiply written directly as an
-        operand reaches the add that contains it, and there byte position
-        says the opposite of the truth: the add's call expression opens
-        first, so the add starts *before* a product it is waiting on.
-        Containment settles that case, and nothing else has to.
+        Three things have to hold, and byte position alone settles none of
+        them.
+
+        A multiply written directly as an operand reaches the add that
+        contains it, and there byte position says the opposite of the truth:
+        the add's call expression opens first, so the add starts *before* a
+        product it is waiting on. Containment settles that case.
+
+        For a named product the add must come after the multiply -- but
+        "after" has to mean after the whole binding statement, not after the
+        multiply's opening byte. An add nested inside the multiply's own
+        argument list also starts later while running first, feeding the
+        multiply rather than consuming it, and the redefinition guard cannot
+        catch it: the interval handed to `redefined_between` inverts and
+        passes vacuously, the same inversion the widening-hop branch guards
+        against.
+
+        And both must be able to execute together. A multiply in one arm of
+        an `if` and an add in the other are ordered by position and never run
+        in the same pass, so there is no fusion opportunity to report -- the
+        reason rule M carries `control_region`. Containment implies one
+        region, so only the named branch has to ask.
         """
         if _operand_hop(unit, add, mul) is not _NOT_AN_OPERAND:
             return True
-        return bool(mul.result_var) and add.start_byte > mul.start_byte
+        if not mul.result_var or mul.control_region != add.control_region:
+            return False
+        return add.start_byte >= own_availability(unit, mul)
 
     def _path(
         self, unit: AnalysisUnit, mul: IntrinsicCall, add: IntrinsicCall
