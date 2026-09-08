@@ -105,10 +105,12 @@ measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
 The measurement commands in this document were last run in full on `main`
-after rule F gained the nested multiply-add; `v2.3.1` is the last release
-they were run in full for, and is what the paper cites. Both sets of figures
-appear below, each labelled. They were run against the revisions above (v1.2: intrinsic calls inside `#define` bodies
-are analysed; see Section 5). The anonymous retrieval commands in the
+after rule F gained the nested multiply-add, the accumulator-width check on
+the instruction it names, and the single-precision float family. `v2.3.1` is
+the last release they were run in full for, and is what the paper cites; both
+sets of figures appear below, each labelled. They were run against the
+revisions above (v1.2: intrinsic calls inside `#define` bodies are analysed;
+see Section 5). The anonymous retrieval commands in the
 paragraph above were verified on 2026-09-01. Dating these separately is
 deliberate: an edit that adds provenance is not a re-measurement, and this
 document exists to keep the two apart. Reference checkouts are given through
