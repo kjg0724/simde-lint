@@ -75,8 +75,10 @@ Every finding carries an evidence grade.
     other CLI/automation behaviour, which they do not today. `reason` is
     `null`/absent for grades A and B.
 
-  Rules that have no source of uncertainty (R, P) always emit A; they still
-  carry the field for JSON schema uniformity and consistent
+  A rule with no source of uncertainty always emits A. Rule P is the one
+  that still qualifies: rule R now grades C throughout, because the
+  condition it reports depends on a consumer it cannot see. Every rule
+  carries the field regardless, for JSON schema uniformity and consistent
   `--min-evidence` filtering.
 
 ### Why there is no per-finding impact column
@@ -288,7 +290,7 @@ from the resolved `intrinsic` name (a macro-aliased call site, e.g. VVenC's
 everywhere else.
 
 **One location may produce multiple findings.** A code region can exhibit
-several taxonomy types at once, and the paper says so explicitly. The six
+several taxonomy types at once, and the paper says so explicitly. The seven
 rules run independently; their findings are never deduplicated, merged, or
 reduced to one "primary" type.
 
@@ -385,10 +387,12 @@ The design's completion criteria — an exact match against SVT-AV1's 204
 known `_mm_shuffle_epi8` call sites, and a per-module comparison against the
 CAL paper's Table III for five VVenC modules — are measured, re-run, and
 recorded with the exact commands used in
-[`docs/verification.md`](docs/verification.md). Every divergence from the
-paper is traced to a specific cause: a broader detection unit, a knowledge
-table that doesn't yet carry an intrinsic, a mechanism the rule doesn't
-implement, or a call site the two methods classify differently. Absolute
+[`docs/verification.md`](docs/verification.md). Divergences from the paper
+are reported rather than smoothed over, and most are traced to a specific
+cause: a broader detection unit, a knowledge table that doesn't yet carry an
+intrinsic, a mechanism the rule doesn't implement, or a call site the two
+methods classify differently. Some are not yet accounted for, and that
+document says which. Absolute
 count agreement with the paper is explicitly not the bar — the exact
 `_mm_shuffle_epi8` count is.
 

@@ -10,8 +10,11 @@ Computer Architecture Letters*, 2026, doi:
 **Absolute agreement with the paper is not a criterion.** The paper counted
 instances in GCC `-O3` assembly; this tool counts source call sites (spec
 Section 3), a different and larger unit. Divergences below are recorded as
-results, with an established cause for each — not smoothed over and not
-treated as failures.
+results rather than smoothed over or treated as failures, and a cause is
+given wherever one has been established. Not every cell is accounted for:
+the FGA `F` row of Section 2 is 5 in the paper and 0 here with no cause
+recorded, and it is not alone. Read the claim as "no divergence is hidden",
+not as "every divergence is explained".
 
 **On "spec Section N".** The design spec those references point at is not in
 this repository: it is a working document that lives with the author's notes,
@@ -101,7 +104,7 @@ source would make this document appear to corroborate the paper while
 measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
-The measurement commands in this document were last run in full for v2.3.0,
+The measurement commands in this document were last run in full for v2.3.1,
 against the revisions above (v1.2: intrinsic calls inside `#define` bodies
 are analysed; see Section 5). The anonymous retrieval commands in the
 paragraph above were verified on 2026-09-01. Dating these separately is
@@ -232,9 +235,9 @@ what recovery can cost. A reader running the command above should see those
 warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
 3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`, evidence
-`A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. On `main` the same sweep
-gives 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence
-`A 845, B 60, C 2367`.
+`A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. **At this release
+(`v2.3.1`)** the same sweep gives 3272 findings,
+`F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence `A 845, B 60, C 2367`.
 
 Two changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -248,8 +251,8 @@ a loop boundary it is narrower than that, since the outer run and the first
 iteration do run consecutively — what the rule declines to do is report one
 chain whose cost holds for a single iteration count.
 
-The figures above are left as the tagged release's output so this document
-continues to reproduce it.
+The 3264 figures above are left as `v2.2.0`'s output so this document
+continues to reproduce that release too.
 
 > The evidence split moved three times. For the first two the type split did
 > not move and the call sites never changed — only what the tool was willing
@@ -418,8 +421,9 @@ A full recursive sweep of the whole `x86/` directory (47 files: the five
 SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 `avx2/` and `sse41/` subdirectories) totals 449 findings — `R 106, S 164,
 F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
-emitted it**; on `main` the same sweep gives `A 101, B 87, C 261`, the 106
-rule R findings having moved from A to C (see Section 1). By scope: **445 in function bodies, 4 in
+emitted it**; **at this release (`v2.3.1`)** the same sweep gives the same
+449 with evidence `A 101, B 87, C 261`, the 106 rule R findings having moved
+from A to C (see Section 1). By scope: **445 in function bodies, 4 in
 macro bodies**; the 445 and its per-type split (`F 131`, everything else as
 printed) are v1.1.0's figures unchanged, and the 4 macro findings are all F,
 in `AffineGradientSearchX86.h`, which is not one of the five modules in the
@@ -1010,8 +1014,9 @@ $ echo $?
 ```
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora: SVT-AV1 3264 findings / 362 warnings, VVenC 449 / 11,
-VVdeC 516 / 10 — every one exit 0.
+all three corpora at this release: SVT-AV1 3272 findings / 362 warnings,
+VVenC 449 / 11, VVdeC 516 / 10 — every one exit 0. The warning counts count
+files, not call sites, so they do not move with the findings.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
 

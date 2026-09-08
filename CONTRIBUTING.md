@@ -24,9 +24,11 @@ SIMDE_LINT_SVT_AV1=/path/to/svt-av1 SIMDE_LINT_VVENC=/path/to/vvenc \
   uv run pytest tests/test_verification.py -v
 ```
 
-Those tests skip cleanly — not fail — when the checkout isn't present (via
-either the environment variable or the default path), so the rest of the
-suite stays runnable without either clone.
+Those tests skip cleanly — not fail — when the checkout isn't present, so
+the rest of the suite stays runnable without either clone. The environment
+variable is the only way to point them at one: there is deliberately no
+fallback to a default path, because a default would publish the author's own
+directory layout for no verification benefit.
 
 **Point them at a checkout pinned to the measured revision.** The figures
 those tests assert were measured against specific commits, recorded in
@@ -182,20 +184,26 @@ Type S, for example).
    rule drift.
 
    **Grade C carries a structured `reason`, not free prose.** Any rule that
-   can emit C must set `Finding.reason` to one of two `Reason` values:
+   can emit C must set `Finding.reason` to one of three `Reason` values:
    - `Reason.UNRESOLVED` — the rule could not see far enough to judge at
      all (a runtime-loaded value, a call result with unknown lanes, a
      symbol not defined in the scanned inputs).
    - `Reason.GUARD_REQUIRED` — the rule saw everything relevant and
      confirmed the guard it's examining is load-bearing (rule S: a mask
      whose lanes are fully known but include one outside the safe range).
+   - `Reason.TRANSFORM_REQUIRES_CONTEXT` — the rule saw everything
+     relevant and a replacement exists, but only under a condition this
+     rule does not check (rule F: `vmlal_s16` needs a horizontal-reduction
+     consumer; rule R: the zero-init is dead only for a consumer the rule
+     cannot see).
 
-   Both share grade C because v1 acts on them identically: do not
+   All three share grade C because v1 acts on them identically: do not
    transform without human confirmation. `reason` is `None` for grades A
    and B — see `Reason`'s docstring in `finding.py` for the full rationale,
-   including why a fourth grade isn't warranted today. `S.pshufb_guard` is
-   the only rule that currently emits C; see `SuboptimalRule._grade` for
-   the pattern to follow if a future rule needs it too.
+   including why a fourth grade isn't warranted today. Rules S, R and F all
+   emit C; `SuboptimalRule._grade` and `FusionRule.cap_for` are the two
+   patterns to follow, the first deciding per call site and the second
+   capping from the intrinsic's recorded transform status.
 
    A rule with no source of uncertainty (structural or purely syntactic
    matching) should emit only A — don't invent a B or C case to look more

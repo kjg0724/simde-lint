@@ -1,5 +1,51 @@
 # Changelog
 
+## 2.3.2 — 2026-09-08
+
+Documentation only. `git diff v2.3.1 v2.3.2 -- src tests` shows exactly one
+line, the `__version__` constant, as the `v2.3.0`-to-`v2.3.1` diff did before
+it. No rule, table or test changed, and every figure measured at `v2.3.1`
+holds here unchanged -- re-run to confirm rather than assumed: SVT-AV1 3272
+`A 845, B 60, C 2367`.
+
+(`v2.3.1`'s own entry called its `src/` tree byte-identical to `v2.3.0`'s. It
+was not, for the same one line. A release whose metadata disagrees with its
+tag is the failure `test_the_declared_version_matches_the_package_metadata`
+exists to catch, so the constant has to move with the tag.)
+
+Pinning a citation to a tag freezes that tag's documentation with it, and
+`v2.3.1`'s had six claims that were wrong or had gone stale. A reader
+following the citation into the repository would have found them.
+
+- **`README.md`** said every divergence from the paper is traced to a
+  specific cause. Not all are: Section 2's FGA `F` row is 5 in the paper and
+  0 here with no cause recorded, and it is not the only one. The claim now
+  says divergences are reported rather than hidden, and that some are not yet
+  accounted for.
+- **`README.md`** said rules with no source of uncertainty (R, P) always emit
+  A. Rule R has graded C throughout since `v2.2.0` -- 1922 findings across
+  both corpora, none of them A. Only rule P still qualifies.
+- **`README.md`** said six rules run independently. There are seven: type M
+  carries two. The same sentence was corrected in `docs/verification.md`
+  before `v2.3.1` and missed here.
+- **`docs/verification.md`** made the same completeness claim as the README
+  ("with an established cause for each"), corrected the same way.
+- **`docs/verification.md`** labelled this release's own figures as what
+  `main` gives and `v2.2.0`'s as "the tagged release's output". Standing on
+  the tag, that reads backwards. Each set is now named by the release it
+  belongs to. The three-corpora reference line also mixed `v2.2.0`'s SVT-AV1
+  total with this release's VVenC and VVdeC ones.
+- **`CONTRIBUTING.md`** said grade C carries one of *two* `Reason` values and
+  that `S.pshufb_guard` is the only rule emitting C. There are three reasons
+  -- `TRANSFORM_REQUIRES_CONTEXT` is missing -- and rules S, R and F all emit
+  C. It also offered a "default path" for the reference checkouts, which does
+  not exist and deliberately never did.
+
+Nothing here changes what the tool reports. The `main` branch has since moved
+past these figures: rule F now reports a multiply written directly as the
+add's argument, which raises SVT-AV1 to 3365 and VVenC to 593. That is
+outside this tag by design.
+
 ## 2.3.1 — 2026-09-07
 
 Same tool as `v2.3.0`: the `src/` tree is byte-identical and every figure
