@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### An oracle corpus, and the two defects it was written to catch
+
+`tests/oracle/` holds expectations decided by hand from the rule descriptions
+and the source, before the tool is run. Nothing in it may be generated from
+tool output.
+
+Everything else here compares the tool against a second reading built from the
+same inference, and that has missed defects sharing its blind spot:
+`docs/precision/verify.py` could not see rule F's nested multiply-add because
+its own predicate also required a named product, and had to be extended
+alongside the rule. A hand-decided expectation can be wrong -- a human decided
+it -- but it is wrong independently.
+
+Written first, it failed on exactly the two open defects and passed the rest,
+which is the order that makes it evidence rather than a transcript.
+
+**Rules W and P now honour `control_region`.** A widening round-trip split
+across arms of an `if` never has both products reaching the unpack, and a
+compare in one arm is never followed by a consumer in the other. Both reported
+at grade **A**. Rule M carries `control_region` for this and rule F was
+corrected for it; W and P are the third and fourth rules to need it, and the
+second time it was found only after release. Rule P's stated approximation --
+source order for scheduling order -- is about instruction order along one
+path, and does not license collapsing exclusive paths into one order.
+
+**A portable fallback no longer claims what it cannot see.** Rule F opened
+every rationale with "the multiply and the accumulate are emitted as separate
+instructions". For `_mm256_mullo_epi16` and `_mm256_mullo_epi32` SIMDe has no
+NEON branch: both fall through to a per-element loop carrying
+`SIMDE_VECTORIZE`, so what a compiler emits cannot be read from the source --
+which the entries already conceded by recording both counts as unknown. The
+table now declares `portable_fallback`, and those rationales say SIMDe
+expresses the two operations separately rather than what is emitted. A 256-bit
+suggestion also names "per 128-bit half", since that is how the instruction
+applies.
+
+Both defects were absent from all three corpora, and the figures confirm it:
+SVT-AV1 3402, VVenC 614, VVdeC 597, unchanged to the finding.
+
+Found by review after v2.4.0. Closes #50 and #51.
+
 ### What a finding establishes, said where the figures are
 
 `docs/verification.md` stated the precondition for a finding to mean anything
