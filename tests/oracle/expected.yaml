@@ -1,0 +1,59 @@
+# Hand-decided expectations. Never generated from tool output — see README.md.
+#
+# Each case names the file, why the expectation is what it is, and the exact
+# findings expected. An empty list is a claim that the file contains no
+# instance of any mechanism, not an omission.
+#
+# Fields checked when present: line, type, evidence, reason, intrinsic,
+# suggestion, rationale_includes, rationale_excludes. Anything not named is
+# not asserted, so a case pins what it reasoned about and no more.
+
+exclusive_arms.c:
+  why: >-
+    Both shapes are split across arms of an `if`. In `widening_pair_...` no
+    execution reaches the unpack carrying both products, so there is no
+    round-trip: rule W's mechanism is one multiply pair feeding one unpack,
+    and here only one of the pair ever runs. In `compare_and_consumer_...`
+    the compare and the `and` are in opposite arms, so the compare is never
+    followed by that consumer at all — rule P's mechanism is a compare whose
+    result the next call consumes, and no execution has both. Adjacency in
+    source text is not adjacency in any run. Rule M was corrected for this
+    same reason and rule F after it; the mechanism definitions are what
+    decide it, not which rules happen to ask.
+  findings: []
+
+exclusive_arms_control.c:
+  why: >-
+    The same two shapes with no branching, so both are instances. The
+    widening round-trip is one finding, not two: the mechanism is the
+    round-trip, and the rule anchors it at the low multiply. Both its
+    operands are plain variables resolved in the same unit, so nothing is
+    unresolved and the grade is A. The compare's result is consumed by the
+    very next call, which is rule P's mechanism exactly; P grades A always.
+  findings:
+    - line: 5
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16
+    - line: 12
+      type: P
+      evidence: A
+      intrinsic: _mm_cmpgt_epi32
+
+portable_fallback.c:
+  why: >-
+    A multiply-add is present and unfused, so a type F finding belongs here.
+    What must not appear is a claim about emitted machine instructions:
+    `_mm256_mullo_epi16` has no NEON branch in SIMDe 0.8.4 and falls through
+    to a portable loop, so the SIMDe source does not say what the compiler
+    produces. The knowledge entry concedes this by recording both instruction
+    counts as unknown; the rationale has to concede it too. `vmlaq_s16` is
+    still the right fused form to name, and for a 256-bit value it applies to
+    each 128-bit half.
+  findings:
+    - line: 8
+      type: F
+      intrinsic: _mm256_mullo_epi16
+      suggestion: vmlaq_s16
+      rationale_excludes: emitted as separate instructions
+      rationale_includes: per 128-bit half

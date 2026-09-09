@@ -67,10 +67,20 @@ class WideningRule:
             hi = self._partner(his, claimed_his, lo)
             if hi is None or not lo.result_var or not hi.result_var:
                 continue
+            if lo.control_region != hi.control_region:
+                # A round-trip is one multiply pair feeding one unpack. Split
+                # across arms of an `if`, only one of the pair ever runs, so
+                # there is no round-trip to report -- adjacency in source text
+                # is not adjacency in any execution. Rule M carries
+                # control_region for this and rule F was corrected for it
+                # after; the consumer is checked below for the same reason.
+                continue
             consumer = self._consumer(
                 unpacks, claimed_unpacks, lo.result_var, hi.result_var, hi.start_byte
             )
             if consumer is None:
+                continue
+            if consumer.control_region != lo.control_region:
                 continue
             if unit.redefined_between(
                 lo.result_var, own_availability(unit, lo), consumer.start_byte

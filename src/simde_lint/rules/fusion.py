@@ -231,7 +231,18 @@ class FusionRule:
         names the instruction — the count is reported separately, and is
         absent when SIMDe's expansion leaves it to the compiler.
         """
-        observed = "the multiply and the accumulate are emitted as separate instructions"
+        if cost.portable_fallback:
+            # No NEON branch: SIMDe expands this through a portable loop, so
+            # the source shows the two operations expressed separately and
+            # says nothing about what a compiler emits from them. The claim
+            # is lowered to what the source supports rather than dropped --
+            # the multiply-add is there either way.
+            observed = (
+                "SIMDe expresses the multiply and the accumulate separately, with no "
+                "NEON branch for this intrinsic, so what is emitted is the compiler's"
+            )
+        else:
+            observed = "the multiply and the accumulate are emitted as separate instructions"
         if cost.transform_status is TransformStatus.CONDITIONAL:
             return (
                 f"{observed}; {cost.suggestion} applies only when the consumer is a "
@@ -244,9 +255,12 @@ class FusionRule:
             )
         if cost.transform_status is not TransformStatus.ESTABLISHED:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"
-        return (
-            f"{observed}; NEON fuses this into {cost.suggestion} for some accumulator shapes"
+        applied = (
+            f"{cost.suggestion} per 128-bit half"
+            if cost.key.startswith("_mm256_")
+            else cost.suggestion
         )
+        return f"{observed}; NEON fuses this into {applied} for some accumulator shapes"
 
     @staticmethod
     def _reaches_by_position(

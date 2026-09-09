@@ -71,6 +71,12 @@ class CostInfo:
     # that cannot be dropped in. Set with `suggestion` on `F.mul_add_no_fuse`
     # entries; None elsewhere.
     accumulator_lanes: int | None = None
+    # True when SIMDe has no NEON branch for this intrinsic and falls through
+    # to a portable per-element loop. Nothing about the emitted machine code
+    # can then be read from the SIMDe source -- the loop carries
+    # SIMDE_VECTORIZE and what a compiler makes of it is its own decision --
+    # so a rule must not describe this call site in instruction terms.
+    portable_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,7 @@ def _cost_entry(key: str, entry: dict, requires_transform_status: bool = False) 
         # checked against a call site, and a default would make the unchecked
         # case indistinguishable from the checked one.
         accumulator_lanes=entry["accumulator_lanes"] if requires_transform_status else None,
+        portable_fallback=bool(entry.get("portable_fallback", False)),
     )
 
 

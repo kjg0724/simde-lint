@@ -37,6 +37,14 @@ class PipelineRule:
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:
                 continue
+            if current.control_region != following.control_region:
+                # Source order approximates scheduling order along one path.
+                # It says nothing across arms of an `if`, where the compare is
+                # never followed by that consumer in any execution -- the two
+                # are adjacent in the text and in no run. The rule's stated
+                # approximation covers instruction order, not the collapsing
+                # of exclusive paths into one order.
+                continue
             if following.is_macro_alias:
                 # P1: `following` was resolved through a file-local `#define`
                 # forwarding alias. Its recorded args are the call site's own
