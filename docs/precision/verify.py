@@ -427,12 +427,91 @@ CHECKS = {
 }
 
 
+def _native_neon_split(findings):
+    """Per finding, whether its module has a hand-written NEON counterpart.
+
+    A cheap stand-in for the codebook's FP-context question, which asks
+    whether a call site is reached at all when the project is built for ARM.
+    Deciding that properly needs the build system. Two things approximate it
+    without one, and both were left unasked on the evaluation corpora until
+    a reviewer of the paper asked them:
+
+    - a tree containing no `simde` string cannot reach NEON through SIMDe;
+    - a module with a sibling `<Module>_neon.cpp` has a native path that the
+      x86 file is not carrying on ARM.
+
+    Neither is proof: a NEON file may cover only part of its module, and
+    absence of one does not establish the x86 file compiles on ARM. It is an
+    upper bound on what SIMDe could still be paying for, which is the honest
+    shape of the answer and enough to stop a corpus being described as
+    SIMDe-dependent when it is not.
+    """
+    roots = {}
+    for finding in findings:
+        parts = finding["file"].split(os.sep)
+        for i in range(len(parts) - 1, 0, -1):
+            if parts[i] in ("x86", "Lib"):
+                roots.setdefault(finding["file"], os.sep.join(parts[:i]))
+                break
+    native, uses_simde = {}, {}
+    for root in set(roots.values()):
+        names = set()
+        for base, _, files in os.walk(root):
+            for name in files:
+                if name.endswith("_neon.cpp"):
+                    names.add(name[: -len("_neon.cpp")].lower())
+        native[root] = names
+        found = False
+        for base, _, files in os.walk(root):
+            for name in files:
+                if name.endswith((".c", ".h", ".cpp", ".hpp", ".txt", ".cmake")):
+                    try:
+                        with open(os.path.join(base, name), "rb") as handle:
+                            if b"simde" in handle.read():
+                                found = True
+                    except OSError:
+                        pass
+                if found:
+                    break
+            if found:
+                break
+        uses_simde[root] = found
+
+    covered, uncovered, no_simde = Counter(), Counter(), Counter()
+    for finding in findings:
+        root = roots.get(finding["file"])
+        if root is None:
+            continue
+        if not uses_simde[root]:
+            no_simde[root] += 1
+            continue
+        stem = re.sub(r"X86\.(h|cpp)$", "", os.path.basename(finding["file"])).lower()
+        if stem in native[root]:
+            covered[os.path.basename(finding["file"])] += 1
+        else:
+            uncovered[os.path.basename(finding["file"])] += 1
+    return no_simde, covered, uncovered
+
+
 def main():
     parser = Parser(LANGUAGE)
     cache = {}
     findings = []
     for corpus, (env_var, subdir) in CORPORA.items():
         findings += sweep(corpus_path(env_var, subdir))
+
+    if "--native-neon" in sys.argv:
+        no_simde, covered, uncovered = _native_neon_split(findings)
+        print("FP-context, approximated. A finding is a call site whose SIMDe\n"
+              "translation would be inefficient; whether ARM reaches it is a\n"
+              "separate question, and this is the cheap form of it.\n")
+        for root, count in sorted(no_simde.items(), key=lambda kv: -kv[1]):
+            print("  %5d  no `simde` anywhere under %s" % (count, root))
+        print("  %5d  module has a native *_neon.cpp" % sum(covered.values()))
+        print("  %5d  module has none:" % sum(uncovered.values()))
+        for name, count in sorted(uncovered.items(), key=lambda kv: -kv[1]):
+            print("           %5d  %s" % (count, name))
+        return
 
     if "--files" in sys.argv:
         # FP-context is a property of a file, so it is asked once per file.
