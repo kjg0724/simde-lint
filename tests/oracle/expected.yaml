@@ -57,3 +57,96 @@ portable_fallback.c:
       suggestion: vmlaq_s16
       rationale_excludes: emitted as separate instructions
       rationale_includes: per 128-bit half
+
+redundant_zero_init.c:
+  why: >-
+    Rule R matches calls to the intrinsics registered in redundant.yaml and
+    never inspects the consumer, so each registered call is one finding and
+    the grade is always C. The reason is the one the rule can honestly give:
+    the zero-init is dead only for a consumer it cannot see. `_mm_loadu_si128`
+    loads a full vector, so there is no zero-init for the expansion to make
+    redundant and nothing to report.
+  findings:
+    - line: 7
+      type: R
+      evidence: C
+      reason: transform_requires_context
+      intrinsic: _mm_loadu_si32
+    - line: 8
+      type: R
+      evidence: C
+      reason: transform_requires_context
+      intrinsic: _mm_loadl_epi64
+
+scalar_assembly.c:
+  why: >-
+    Type M's two mechanisms. Three inserts on one target meet the default
+    threshold of three and are one finding, not three — the mechanism is the
+    chain. Two inserts are below it and are nothing. A `_mm_set_epi32` over
+    runtime scalars is the second mechanism; the same call over literals is a
+    constant vector and is excluded by the rule's own description. The line a
+    chain anchors at is not something the published description fixes, so it
+    is deliberately not asserted here.
+  findings:
+    - type: M
+      rule: M.scalar_insert_chain
+    - line: 21
+      type: M
+      rule: M.scalar_set_build
+      intrinsic: _mm_set_epi32
+
+shuffle_guard.c:
+  why: >-
+    Rule S matches every `_mm_shuffle_epi8` and grades on whether the mask's
+    lanes are known to be safe, so both calls are findings and the grades
+    differ. The first mask is sixteen literal indices, all inside 0..15,
+    where pshufb and tbl agree — nothing is unknown and nothing needs a
+    guard, so grade A. The second mask is loaded at runtime: no lane can be
+    read from the source, which is unresolved rather than a guard the rule
+    confirmed is load-bearing.
+  findings:
+    - line: 9
+      type: S
+      evidence: A
+      intrinsic: _mm_shuffle_epi8
+    - line: 16
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+
+fusion_shapes.c:
+  why: >-
+    Rule F's mechanism is a multiply whose product an add consumes instead of
+    fusing, and whether the author named the product is a spelling choice —
+    both spellings are the same instance and both are findings. `mullo_epi32`
+    produces 32-bit lanes accumulated by a 32-bit add, which `vmlaq_s32`
+    matches, so nothing is withheld and the grade is A. One add is one fusion
+    opportunity, so the pair of products at line 18 is one finding, not two.
+    A multiply with no add is no instance at all. The float pair is the
+    mechanism too, but `vfmaq_f32` rounds once where the separate multiply and
+    add round twice, so it is never an exact substitution — grade C, and the
+    instruction is still named because it exists and has a cost, not because
+    it can be applied freely.
+  findings:
+    - line: 6
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+      suggestion: vmlaq_s32
+    - line: 12
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+      suggestion: vmlaq_s32
+    - line: 18
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+      suggestion: vmlaq_s32
+    - line: 30
+      type: F
+      evidence: C
+      reason: transform_changes_result
+      intrinsic: _mm_mul_ps
+      suggestion: vfmaq_f32

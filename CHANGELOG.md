@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### The oracle corpus covers all seven rules
+
+Five more cases, decided the same way: from the published rule descriptions
+and the source, before the tool was run. Every rule now has at least one
+positive shape and, alongside it in the same file, a negative one that
+separates the mechanism from something that merely looks like it -- a
+full-width load against a partial one, two inserts against the threshold of
+three, a literal `set` against one over runtime scalars, a known shuffle mask
+against a runtime mask, a multiply with no add at all.
+
+Rule F carries the spellings that have cost the most: the product bound to a
+name and the product written as the add's operand, which are the same
+instance and must both be found; two products reaching one add, which is one
+finding because one add is one opportunity; and the float pair, which is the
+mechanism with a replacement that is never exact.
+
+The tool agreed with every substantive expectation on the first run. Three
+disagreements were mine and all of the same kind -- a line number counted in
+my head rather than read off the file -- so the README now says to read them.
+That is noise the oracle should not be spending its failures on.
+
 ### An oracle corpus, and the two defects it was written to catch
 
 `tests/oracle/` holds expectations decided by hand from the rule descriptions

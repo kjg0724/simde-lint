@@ -19,6 +19,10 @@ the property the rest of the evidence base does not have.
 ## Adding a case
 
 1. Write the C file. Keep it small enough to reason about completely.
+   Then read the line numbers off the file rather than counting them in
+   your head — three of the first six expectations written here had the
+   line wrong and nothing else, which is noise the oracle should not be
+   spending its failures on.
 2. Decide the expected findings from the codebook and the rule's stated
    mechanism. Do not run the tool first.
 3. Add the entry to `expected.yaml`, with `why` naming the reasoning.
