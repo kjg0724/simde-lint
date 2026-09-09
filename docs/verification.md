@@ -128,6 +128,56 @@ sets `SIMDE_LINT_REQUIRE_CORPUS=1`, which withdraws the skip: a clone that does
 not arrive, or arrives at a different revision, fails the job instead of
 emptying it quietly.
 
+## 0. What a finding does and does not establish on these corpora
+
+This section was written after the fact, and it corrects the most important
+omission in this document.
+
+A finding says: this source contains an x86 intrinsic call site whose SIMDe
+translation to NEON carries the named inefficiency. It does **not** say that
+the site is reached when the project is built for ARM. That second question —
+the codebook calls it FP-context — was asked of the holdout in Section 6 and
+never asked of the two evaluation corpora. Asking it changes what the headline
+figures mean.
+
+**SVT-AV1 does not use SIMDe at all.** The string appears nowhere in the tree
+at the pinned revision. `Source/Lib/CMakeLists.txt` selects
+`ASM_SSE2/SSSE3/SSE4_1/AVX2/AVX512` under `HAVE_X86_PLATFORM` and
+`ASM_NEON/CRC32/DOTPROD/I8MM/SVE/SVE2` under `HAVE_ARM_PLATFORM`, in an
+`if`/`elseif`: the two sets are mutually exclusive. Every one of the 3402
+findings sits in a directory ARM never compiles:
+
+| directory | findings |
+|---|---:|
+| `ASM_AVX2` | 1502 |
+| `ASM_SSE4_1` | 1072 |
+| `ASM_SSE2` | 350 |
+| `ASM_AVX512` | 290 |
+| `ASM_SSSE3` | 188 |
+
+**VVenC carries native NEON for almost every module measured here.**
+`source/Lib/CommonLib/arm/neon/` holds hand-written implementations for
+AdaptiveLoopFilter, AffineGradientSearch, Buffer, DepQuant, FGA,
+InterpolationFilter, InterPred, IntraPred, LoopFilter, MCTF, RdCost,
+SampleAdaptiveOffset and Trafo, initialised on ARM by `InitARM.cpp`. Matching
+each finding's file against that set leaves **20 of 614** in modules with no
+NEON counterpart: 17 in `QuantX86.h` and 3 in `FixMissingIntrin.h`.
+
+So the counts in this document measure what they always measured — call sites
+whose SIMDe translation would be inefficient — and that is a different
+quantity from the emulation cost these projects actually pay on ARM today.
+Read as a census of x86 intrinsic call sites carrying each pattern, the
+figures stand and reproduce. Read as a measurement of SIMDe's cost in
+production ARM builds of these two projects, they do not, and this document
+should have said so from the first section.
+
+The holdout is where the precondition was stated (Section 6: VVdeC "vendors
+SIMDe and includes it directly, so its x86 intrinsic paths are what actually
+compiles on ARM"). Stating it there and not here is the omission.
+
+`docs/precision/verify.py --native-neon` now reports the split for any corpus,
+so the question is asked by a command rather than remembered.
+
 **Two counting units appear below and are never mixed.** Sections 1 and 2
 count call sites inside function bodies, which is what every measurement
 before v1.2 counted and what the per-module comparison against the paper

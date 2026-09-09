@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### What a finding establishes, said where the figures are
+
+`docs/verification.md` stated the precondition for a finding to mean anything
+— that the x86 path is what actually compiles on ARM — in the holdout section
+and nowhere else. Asked of the two evaluation corpora, the answer changes what
+the headline figures describe.
+
+SVT-AV1 contains no `simde` string at the pinned revision. Its CMake selects
+`ASM_SSE2/SSSE3/SSE4_1/AVX2/AVX512` under `HAVE_X86_PLATFORM` and
+`ASM_NEON/CRC32/DOTPROD/I8MM/SVE/SVE2` under `HAVE_ARM_PLATFORM`, as an
+`if`/`elseif`, so all 3402 findings sit in directories ARM never compiles.
+VVenC carries hand-written NEON for thirteen modules under
+`CommonLib/arm/neon/`, leaving 20 of 614 findings in modules with no NEON
+counterpart.
+
+The counts measure what they always measured — call sites whose SIMDe
+translation would be inefficient — and that is a different quantity from the
+emulation cost these projects pay on ARM today. A new Section 0 says so before
+any figure appears, and `verify.py --native-neon` reports the split for any
+corpus, so the question is answered by a command rather than remembered. It
+was remembered for the holdout and forgotten for the two corpora the figures
+come from, which is the failure this closes.
+
+Found by reviewers of the paper that uses these corpora. No finding, count or
+grade changes.
+
 ### Every file carrying a version string is now checked
 
 `CITATION.cff` read `2.3.1` inside both the `v2.3.2` and `v2.4.0` tags. The

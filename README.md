@@ -13,6 +13,14 @@ for ARM NEON Porting of VVC Encoders," *IEEE Computer Architecture Letters*,
 which hand-reviewed GCC `-O3` assembly for five VVenC modules and the SVT-AV1
 codebase to name six recurring patterns. This tool automates a source-level
 reading of the same patterns.
+**A finding is a call site, not a cost a project is paying.** It says the
+SIMDe translation of this x86 intrinsic carries the named inefficiency; it
+does not say ARM builds reach it. At the pinned revisions SVT-AV1 contains no
+`simde` string at all and compiles a separate `ASM_NEON` tree on ARM, and
+VVenC carries hand-written NEON for all but two of the modules measured. Run
+`docs/precision/verify.py --native-neon` on any corpus to see the split
+before reading a total as an emulation cost.
+
 It is not a re-derivation of the paper's numbers — see
 [`docs/verification.md`](docs/verification.md) for exactly where the two
 agree, where they diverge, and why.
