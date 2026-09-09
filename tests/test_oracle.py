@@ -23,7 +23,7 @@ from simde_lint.analyze import analyze
 ORACLE = Path(__file__).parent / "oracle"
 CASES = ORACLE / "cases"
 
-_CHECKED = ("line", "type", "evidence", "reason", "intrinsic", "suggestion")
+_CHECKED = ("line", "type", "rule", "evidence", "reason", "intrinsic", "suggestion")
 
 
 def _expected() -> dict:
@@ -54,7 +54,11 @@ def test_the_tool_agrees_with_the_hand_decided_expectation(case):
         + "; ".join(_describe(f) for f in findings)
     )
 
-    for finding, want in zip(findings, sorted(wanted, key=lambda w: w["line"])):
+    # `line` is optional: where the rule description does not determine
+    # which call site a multi-call mechanism anchors at, the expectation says
+    # so in `why` rather than guessing and then "correcting" itself to match.
+    order = sorted(wanted, key=lambda w: (w.get("line", 0), w.get("type", "")))
+    for finding, want in zip(findings, order):
         for field in _CHECKED:
             if field not in want:
                 continue
