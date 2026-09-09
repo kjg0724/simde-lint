@@ -10,8 +10,9 @@ maintainer can decide where a native NEON implementation is worth writing.
 The taxonomy comes from J. Kim, "A Taxonomy of SIMDe Emulation Inefficiencies
 for ARM NEON Porting of VVC Encoders," *IEEE Computer Architecture Letters*,
 2026, doi: [10.1109/LCA.2026.3725622](https://doi.org/10.1109/LCA.2026.3725622),
-which hand-reviewed GCC `-O3` assembly for five VVenC modules and the SVT-AV1
-codebase to name six recurring patterns. This tool automates a source-level
+which named six recurring patterns from a hand review of GCC `-O3` assembly
+for five VVenC modules, and confirmed the taxonomy transfers by locating 204
+type-S call sites in SVT-AV1. This tool automates a source-level
 reading of the same patterns.
 It is not a re-derivation of the paper's numbers — see
 [`docs/verification.md`](docs/verification.md) for exactly where the two

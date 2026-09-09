@@ -436,7 +436,7 @@ it returns a list: no crash, no hang.
 
 ### Counts above the paper
 
-Five cells exceed the paper's count, and all five are the expected
+Six cells exceed the paper's count, and all six are the expected
 consequence of counting source call sites rather than assembly instances
 (spec Section 3) — a call inside a loop body, an unrolled block, or a helper
 invoked from more than one place produces several source-level findings that
@@ -495,8 +495,10 @@ what the guard does and does not cover.
 
 ### Zeros where the paper reports instances
 
-Every zero-count cell above traces to a concrete property of the source,
-verified individually rather than assumed:
+Every zero-count cell above was checked individually rather than assumed,
+and all but one trace to a concrete property of the source. The exception is
+stated where it arises: what produces the paper's 2 FGA instances is not
+established here.
 
 - **DepQuant W/F/M = 0.** `DepQuantX86.h` contains no x86 multiply intrinsic
   at all — `_mm_mullo_epi16`, `_mm_mullo_epi32`, `_mm_madd_epi16`,
@@ -553,8 +555,10 @@ against either.
 
 `test_full_sweep_of_both_codebases_does_not_crash` sweeps the entire VVenC
 `x86/` directory and only checks the result is a list. The SVT-AV1 full sweep
-above (Section 1) separately confirms exit 0 and no stderr output over 561
-files. Both were re-run as part of writing this document, not assumed.
+above (Section 1) separately confirms exit 0 over all 561 files. Not silence:
+362 of them draw a parse warning on stderr, which Section 1 records as the
+expected state — exit 0 is the claim here, because a parse warning is not the
+tool erring. Both were re-run as part of writing this document, not assumed.
 
 ## 4. Fixture unit tests
 

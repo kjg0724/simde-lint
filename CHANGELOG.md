@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.3.3 — 2026-09-09
+
+Documentation only, on top of `v2.3.2`. `git diff v2.3.2 v2.3.3 -- src tests`
+shows one line, the `__version__` constant. Every figure measured at `v2.3.1`
+still holds -- re-run to confirm: SVT-AV1 3272 `A 845, B 60, C 2367`, VVenC
+449 `A 101, B 87, C 261`, gate 204.
+
+Five claims that a citation pinned to `v2.3.2` would have carried:
+
+- **`README.md`** said the paper "hand-reviewed GCC `-O3` assembly for five
+  VVenC modules and the SVT-AV1 codebase to name six recurring patterns". The
+  taxonomy comes from the five VVenC modules; SVT-AV1 enters as the
+  transferability check that located 204 type-S call sites. Read beside the
+  paper, the old sentence made one of the two wrong.
+- **`docs/verification.md`** claimed the SVT-AV1 full sweep confirms "exit 0
+  and no stderr output over 561 files". Section 1 of the same document records
+  362 parse warnings on stderr and explains why their absence would be the
+  surprise. The file count was right; the silence was not. Exit 0 is the claim
+  that survives, and it is the one that matters -- a parse warning is not the
+  tool erring.
+- **`docs/verification.md`** introduced a six-row table with "Five cells
+  exceed the paper's count, and all five are ...". Anyone tallying the rows
+  against the paper's split comes up one short.
+- **`docs/verification.md`** said "Every zero-count cell above traces to a
+  concrete property of the source", and thirty-nine lines later said what
+  produces the paper's 2 FGA instances "is not established". The completeness
+  claim now states its own exception. This is the fourth instance of that
+  class -- `v2.3.2` corrected three of them in `README.md` and this document.
+- **`CITATION.cff`** still read `version: 2.3.1` at the `v2.3.2` tag. The bump
+  reached `__init__.py` and `pyproject.toml` and stopped there.
+
+The last one defeats the release check added for `v2.4.0`, which reads the
+version out of the tool: `CITATION.cff` is a file the tool never loads. A test
+asserting it against the package metadata belongs on `main`, not in a
+documentation-only release, and is tracked there.
+
 ## 2.3.2 — 2026-09-08
 
 Documentation only. `git diff v2.3.1 v2.3.2 -- src tests` shows exactly one
