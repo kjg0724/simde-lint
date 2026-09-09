@@ -2,6 +2,7 @@ import json
 import os
 import re
 from importlib.metadata import version as metadata_version
+from pathlib import Path
 
 import pytest
 
@@ -218,3 +219,27 @@ def test_overlapping_paths_do_not_double_the_reported_findings(tmp_path, capsys)
     assert overlapping["summary"]["total"] == alone["summary"]["total"]
     locations = [(f["file"], f["line"], f["rule"]) for f in overlapping["findings"]]
     assert len(locations) == len(set(locations))
+
+
+def test_every_file_carrying_a_version_string_agrees_with_the_package():
+    """`CITATION.cff` shipped `2.3.1` inside the `v2.3.2` tag.
+
+    The release check reads the version out of the tool, which is the right
+    check for the files the tool loads and no check at all for the ones it
+    does not. `CITATION.cff` is read by citation tooling and by anyone
+    following the repository from a paper, and it went a whole release
+    without being noticed. Enumerating the files here means a new one is a
+    deliberate addition to this list rather than a silent omission.
+    """
+    root = Path(__file__).resolve().parent.parent
+    expected = metadata_version("simde-lint")
+
+    citation = (root / "CITATION.cff").read_text()
+    declared = re.search(r"^version: (.+)$", citation, re.MULTILINE)
+    assert declared is not None, "CITATION.cff declares no version"
+    assert declared.group(1).strip() == expected
+
+    pyproject = (root / "pyproject.toml").read_text()
+    declared = re.search(r'^version = "(.+)"$', pyproject, re.MULTILINE)
+    assert declared is not None, "pyproject.toml declares no version"
+    assert declared.group(1) == expected
