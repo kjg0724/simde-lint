@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Every file carrying a version string is now checked
+
+`CITATION.cff` read `2.3.1` inside both the `v2.3.2` and `v2.4.0` tags. The
+release check added for `v2.4.0` reads the version out of the tool, which is
+the right check for the files the tool loads and no check at all for the ones
+it does not -- and citation tooling, and anyone following the repository from
+a paper, read this one.
+
+A test now asserts `CITATION.cff` and `pyproject.toml` against the installed
+package metadata. It failed the moment it was written, which is the point:
+the file is corrected here, and a new file carrying a version is now a
+deliberate addition to that list rather than a silent omission.
+
+`v2.4.0`'s tag keeps the stale value -- a published tag is not moved -- and
+`v2.3.3` carries the corrected one for the release the paper cites.
+
 ## 2.4.0 — 2026-09-08
 
 Rule F only. Every other rule is unchanged finding-for-finding on all three
