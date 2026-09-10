@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Recall, for one more mechanism than was claimed
+
+`docs/verification.md` said F, M, W and P turn on structure so their ground
+truth cannot be built by `grep`. That overstated the gap by one:
+`M.scalar_set_build` matches `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
+over runtime scalars, excluding all-literal calls, and both halves are
+decidable from the text of the call.
+
+`docs/precision/recall_set_build.py` enumerates it without importing the tool.
+SVT-AV1 29/29, VVenC 23/23, agreeing site for site rather than only in total.
+
+The first version of that enumeration disagreed on five SVT-AV1 sites and was
+wrong on all five: it tested arguments against a character class of "things a
+number is spelled with", which takes `e0` and `e1` for hex, and it read one
+line, so calls opening their parenthesis at the end of a line were classified
+on a fragment. Recorded rather than quietly fixed -- an independent check
+earns its place by either side being able to be wrong, and here it was the
+check.
+
+`QuantX86.h` was also enumerated by hand, from the file rather than the tool's
+output: 4 type W round-trips and 8 type F pairs, both matching. It is one of
+the two VVenC modules with no native NEON counterpart, which is where a
+finding still describes work SIMDe is doing.
+
 ### The oracle corpus covers all seven rules
 
 Five more cases, decided the same way: from the published rule descriptions
