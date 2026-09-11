@@ -302,8 +302,8 @@ not the tool erring.
 `A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1` — and `v2.3.2`,
 which is documentation-only on top of it and is what the paper cites — gives
 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
-evidence `A 845, B 60, C 2367`. `v2.5.0` gives 3404 findings,
-`F 1149, R 1816, S 341, M 66, P 31, W 1`, evidence `A 906, B 60, C 2438`.
+evidence `A 845, B 60, C 2367`. `main` gives 3409 findings,
+`F 1153, R 1816, S 341, M 66, P 31, W 2`, evidence `A 911, B 60, C 2438`.
 
 Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -558,8 +558,8 @@ SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
 emitted it**; `v2.3.1` gives the same 449 with evidence `A 101, B 87, C 261`,
 the 106 rule R findings having moved from A to C (see Section 1). On `main`
-`v2.4.0` totals 614 — `R 106, S 164, F 306, W 17, M 23, P 4` — evidence
-`A 117, B 87, C 416`. Rule F more than doubles here, 135 to 306, and the
+`v2.4.0` totals 614 — `R 106, S 164, F 306, W 31, M 23, P 4` — evidence
+`A 131, B 87, C 416`. Rule F more than doubles here, 135 to 306, and the
 reason is one idiom: VVenC's adaptive loop filter writes its accumulator as
 `accumA = _mm_add_epi32(accumA, _mm_madd_epi16(val01A, coeff01A))` throughout,
 and every one of those was invisible while rule F required a named product. By scope: **445 in function bodies, 4 in
@@ -1147,7 +1147,7 @@ concealed.
 
 ```
 $ uv run simde-lint "$VVDEC/source/Lib/CommonLib/x86" --format json
-600 findings: R 224, S 196, F 161, W 9, M 8, P 2
+609 findings: R 224, S 196, F 161, W 18, M 8, P 2
 $ echo $?
 0
 ```
@@ -1157,8 +1157,8 @@ type is unchanged to the finding -- what a change confined to one rule should
 look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora on `main`: SVT-AV1 3404 findings / 362 warnings, VVenC
-620 / 11, VVdeC 600 / 10 — every one exit 0. The warning counts do not move
+all three corpora on `main`: SVT-AV1 3409 findings / 362 warnings, VVenC
+634 / 11, VVdeC 609 / 10 — every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -1226,9 +1226,9 @@ written settle it. `docs/precision/recall_widening.py` enumerates it:
 
 | Corpus | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
-| SVT-AV1 `Source` | 1 | 1 | 0 | 100% |
-| VVenC `CommonLib/x86` | 17 | 17 | 0 | 100% |
-| VVdeC `CommonLib/x86` | 9 | 9 | 0 | 100% |
+| SVT-AV1 `Source` | 2 | 2 | 0 | 100% |
+| VVenC `CommonLib/x86` | 31 | 31 | 0 | 100% |
+| VVdeC `CommonLib/x86` | 18 | 18 | 0 | 100% |
 
 **`M.scalar_insert_chain` is decidable as well**, once "chain" is read as the
 description writes it rather than as consecutive statements: SVT-AV1's
@@ -1353,16 +1353,16 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 4024 (census, not a sample)
+findings checked: 4043 (census, not a sample)
 
-  agree          3992   99.2%
+  agree          4011   99.2%
   macro            32    0.8%
 
-agreement on structurally checkable findings: 3992 / 3992 = 100.00%
+agreement on structurally checkable findings: 4011 / 4011 = 100.00%
 ```
 
 Re-run against both pinned checkouts. The population is every finding from
-both sweeps -- 3404 + 620 = 4024 -- so it moves with them: at `v2.1.0` it read
+both sweeps -- 3409 + 634 = 4043 -- so it moves with them: at `v2.1.0` it read
 3713 / 3681 and at `v2.3.0` 3721 / 3689. The eight-finding step is SVT-AV1's
 3264 becoming 3272 under rule M's control-region split, which repartitions
 thirteen findings into twenty-one; the 237 after it are rule F's nested

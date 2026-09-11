@@ -1,4 +1,3 @@
-import re
 from dataclasses import replace
 
 from simde_lint.finding import Evidence, Reason
@@ -292,20 +291,17 @@ def test_an_intermediate_cannot_belong_to_a_later_multiply(run_rule):
     at all. A count of 1 held for a reason unrelated to what the test named.
 
     `widening_hop_precedes_the_multiply` gives the second multiply an add of
-    its own. Without the guard it claims the widening hop at line 8 -- which
-    ran before it -- and the function reports two findings instead of one.
+    its own. Without the guard it claims the widening hop that ran before it,
+    and a finding appears anchored after that hop -- which is what this
+    asserts, rather than a count that also moves when the counting unit does.
     """
     by_function: dict[str, list] = {}
     for f in run_rule(FusionRule(), "fusion_positive.c"):
         by_function.setdefault(f.function, []).append(f)
 
-    guarded = by_function["widening_hop_precedes_the_multiply"]
-    assert len(guarded) == 1
-    # The survivor is the multiply that precedes the hop, not the one after
-    # it. Asserted by relative position rather than a line number, which
-    # would break whenever anything is added to the fixture above it.
-    hop_line = int(re.search(r"_mm_cvtepi32_epi64 at line (\d+)", guarded[0].rationale).group(1))
-    assert guarded[0].line < hop_line
+    guarded = by_function.get("hop_precedes_its_apparent_multiply", [])
+    assert guarded == []
+
 
     findings = by_function["reused_name"]
     assert len(findings) == 1
@@ -461,12 +457,18 @@ def test_position_still_decides_for_a_named_product(run_rule):
     # Containment must not replace the byte-position test, only stand in for
     # it where there is no name. A named product still has to be produced
     # before the add that consumes it.
+    #
+    # One multiply, one add, and a hop that precedes both. Any fixture where
+    # another multiply claims the add first never reaches the guard at all --
+    # this assertion went inert that way twice, once on a fixture with one add
+    # and again when the counting unit changed and the first multiply began
+    # taking every add.
     findings = [
         f
         for f in run_rule(FusionRule(), "fusion_positive.c")
-        if f.function == "widening_hop_precedes_the_multiply"
+        if f.function == "hop_precedes_its_apparent_multiply"
     ]
-    assert len(findings) == 1
+    assert findings == []
 
 
 def test_a_nested_hop_that_is_not_a_widening_is_not_reported(run_rule):

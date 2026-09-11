@@ -61,11 +61,17 @@ class WideningRule:
         his = self._by_position(c for c in unit.calls if c.name == "_mm_mulhi_epi16")
         unpacks = self._by_position(c for c in unit.calls if c.name in _UNPACK)
 
-        # One finding per round-trip, not per matching pair. VVenC's DeQuant
-        # repeats this sequence four times in one function reusing the same
-        # variable names, so pairing every multiply with every other would
-        # report sixteen findings for four round-trips. Each multiply claims
-        # its nearest unclaimed partner and consumer.
+        # One finding per consuming unpack, which is the counting unit
+        # `docs/mechanisms.md` sets: an unpack rebuilds four lanes and one
+        # widening multiply replaces them, which is why the cost is 5 -> 1 per
+        # finding and why the suggestion depends on which unpack matched. A
+        # pair rebuilding all eight is two findings.
+        #
+        # The pair is still claimed once. VVenC's DeQuant repeats this
+        # sequence four times in one function reusing the same variable names,
+        # so pairing every multiply with every other would report sixteen
+        # findings for four round-trips -- each multiply takes its nearest
+        # unclaimed partner, and then every unpack that consumes that pair.
         claimed_his: set[int] = set()
         claimed_unpacks: set[int] = set()
 
@@ -81,52 +87,75 @@ class WideningRule:
                 # control_region for this and rule F was corrected for it
                 # after; the consumer is checked below for the same reason.
                 continue
-            consumer = self._consumer(
-                unpacks, claimed_unpacks, lo, lo.result_var, hi.result_var, hi.start_byte
-            )
-            if consumer is None:
-                continue
-            if unit.redefined_between(
-                lo.result_var, own_availability(unit, lo), consumer.start_byte
-            ) or unit.redefined_between(
-                hi.result_var, own_availability(unit, hi), consumer.start_byte
-            ):
-                # The unpack still names lo.result_var/hi.result_var, but one
-                # of them was overwritten before the unpack runs, so the value
-                # it consumes is not this multiply's product. Every other rule
-                # that links a producer to a consumer by variable name already
-                # guards against this; W is not exempt just because its
-                # producer is a pair rather than a single call.
-                continue
-            claimed_his.add(hi.id)
-            claimed_unpacks.add(consumer.id)
-            direct = _all_direct_variables(lo) and _all_direct_variables(hi)
-            yield Finding(
-                type=self.type,
-                rule=self.rule_id,
-                rule_mechanism=self.mechanism,
-                evidence=Evidence.A if direct else Evidence.B,
-                file=unit.file,
-                line=lo.line,
-                **location_fields(unit),
-                intrinsic="_mm_mullo_epi16",
-                rationale=(
-                    f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at line "
-                    f"{hi.line} share operands and feed {consumer.name} at line "
-                    f"{consumer.line}; NEON computes this with a single widening "
-                    f"multiply ({cost.source})"
-                ),
-                simde_insns=cost.simde_insns,
-                native_insns=cost.native_insns,
-                # From the consumer, not the knowledge table. Which widening
-                # multiply rebuilds the half this round-trip feeds is decided
-                # by the unpack, and only the rule knows which one it matched
-                # -- so the entry carries no `suggestion` at all rather than
-                # one that is the wrong half whenever the consumer is the
-                # high unpack.
-                suggestion=_UNPACK_SUGGESTION[consumer.name],
-                raw_name=raw_name_if_aliased(lo),
-            )
+            matched = False
+            # Consumers this pair looked at and could not own. Local, because
+            # claiming them globally takes them from a later pair that can:
+            # doing that cost a real VVdeC finding. Only a consumer actually
+            # reported is claimed, and this set is what keeps the loop from
+            # returning a rejected one forever.
+            rejected: set[int] = set()
+            while True:
+                consumer = self._consumer(
+                    unpacks, claimed_unpacks | rejected, lo, lo.result_var,
+                    hi.result_var, hi.start_byte
+                )
+                if consumer is None:
+                    break
+                if unit.redefined_between(
+                    lo.result_var, own_availability(unit, lo), consumer.start_byte
+                ) or unit.redefined_between(
+                    hi.result_var, own_availability(unit, hi), consumer.start_byte
+                ):
+                    # The unpack still names lo.result_var/hi.result_var, but
+                    # one of them was overwritten before the unpack runs, so
+                    # the value it consumes is not this multiply's product.
+                    # Every other rule that links a producer to a consumer by
+                    # variable name already guards against this; W is not
+                    # exempt just because its producer is a pair rather than a
+                    # single call.
+                    #
+                    rejected.add(consumer.id)
+                    continue
+                claimed_unpacks.add(consumer.id)
+                matched = True
+                yield self._finding(unit, cost, lo, hi, consumer)
+            if matched:
+                claimed_his.add(hi.id)
+
+    def _finding(
+        self, unit: AnalysisUnit, cost, lo: IntrinsicCall,
+        hi: IntrinsicCall, consumer: IntrinsicCall,
+    ) -> Finding:
+        """One finding for one consuming unpack, built from the pair that
+        feeds it. Separate from `match` so the loop over consumers reads as
+        the counting unit it implements."""
+        direct = _all_direct_variables(lo) and _all_direct_variables(hi)
+        return Finding(
+            type=self.type,
+            rule=self.rule_id,
+            rule_mechanism=self.mechanism,
+            evidence=Evidence.A if direct else Evidence.B,
+            file=unit.file,
+            line=lo.line,
+            **location_fields(unit),
+            intrinsic="_mm_mullo_epi16",
+            rationale=(
+                f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at line "
+                f"{hi.line} share operands and feed {consumer.name} at line "
+                f"{consumer.line}; NEON computes this with a single widening "
+                f"multiply ({cost.source})"
+            ),
+            simde_insns=cost.simde_insns,
+            native_insns=cost.native_insns,
+            # From the consumer, not the knowledge table. Which widening
+            # multiply rebuilds the half this round-trip feeds is decided
+            # by the unpack, and only the rule knows which one it matched
+            # -- so the entry carries no `suggestion` at all rather than
+            # one that is the wrong half whenever the consumer is the
+            # high unpack.
+            suggestion=_UNPACK_SUGGESTION[consumer.name],
+            raw_name=raw_name_if_aliased(lo),
+        )
 
     @staticmethod
     def _partner(
