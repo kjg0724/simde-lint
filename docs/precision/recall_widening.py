@@ -1,4 +1,4 @@
-"""Ground truth for `W.mul16_widen_roundtrip`, built without the tool.
+"""An independent enumeration of `W.mul16_widen_roundtrip`, built without the tool.
 
 The rule's description: `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same
 operands, consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one
@@ -89,7 +89,7 @@ def main():
         print("usage: recall_widening.py <root>...")
         return 1
     sites = enumerate_sites(roots)
-    print("mullo/mulhi round-trips into an unpack: %d  <- ground truth" % len(sites))
+    print("mullo/mulhi round-trips into an unpack: %d  <- enumerated population" % len(sites))
     for name, count in Counter(os.path.basename(p) for p, _ in sites).most_common():
         print("  %5d  %s" % (count, name))
     return 0

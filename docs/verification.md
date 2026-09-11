@@ -105,7 +105,7 @@ measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
 The measurement commands in this document were last run in full for
-`v2.4.0`, the release this document ships with. `v2.3.1` — and `v2.3.2`, which
+`v2.5.0`, the release this document ships with. `v2.3.1` — and `v2.3.2`, which
 is documentation-only on top of it and is what the paper cites — is the
 previous baseline. Both sets of figures appear below, each labelled by the
 release it belongs to and never by a branch name: a branch name read from a
@@ -301,7 +301,7 @@ not the tool erring.
 `A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1` — and `v2.3.2`,
 which is documentation-only on top of it and is what the paper cites — gives
 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
-evidence `A 845, B 60, C 2367`. `main` gives 3404 findings,
+evidence `A 845, B 60, C 2367`. `v2.5.0` gives 3404 findings,
 `F 1149, R 1816, S 341, M 66, P 31, W 1`, evidence `A 906, B 60, C 2438`.
 
 Three changes since the tag, kept apart because they move different things.
@@ -1156,13 +1156,34 @@ type is unchanged to the finding -- what a change confined to one rule should
 look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora on `main`: SVT-AV1 3404 findings / 362 warnings, VVenC
+all three corpora at `v2.5.0`: SVT-AV1 3404 findings / 362 warnings, VVenC
 614 / 11, VVdeC 597 / 10 — every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
 
-### Recall, for the mechanisms where ground truth is mechanical
+### Recall, for the mechanisms an independent enumerator can count
+
+**What these figures are.** Agreement between the tool and a separately
+written enumerator, over the population that enumerator found, at the pinned
+revisions. They are not proof of recall outside that population.
+
+Specifically, a figure here does **not** establish:
+
+- that the enumerator's regular expressions cover every C++ spelling of the
+  mechanism — they approximate comments, strings, preprocessor branches and
+  complex declarations rather than parsing them;
+- that the result generalises to another revision or another codebase;
+- recall over the taxonomy, as opposed to over the intrinsic families each
+  rule registers — the insert-chain enumerator found two the tool did not
+  register, and a family neither of them knows about would be invisible to
+  both;
+- anything about regions the parser could not read (Section 5's `ERROR` nodes).
+
+"Imports no `simde_lint`" is one argument for independence, not a licence to
+call the result ground truth. The word is avoided below for that reason.
+
+
 
 Rules R and S match registered intrinsic names, so `grep` gives a ground
 truth that needs no judgement: every occurrence of a registered name that is
@@ -1170,7 +1191,7 @@ not a definition is a call site the tool should report. Definitions are
 excluded by the same rule in both directions — a `static inline` signature
 or the left side of a `#define` is not a call.
 
-| Intrinsic | Ground truth | Reported | Missed | Recall |
+| Intrinsic | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
 | `_mm_shuffle_epi8` | 120 | 115 | 5 | 95.8% |
 | `_mm256_shuffle_epi8` | 84 | 81 | 3 | 96.4% |
@@ -1189,10 +1210,11 @@ assembling a vector from runtime scalars, all-literal calls excluded — is
 decidable from the text of the call. `docs/precision/recall_set_build.py`
 enumerates it without importing the tool:
 
-| Corpus | Ground truth | Reported | Missed | Recall |
+| Corpus | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
 | SVT-AV1 `Source` | 29 | 29 | 0 | 100% |
 | VVenC `CommonLib/x86` | 23 | 23 | 0 | 100% |
+| VVdeC `CommonLib/x86` | 8 | 8 | 0 | 100% |
 
 Both agree site for site, not only in total.
 
@@ -1201,7 +1223,7 @@ calls and one relation between them — `_mm_mullo_epi16` and `_mm_mulhi_epi16`
 over the same operands, consumed by an unpack — and operands compared as
 written settle it. `docs/precision/recall_widening.py` enumerates it:
 
-| Corpus | Ground truth | Reported | Missed | Recall |
+| Corpus | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
 | SVT-AV1 `Source` | 1 | 1 | 0 | 100% |
 | VVenC `CommonLib/x86` | 17 | 17 | 0 | 100% |
@@ -1213,7 +1235,7 @@ description writes it rather than as consecutive statements: SVT-AV1's
 does not end the chain on this one. `docs/precision/recall_insert_chain.py`
 groups inserts by the lvalue as written, within one brace block:
 
-| Corpus | Ground truth | Reported | Missed | Recall |
+| Corpus | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
 | SVT-AV1 `Source` | 37 | 37 | 0 | 100% |
 | VVenC `CommonLib/x86` | 0 | 0 | 0 | — |
@@ -1239,11 +1261,16 @@ xmlo = _mm_mullo_epi16   ( xcur, xcur ),
 xmhi = _mm_mulhi_epi16   ( xcur, xcur );
 ```
 
-The tool had it; the enumeration did not. That is twice out of two that the
-independent check was the side in error, which is worth stating plainly: it
-does not make the check useless — a check that can only agree proves nothing —
-but it is not the more reliable of the two, and this document should not
-imply that it is.
+The tool had it; the enumeration did not.
+
+**All three enumerators disagreed with the tool on their first run.**
+Source-level adjudication found defects in the set-build and widening
+enumerators, and a missing intrinsic family in the tool for insert chains.
+Three cases fix no ranking between the two, and none is claimed: an
+independent check is worth having not because it is more accurate but because
+its errors do not correlate with the implementation's. Each disagreement was
+settled by reading the source at the site, and the figures below are agreement
+against the corrected enumerators.
 
 The first version of that enumeration disagreed on five SVT-AV1 sites, and
 **the enumeration was wrong on all five**. It tested the argument list against
@@ -1254,6 +1281,21 @@ end of a line were classified on a fragment. The disagreement is recorded
 because it is the useful part: an independent check is worth having precisely
 because either side can be wrong, and this one was.
 
+**F and P have no enumerator, and are not going to get one.** Counting rule F
+independently would mean deciding, without the tool, direct and indirect
+def-use, redefinition, nested operands, the widening hop, exclusive control
+regions, how many findings one add shared by two multiplies is, and element
+kind against accumulator width. P would need the order of *recognized* calls,
+variable binding, redefinition and control region — not textual adjacency.
+Either is rule F or rule P written a second time, which puts the second
+implementation back inside the first one's assumptions, or it is a clang AST
+and a compile database, which is a different project. What stands in for it:
+the hand-decided cases in `tests/oracle/`, the adjudicated slice below, and
+the metamorphic pairs those cases are built as — named product against nested
+product, one region against exclusive arms, direct path against widening hop,
+one multiply against two sharing an add, a reassignment present against
+absent.
+
 A hand enumeration of `QuantX86.h`, done by reading the file rather than the
 tool's output, gives the same answer for the two structural rules that occur
 there: 4 type W round-trips (`mullo_epi16` + `mulhi_epi16` over
@@ -1262,6 +1304,9 @@ there: 4 type W round-trips (`mullo_epi16` + `mulhi_epi16` over
 file is 598 lines and was chosen because it is one of the two VVenC modules
 with no native NEON counterpart, which is where a finding still describes
 work SIMDe is doing.
+
+That is an adjudicated slice of one file, 8/8 and 4/4 within it. It is not
+rule F's recall on a corpus and must not be read as one.
 
 ### Every miss has one cause, and it is not the rules
 

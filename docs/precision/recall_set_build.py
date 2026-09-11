@@ -1,4 +1,4 @@
-"""Ground truth for `M.scalar_set_build`, built without the tool.
+"""An independent enumeration of `M.scalar_set_build`, built without the tool.
 
 The recall table in `docs/verification.md` covered rules R and S only,
 because both match registered intrinsic names and `grep` answers them. F, M
@@ -86,7 +86,7 @@ def main():
         return 1
     every, runtime = enumerate_sites(roots)
     print("set_epi64x/32/16 call sites:        %d" % every)
-    print("assembled from runtime scalars:     %d  <- ground truth" % len(runtime))
+    print("assembled from runtime scalars:     %d  <- enumerated population" % len(runtime))
     print("all-literal (constant vectors):     %d" % (every - len(runtime)))
     print()
     for name, count in Counter(os.path.basename(p) for p, _ in runtime).most_common():
