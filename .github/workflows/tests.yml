@@ -42,12 +42,13 @@ jobs:
       - name: Check the CLI runs
         run: simde-lint --help
 
-      - name: Replay the historical faults
-        # Each rewrites a source file and requires a named assertion to fail.
-        # Run once, not per matrix entry: it is a property of the suite, not
-        # of the interpreter.
+      - name: Check the oracle acceptance condition
+        # Decides the condition #48 is closed against, clause by clause, and
+        # includes the fault replay -- each fault rewrites a source file and
+        # requires a named assertion to fail. Run once, not per matrix entry:
+        # it is a property of the suite, not of the interpreter.
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
-        run: python tests/run_faults.py
+        run: python tests/acceptance.py
 
   corpus:
     # The job the matrix above cannot be: every published aggregate in

@@ -2,6 +2,96 @@
 
 ## Unreleased
 
+### The oracle runner checks the output contract's shape, and every field it asserts is load-bearing
+
+#48 names a tuple — `(file, line, type, evidence, reason, intrinsic,
+suggestion, simde_insns, native_insns)` — and the runner checked six of the
+nine. All nine are checked now, plus `rule`, `rule_mechanism`, `scope`,
+`macro` and `raw_name`.
+
+**Checked is not the same as decided, and the counts are where the two come
+apart.** `costs: reported|withheld` says whether the tool must report
+instruction counts at all, which follows from whether SIMDe compiles the
+intrinsic to NEON — a question `x86/ssse3.h` and `x86/avx2.h` answer
+directly. The numbers themselves are asserted in one case only:
+`_mm_shuffle_epi8` expands to `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))`,
+three instructions of which two are the pshufb guard, so a mask that needs no
+guard leaves the `vqtbl1q` alone — 3 to 1, counted off the header. Rule M's
+entries are per chain element and turn on whether the scalar is already in a
+register, which is a modelling choice about the call site rather than a line
+to count. Reconstructing that reasoning from the table's own `note:` would
+restate the table, not check it, so it is a recorded gap.
+
+**A present null is an assertion.** `suggestion:` with no value requires the
+tool to offer none; omitting the key asserts nothing. Two of the ten
+historical faults live in exactly that gap — a portable-fallback path
+asserting instruction counts SIMDe never emits, and a withdrawn suggestion
+keeping the count of the instruction it withdrew — and no expectation could
+state the contract they broke. Five cases state it now.
+
+**Matched, not zipped.** Expectations paired with findings by sorting both
+sides, which needs a key both can compute. `line` is not one: it is optional,
+and where a mechanism anchors is not always something the contract fixes.
+`shared_producers.c` has two findings at line 8 and two at line 19, and one
+case passed only because its chain happened to anchor earliest of three.
+
+The pairing is maximum-cardinality, not first-fit. With first-fit, a broad
+expectation claims a finding a narrower one needed, and the narrow one is
+reported as unmet — a disagreement with the tool that is really an artefact of
+which expectation was written first. `shared_producers.c` already holds two
+findings at one line differing only in `suggestion`, so that shape is one
+asserted field away.
+
+**Every asserted field is falsified, one at a time, and the comparison must
+notice.** Six assertions have shipped in this repository that could not fail.
+Corrupting a field and requiring the case to go red is the only evidence that
+the corpus checks what it says it checks — it says nothing about whether the
+tool is right, which is `faults.yaml`'s job. Dropping any expectation, or
+inventing one, must fail too: a rule reporting one extra finding per call site
+is the failure mode this corpus was built for, and a runner that only checked
+what it was told about would not see it.
+
+**The runner validates its own input.** Value kinds and enum members, so
+`reason: guard-required` fails as a malformed expectation rather than as a
+disagreement with the tool. Repeated YAML keys, which PyYAML resolves to the
+last one silently — at case level that drops a whole case's expectations while
+every completeness test still passes. And a field the runner checks that no
+case asserts now fails unless `coverage.yaml` records why: four were added at
+once here, and adding the capability is not the same as exercising it.
+
+**One invariant moved into the type.** `native_insns` counts a named
+replacement against a known expansion, so `Finding` rejects a native count
+without a `suggestion` or without `simde_insns`. Checked first by measurement
+— it holds on every finding the three corpora produce when each is scanned
+whole, 9,526 of them, a superset of the pinned module sets the published
+aggregates cover — and then moved into `__post_init__`, which makes it a
+guarantee rather than an observation. One test fixture violated it and was wrong — rule P does name
+a replacement.
+
+**What the corpus still does not assert: the numbers.** `simde_insns` and
+`native_insns` appear only as null, as the claim that a count would be
+unfounded. Deciding a number by hand means reading the tool's own knowledge
+table, and reading a table is not independent validation of it. Pinning
+numbers needs a citation into the SIMDe source at the pinned version, per
+intrinsic; until that exists, asserting them would import the blind spot the
+corpus was built to avoid. Recorded in `tests/oracle/README.md` as a decision,
+not left as a silence.
+
+### A script decides when #48 is done
+
+`tests/acceptance.py` runs the condition clause by clause, each clause naming
+the assertion that decides it, and prints what a green run does and does not
+establish. Two clauses are narrower than first written, because what they
+actually decide is narrower: the counts are excluded except the one adjudicated
+case, and "every discrepancy has a recorded resolution" became "no discrepancy
+remains, and every case carries its reasoning" — the suite checks that nothing
+is open and that every case has a `why`, not that a past disagreement and its
+settlement were written down.
+
+The exclusions print with the result rather than sitting in a document beside
+it, so a green run cannot be quoted as more than it is. CI runs the script in
+place of the fault replay, which it contains.
+
 ### The faults that shipped, replayed against the assertions credited with catching them
 
 `tests/faults.yaml` holds ten defects that reached a release, each as a
@@ -37,7 +127,7 @@ rule F's half still demands a case.
 
 ### Coverage the suite computes instead of a claim someone makes
 
-`tests/oracle/coverage.yaml` names five dimensions and 34 values, each
+`tests/oracle/coverage.yaml` names six dimensions and 39 values, each
 dimension carrying the defect history that makes it one. Every case declares
 the cells it covers, and four tests decide the rest:
 

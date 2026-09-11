@@ -1,3 +1,5 @@
+import pytest
+
 from simde_lint.finding import Evidence, Finding, Reason, file_sort_key, sort_key
 
 
@@ -140,3 +142,33 @@ def test_file_sort_key_ties_a_macro_finding_and_a_function_finding_that_share_ev
         _MACRO_FINDING,
         _FUNCTION_FINDING,
     ]
+
+
+
+def test_a_native_count_needs_the_replacement_it_counts():
+    # The count belongs to a specific instruction. Without the suggestion
+    # naming it, a report shows a saving and no way to tell against what --
+    # which is how a withdrawn suggestion once kept its predecessor's count.
+    with pytest.raises(ValueError, match="named replacement"):
+        _finding(suggestion=None)
+
+
+def test_a_native_count_without_the_expansion_cost_is_allowed():
+    # The mirror is not an error and `report/text.py` renders it: where SIMDe
+    # falls through to portable code the header does not say what is emitted,
+    # while the replacement's own count remains a fact. Only the saving is
+    # unavailable. Forbidding this would delete a distinction the reporter
+    # was written to keep.
+    assert _finding(simde_insns=None).native_insns == 1
+
+
+def test_withholding_both_counts_beside_a_suggestion_is_allowed():
+    # The portable-fallback shape: the fused form is still the right thing to
+    # name, and what it saves is not something the SIMDe source states.
+    assert _finding(simde_insns=None, native_insns=None).suggestion == "vqtbl1q_u8"
+
+
+def test_naming_an_expansion_cost_with_no_replacement_is_allowed():
+    # Rule R's shape: what the zero-init costs is readable, and the rule
+    # proposes nothing in its place.
+    assert _finding(native_insns=None, suggestion=None).simde_insns == 3
