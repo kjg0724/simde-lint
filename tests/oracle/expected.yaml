@@ -94,6 +94,10 @@ scalar_assembly.c:
       type: M
       rule: M.scalar_set_build
       intrinsic: _mm_set_epi32
+    - line: 34
+      type: M
+      rule: M.scalar_insert_chain
+      intrinsic: _mm256_insert_epi64
 
 shuffle_guard.c:
   why: >-

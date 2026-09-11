@@ -23,7 +23,18 @@ from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from ..symbols import parse_int_literal
 from .base import Context, Option, location_fields, own_availability, raw_name_if_aliased
 
-_INSERTS = {"_mm_insert_epi16", "_mm_insert_epi32", "_mm_insert_epi64", "_mm256_insert_epi16"}
+# The 256-bit epi32 and epi64 forms were missing while epi16 was registered,
+# with no reason in the mechanism for the split: all three store a scalar into
+# a lane, and all three expand without a NEON branch. SVT-AV1's pickrst builds
+# two chains out of `_mm256_insert_epi64` that went unreported.
+_INSERTS = {
+    "_mm_insert_epi16",
+    "_mm_insert_epi32",
+    "_mm_insert_epi64",
+    "_mm256_insert_epi16",
+    "_mm256_insert_epi32",
+    "_mm256_insert_epi64",
+}
 _DEFAULT_THRESHOLD = 3
 _SCALAR_SETS = {"_mm_set_epi64x", "_mm_set_epi32", "_mm_set_epi16"}
 
