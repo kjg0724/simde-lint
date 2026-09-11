@@ -351,3 +351,33 @@ hop_and_guard.c:
       evidence: C
       reason: guard_required
       intrinsic: _mm_shuffle_epi8
+
+consumer_choice.c:
+  covers:
+    - control.exclusive_arms
+    - multiplicity.invalid_candidate_first
+    - value_flow.named
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.grade_a
+  why: >-
+    Choosing a consumer and filtering it are different steps. The multiplies
+    sit in one arm; the unpack in the other cannot be theirs, since no
+    execution has both, and it comes first in source order. The unpack after
+    the `if` is on a common path with them and is an unambiguous round-trip,
+    so one finding — naming that unpack, not the arm's.
+
+    Rejecting the chosen candidate rather than choosing past it ends the
+    search at the arm's unpack and reports nothing. That shipped, and no
+    oracle case failed for it: the fault replay found the gap, which is the
+    job it exists for.
+
+    My first attempt at this case put the multiplies outside the `if`. Then
+    the arm's unpack is nested rather than exclusive, so it is a valid
+    consumer and the case proved nothing.
+  findings:
+    - line: 16
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16

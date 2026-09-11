@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### The faults that shipped, replayed against the assertions credited with catching them
+
+`tests/faults.yaml` holds ten defects that reached a release, each as a
+mutation and the assertion that must fail for it. `tests/run_faults.py`
+applies each, runs that one assertion, and requires a failure. CI runs it.
+
+Naming the assertion is the point. "Something fails" credits a test with
+catching a fault it fails for unrelated reasons — which is how three
+assertions in this repository went inert while still passing.
+
+**Six of the ten are over-restrictive**: a predicate that rejects too much, a
+family left unregistered, a producer retired before its second consumer.
+Every mutation run here before now made predicates *more* permissive, which
+exercises false positives only — and almost every defect this month was a
+false negative.
+
+One of the ten was not caught. `widening-filters-the-consumer-after-choosing-it`
+(#62) had been found by review and fixed, with no oracle case: a regression
+would have been silent. `consumer_choice.c` covers it now.
+
+Two things went wrong while building this, both recorded where they happened.
+The first run stopped with "anchor not found" — a YAML block scalar had
+stripped the indentation, so the mutation did not match the source. The
+harness treats that as a hard stop rather than a pass, because a mutation that
+does not land reports success; `indent:` states the indentation instead of
+encoding it in whitespace. And the first draft of the new case put the
+multiplies outside the `if`, which makes the arm's unpack nested rather than
+exclusive — a valid consumer, proving nothing.
+
+Adding the case made the coverage manifest fail as designed: a gap it now
+covers was stale. The entry had merged rules W and F, so it is split, and
+rule F's half still demands a case.
+
 ### Coverage the suite computes instead of a claim someone makes
 
 `tests/oracle/coverage.yaml` names five dimensions and 34 values, each

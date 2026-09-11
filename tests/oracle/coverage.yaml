@@ -54,6 +54,7 @@ dimensions:
       two_producers_one_consumer: one finding — the consumer is the unit
       one_producer_two_consumers: two findings, one per consumer
       invalid_candidate_first: a rejected candidate before a valid one
+      invalid_candidate_first_for_fusion: the same, for rule F's add search
 
   representation:
     applies_to: [R, S, W, F, M, P]
@@ -106,8 +107,10 @@ known_gaps:
     A `return` between producer and consumer. The IR models no control flow,
     so the finding stands; recording that as a decision rather than an
     accident needs a case.
-  multiplicity.invalid_candidate_first: >-
-    Covered for W by `shared_producers.c`'s redefined pair, not for F.
+  multiplicity.invalid_candidate_first_for_fusion: >-
+    `consumer_choice.c` covers it for rule W. Rule F chooses its add the same
+    way and has no case: a candidate it rejects must not end that search
+    either.
   representation.spelling_macro: >-
     Rules F and P abstain on a macro-resolved consumer. Exercised in
     `tests/fixtures`, not yet as an oracle case with a hand-decided answer.
