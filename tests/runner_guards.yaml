@@ -90,6 +90,42 @@ faults:
 
   - name: harness_accepts_an_empty_catalogue
     file: tests/run_faults.py
-    find: "    if not faults:"
-    replace: "    if False:"
+    find: '        strict_yaml.require(faults, f"{catalogue}: faults")'
+    replace: "        pass"
     kills: tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass
+
+  - name: harness_credits_an_already_failing_assertion
+    file: tests/run_faults.py
+    find: '        if _run(fault["kills"]).returncode != 0:'
+    replace: "        if False:"
+    kills: tests/test_run_faults.py::test_an_already_failing_assertion_cannot_be_credited
+
+  - name: harness_accepts_an_ambiguous_anchor
+    file: tests/run_faults.py
+    find: "    if occurrences != 1:"
+    replace: "    if occurrences == 0:"
+    kills: tests/test_run_faults.py::test_an_anchor_that_appears_twice_is_refused
+
+  - name: harness_skips_required_field_validation
+    file: tests/run_faults.py
+    find: "        if missing:"
+    replace: "        if False:"
+    kills: tests/test_run_faults.py::test_an_entry_missing_a_required_field_is_refused
+
+  - name: harness_allows_two_entries_with_one_name
+    file: tests/run_faults.py
+    find: '        if fault["name"] in seen:'
+    replace: "        if False:"
+    kills: tests/test_run_faults.py::test_two_entries_with_one_name_are_refused
+
+  - name: manifest_cells_may_be_empty
+    file: tests/test_oracle.py
+    find: ", \"the manifest's cells\")"
+    replace: ")"
+    kills: tests/test_oracle.py::test_every_cell_is_covered_or_a_named_gap
+
+  - name: harness_treats_an_empty_replace_as_missing
+    file: tests/run_faults.py
+    find: 'MAY_BE_EMPTY = frozenset({"replace"})'
+    replace: "MAY_BE_EMPTY = frozenset()"
+    kills: tests/test_run_faults.py::test_deleting_the_anchor_is_a_legitimate_mutation

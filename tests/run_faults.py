@@ -54,14 +54,53 @@ def _apply(fault: dict) -> str:
     indent = fault.get("indent", 0)
     fault["find"] = _reindent(fault["find"], indent)
     fault["replace"] = _reindent(fault["replace"], indent)
-    if fault["find"] not in original:
+    occurrences = original.count(fault["find"])
+    if occurrences != 1:
+        found = "not found" if occurrences == 0 else f"found {occurrences} times"
         raise SystemExit(
-            f"{fault['name']}: anchor not found in {fault['file']}.\n"
+            f"{fault['name']}: anchor {found} in {fault['file']}.\n"
             "A fault whose mutation does not land silently reports success, "
-            "which is the failure this file exists to prevent."
+            "and one that lands somewhere else reports the wrong thing. "
+            "Both are the failure this file exists to prevent."
         )
     path.write_text(original.replace(fault["find"], fault["replace"], 1))
     return original
+
+
+REQUIRED = ("name", "file", "find", "replace", "kills")
+# `replace` is the one that may legitimately be empty: deleting the anchor is
+# how an unregistered family or a dropped guard is expressed, and
+# `sixteen-lane-family-unregistered` does exactly that. The others carry no
+# meaning empty -- an empty `find` matches everywhere.
+MAY_BE_EMPTY = frozenset({"replace"})
+
+
+def _validate(faults: list[dict], catalogue: Path) -> None:
+    """Refuse a catalogue that cannot mean what it says.
+
+    Each of these turns a mutation into a silent no-op or a mutation of the
+    wrong thing, and `_apply` cannot tell afterwards which happened. A missing
+    `kills` would credit the run to whatever pytest node id `None` resolves
+    to; a repeated name makes "caught" ambiguous between two entries; an
+    anchor occurring twice mutates the first, which need not be the one the
+    entry describes.
+    """
+    seen: set[str] = set()
+    for index, fault in enumerate(faults):
+        missing = [
+            key
+            for key in REQUIRED
+            if key not in fault
+            or (not fault[key] and key not in MAY_BE_EMPTY)
+        ]
+        if missing:
+            raise SystemExit(
+                f"{catalogue}: entry {index} ({fault.get('name', 'unnamed')}) "
+                f"is missing {', '.join(missing)}"
+            )
+        if fault["name"] in seen:
+            raise SystemExit(f"{catalogue}: two entries named {fault['name']!r}")
+        seen.add(fault["name"])
 
 
 def _run(node: str) -> subprocess.CompletedProcess:
@@ -83,12 +122,15 @@ def main() -> int:
         catalogue = ROOT / catalogue if (ROOT / catalogue).exists() else catalogue
 
     faults = strict_yaml.load(catalogue.read_text())["faults"]
-    if not faults:
+    try:
+        strict_yaml.require(faults, f"{catalogue}: faults")
+    except strict_yaml.EmptyCollection as empty:
         raise SystemExit(
-            f"{catalogue} lists no mutations.\n"
-            "An empty catalogue would print 'all 0 mutations caught' and exit "
-            "zero, which is the silent success this file exists to prevent."
-        )
+            f"{empty}\nAn empty catalogue would print 'all 0 mutations caught' "
+            "and exit zero, which is the silent success this file exists to "
+            "prevent."
+        ) from None
+    _validate(faults, catalogue)
     if only:
         faults = [f for f in faults if f["name"] == only]
         if not faults:
@@ -97,10 +139,18 @@ def main() -> int:
     undetected = []
     for fault in faults:
         path = ROOT / fault["file"]
+        # The named assertion has to pass before the mutation, or "it failed
+        # with the mutation applied" says nothing. An entry whose anchor had
+        # drifted onto a different line reported `caught` here purely because
+        # its target test was already red for an unrelated reason.
+        if _run(fault["kills"]).returncode != 0:
+            raise SystemExit(
+                f"{fault['name']}: {fault['kills']} already fails without the "
+                "mutation, so it cannot be credited with catching it."
+            )
         original = _apply(fault)
         try:
-            baseline = _run(fault["kills"])
-            caught = baseline.returncode != 0
+            caught = _run(fault["kills"]).returncode != 0
         finally:
             path.write_text(original)
         mark = "caught" if caught else "MISSED"

@@ -70,7 +70,9 @@ _VOCABULARY = {
 
 
 def _expected() -> dict:
-    return strict_yaml.load((ORACLE / "expected.yaml").read_text())
+    return strict_yaml.require(
+        strict_yaml.load((ORACLE / "expected.yaml").read_text()), "expected.yaml"
+    )
 
 
 def _actual(path: Path) -> list:
@@ -430,16 +432,21 @@ def test_every_case_file_has_an_expectation():
 
 
 def _manifest() -> dict:
-    return strict_yaml.load((ORACLE / "coverage.yaml").read_text())
+    manifest = strict_yaml.load((ORACLE / "coverage.yaml").read_text())
+    for key in ("dimensions", "mandatory_combinations", "known_gaps", "unasserted_fields"):
+        strict_yaml.require(manifest.get(key), f"coverage.yaml: {key}")
+    for name, dimension in manifest["dimensions"].items():
+        strict_yaml.require(dimension.get("values"), f"coverage.yaml: {name}.values")
+    return manifest
 
 
 def _all_cells() -> set[str]:
     manifest = _manifest()
-    return {
+    return strict_yaml.require({
         f"{name}.{value}"
         for name, dimension in manifest["dimensions"].items()
         for value in dimension["values"]
-    }
+    }, "the manifest's cells")
 
 
 def _covered() -> set[str]:

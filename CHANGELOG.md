@@ -88,9 +88,11 @@ whether the scalar is already in a register. Recorded in
 
 ### The runner's own guards, neutralised one at a time
 
-`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: twelve
-mutations of `tests/test_oracle.py` itself, each naming the assertion that
-must die to it. Same harness — `run_faults.py` now takes a catalogue path.
+`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: eighteen
+mutations of the machinery that decides whether the corpus means anything —
+nine in `tests/test_oracle.py`, two in the replay harness, one in the shared
+YAML loader — each naming the assertion that must die to it. Same harness;
+`run_faults.py` takes a catalogue path now.
 
 The catalogues are separate because the claims differ. One says "this shipped
 and this test would have stopped it". The other says "this check is not
@@ -127,10 +129,61 @@ the permissive loader restored. The fixture now leaves a real mutation behind
 the duplicate, so only the loader can object, and the test asserts the message
 rather than the exit code.
 
-Moving the loader into its own module also broke a mutation's anchor, and the
-replay stopped with "anchor not found" instead of reporting twelve of twelve.
-That guard was added after a block scalar silently stripped indentation; it
-has now caught a second, different way for a mutation not to land.
+### Fail-closed reading, everywhere the evidence base is loaded from
+
+The catalogue hole generalised. Almost every check under `tests/oracle/` is a
+universal statement, and a universal statement over an empty collection is
+true — so an emptied `coverage.yaml` passes "every cell is covered or a named
+gap" and "every mandatory combination is met by one case" **without examining
+anything**. Measured, not supposed:
+
+    all_cells: set()
+    every_cell_covered: PASSES VACUOUSLY
+    mandatory:          PASSES VACUOUSLY
+
+`strict_yaml.require()` now guards each collection these checks quantify over
+— the manifest's dimensions, each dimension's values, the mandatory
+combinations, the gaps, the unasserted fields, the expectations and both
+catalogues. Zero entries is zero evidence, whatever emptied it.
+
+### Four ways the replay could credit a mutation it had not caught
+
+Chasing that generalisation turned up four more, and the sweep found three of
+them rather than a reviewer:
+
+**An anchor can be unique and still wrong.** Moving the loader into its own
+module left `if not faults:` matching the `--only` filter instead of the
+emptiness guard. `run_faults.py` refuses an anchor occurring zero times *or*
+more than once now, because `.replace(find, replace, 1)` otherwise mutates the
+first occurrence, which need not be the one the entry describes.
+
+**And it still printed `caught`.** The harness asked only whether the named
+assertion fails with the mutation applied — never whether it passes without
+it. That test was red at the time for an unrelated reason, so a mutation
+landing somewhere harmless looked caught. A baseline run comes first now, and
+an already-failing assertion is refused rather than credited.
+
+**A test can pass off the traceback of the thing it is testing.** With
+required-field validation removed, every malformed entry died of a `KeyError`
+whose traceback printed the missing key's name — which is exactly what the
+test asserted. It now requires the refusal's own wording and no traceback at
+all.
+
+**A catalogue can describe a mutation it cannot perform.** Missing fields and
+repeated names are refused up front: a missing `kills` would credit the run to
+whatever node id `None` resolves to, and "caught twin" would not say which of
+two entries was caught.
+
+One of those guards was itself too strict, and only the shipped catalogue
+showed it: `replace: ""` deletes the anchor, which is how
+`sixteen-lane-family-unregistered` expresses two absent table rows, and a
+required-field check that read empty as missing rejected all ten entries. It
+was caught because the acceptance run covers both catalogues rather than the
+new one alone.
+
+`tests/test_run_faults.py` pins all of these, and `runner_guards.yaml` carries
+a mutation for each — eighteen now, over the runner, the harness, the shared
+loader and the manifest.
 
 ### A script decides when #48 is done
 

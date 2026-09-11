@@ -1,18 +1,26 @@
-"""A YAML loader that refuses a repeated key instead of keeping the last one.
+"""Fail-closed reading for every collection the evidence base is decided from.
 
-PyYAML's default resolves `a: 1` followed by `a: 2` to `2`, silently. Every
-file this repository uses to decide whether a test means anything is YAML, and
-in each of them the silent resolution is a hole:
+Each of these files answers "does this test mean anything", and each answers
+it by being a non-empty collection. Both halves of that can be lost quietly.
 
-- in `tests/oracle/expected.yaml`, a repeated key inside a finding overwrites
-  half an expectation while the file still parses, and at case level it drops
-  a whole case's expectations while every completeness test still passes;
-- in `tests/faults.yaml` and `tests/runner_guards.yaml`, a second top-level
-  `faults:` discards the entire list, and the harness then reports "all 0
-  mutations caught" as a success.
+**A repeated key.** PyYAML resolves `a: 1` followed by `a: 2` to `2`, in
+silence. In `tests/oracle/expected.yaml` a repeat inside a finding overwrites
+half an expectation while the file still parses, and at case level it drops a
+whole case while every completeness test still passes. In `tests/faults.yaml`
+and `tests/runner_guards.yaml` a second top-level `faults:` discards the list
+and the replay reports "all 0 mutations caught" as a success.
 
-Shared rather than copied, because the second hole was opened by writing a
-strict loader for the first and then reading the second with `safe_load`.
+**An empty collection.** Every check here is a universal statement, and a
+universal statement over nothing is true. An emptied `coverage.yaml` passes
+"every cell is covered or a named gap" and "every mandatory combination is met"
+without examining anything; an emptied catalogue passes the replay. Zero
+attempted is zero evidence, whatever emptied it — a duplicate key, a bad
+merge, a truncated edit.
+
+The loader is shared rather than copied because the catalogue hole was opened
+by writing a strict loader for `expected.yaml` and then reading the catalogue
+with `safe_load` one file over. `require` exists for the same reason: the
+rule belongs in one place, not in each caller's memory.
 """
 from __future__ import annotations
 
@@ -41,3 +49,22 @@ StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _ma
 def load(text: str):
     """Parse `text`, raising `yaml.constructor.ConstructorError` on a duplicate."""
     return yaml.load(text, StrictLoader)
+
+
+class EmptyCollection(Exception):
+    """A collection the evidence base is decided from has nothing in it."""
+
+
+def require(collection, what: str):
+    """Return `collection`, refusing it when empty.
+
+    Call this at every point a universal check is about to quantify over
+    something loaded from disk. The check itself cannot tell "nothing violates
+    this" from "there was nothing to violate it", and reports both as success.
+    """
+    if not collection:
+        raise EmptyCollection(
+            f"{what} is empty, so every check over it passes without examining "
+            "anything. Zero entries is zero evidence, not agreement."
+        )
+    return collection
