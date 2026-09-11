@@ -26,7 +26,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import strict_yaml
+import yaml  # noqa: F401  -- `runner_guards.yaml` mutates the loader back to this
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOGUE = Path(__file__).parent / "faults.yaml"
@@ -79,7 +82,13 @@ def main() -> int:
     if not catalogue.is_absolute():
         catalogue = ROOT / catalogue if (ROOT / catalogue).exists() else catalogue
 
-    faults = yaml.safe_load(catalogue.read_text())["faults"]
+    faults = strict_yaml.load(catalogue.read_text())["faults"]
+    if not faults:
+        raise SystemExit(
+            f"{catalogue} lists no mutations.\n"
+            "An empty catalogue would print 'all 0 mutations caught' and exit "
+            "zero, which is the silent success this file exists to prevent."
+        )
     if only:
         faults = [f for f in faults if f["name"] == only]
         if not faults:

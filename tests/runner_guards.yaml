@@ -77,7 +77,19 @@ faults:
     kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
 
   - name: loader_keeps_the_last_duplicate
-    file: tests/test_oracle.py
-    find: "_Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)"
+    file: tests/strict_yaml.py
+    find: "StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)"
     replace: "pass"
     kills: tests/test_oracle.py::test_the_loader_refuses_a_repeated_key
+
+  - name: harness_reads_its_catalogue_permissively
+    file: tests/run_faults.py
+    find: '    faults = strict_yaml.load(catalogue.read_text())["faults"]'
+    replace: '    faults = yaml.safe_load(catalogue.read_text())["faults"]'
+    kills: tests/test_run_faults.py::test_a_repeated_top_level_key_is_refused
+
+  - name: harness_accepts_an_empty_catalogue
+    file: tests/run_faults.py
+    find: "    if not faults:"
+    replace: "    if False:"
+    kills: tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass

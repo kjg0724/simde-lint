@@ -18,6 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import strict_yaml
 import yaml
 
 from simde_lint.analyze import analyze
@@ -68,34 +69,8 @@ _VOCABULARY = {
 }
 
 
-class _Strict(yaml.SafeLoader):
-    """Rejects a repeated key instead of keeping the last one.
-
-    A duplicate `line:` inside one expected finding is a silent partial
-    overwrite: the earlier value disappears and the file still parses. The
-    same mistake at case level would drop a whole case's expectations while
-    `test_every_case_file_has_an_expectation` still passed, because the key
-    is present -- just not the one that was written first.
-    """
-
-
-def _mapping(loader, node, deep=False):
-    seen = set()
-    for key_node, _ in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in seen:
-            raise yaml.constructor.ConstructorError(
-                None, None, f"duplicate key {key!r}", key_node.start_mark
-            )
-        seen.add(key)
-    return yaml.constructor.SafeConstructor.construct_mapping(loader, node, deep)
-
-
-_Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
-
-
 def _expected() -> dict:
-    return yaml.load((ORACLE / "expected.yaml").read_text(), _Strict)
+    return strict_yaml.load((ORACLE / "expected.yaml").read_text())
 
 
 def _actual(path: Path) -> list:
@@ -115,7 +90,7 @@ def test_the_loader_refuses_a_repeated_key():
     # value silently, and a subclass that forgot to register the constructor
     # would inherit exactly that behaviour while looking strict.
     with pytest.raises(yaml.constructor.ConstructorError):
-        yaml.load("a:\n  x: 1\n  x: 2\n", _Strict)
+        strict_yaml.load("a:\n  x: 1\n  x: 2\n")
 
 
 @pytest.mark.parametrize("case", sorted(_expected()))
@@ -455,7 +430,7 @@ def test_every_case_file_has_an_expectation():
 
 
 def _manifest() -> dict:
-    return yaml.load((ORACLE / "coverage.yaml").read_text(), _Strict)
+    return strict_yaml.load((ORACLE / "coverage.yaml").read_text())
 
 
 def _all_cells() -> set[str]:

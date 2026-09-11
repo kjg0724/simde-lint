@@ -88,7 +88,7 @@ whether the scalar is already in a register. Recorded in
 
 ### The runner's own guards, neutralised one at a time
 
-`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: ten
+`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: twelve
 mutations of `tests/test_oracle.py` itself, each naming the assertion that
 must die to it. Same harness — `run_faults.py` now takes a catalogue path.
 
@@ -110,6 +110,27 @@ share a code path.
 
 Adding a check to `test_oracle.py` without adding its mutation here is how the
 next one gets in.
+
+**The harness needed the same treatment, and a catalogue cannot give it.**
+`run_faults.py` read the new catalogue with `yaml.safe_load`, so a repeated
+top-level `faults:` would discard the earlier list and the run would print
+"all 0 mutations caught" and exit zero — the strict loader written for
+`expected.yaml`, re-opened one file over. It is shared now
+(`tests/strict_yaml.py`) rather than copied, an empty catalogue is refused
+outright however it arose, and `tests/test_run_faults.py` pins both, because
+a catalogue of mutations cannot test the code that reads catalogues.
+
+The first version of that pin was itself inert, and this time the sweep said
+so rather than a reviewer. Its duplicate key left an *empty* surviving list,
+so the emptiness guard caught the file first and the test still passed with
+the permissive loader restored. The fixture now leaves a real mutation behind
+the duplicate, so only the loader can object, and the test asserts the message
+rather than the exit code.
+
+Moving the loader into its own module also broke a mutation's anchor, and the
+replay stopped with "anchor not found" instead of reporting twelve of twelve.
+That guard was added after a block scalar silently stripped indentation; it
+has now caught a second, different way for a mutation not to land.
 
 ### A script decides when #48 is done
 
