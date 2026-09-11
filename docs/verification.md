@@ -1180,9 +1180,40 @@ or the left side of a `#define` is not a call.
 | `_mm_loadl_epi64` | 1 | 1 | 0 | 100% |
 | **Total** | **431** | **420** | **11** | **97.4%** |
 
-This is recall for the two name-matched mechanisms only. F, M, W and P turn
-on structure rather than a name, so their ground truth cannot be built by
+This is recall for the two name-matched mechanisms. F, W, P and rule M's
+insert chain turn on structure, so their ground truth cannot be built by
 `grep` and is not claimed here.
+
+**`M.scalar_set_build` is not one of them**, and saying it was overstated the
+gap. Its description — `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
+assembling a vector from runtime scalars, all-literal calls excluded — is
+decidable from the text of the call. `docs/precision/recall_set_build.py`
+enumerates it without importing the tool:
+
+| Corpus | Ground truth | Reported | Missed | Recall |
+|---|---:|---:|---:|---:|
+| SVT-AV1 `Source` | 29 | 29 | 0 | 100% |
+| VVenC `CommonLib/x86` | 23 | 23 | 0 | 100% |
+
+Both agree site for site, not only in total.
+
+The first version of that enumeration disagreed on five SVT-AV1 sites, and
+**the enumeration was wrong on all five**. It tested the argument list against
+a character class of "things a number is spelled with", which accepts `e0` and
+`e1` as hex — `_mm_set_epi32(0, e1, 0, e0)` in `synonyms.h` is exactly that —
+and it read one line, so three `cdef` calls that open their parenthesis at the
+end of a line were classified on a fragment. The disagreement is recorded
+because it is the useful part: an independent check is worth having precisely
+because either side can be wrong, and this one was.
+
+A hand enumeration of `QuantX86.h`, done by reading the file rather than the
+tool's output, gives the same answer for the two structural rules that occur
+there: 4 type W round-trips (`mullo_epi16` + `mulhi_epi16` over
+`v_level, v_scale` feeding an unpack, four times) and 8 type F pairs
+(`mul_epi32` into `add_epi64`, eight times). The tool reports 4 and 8. That
+file is 598 lines and was chosen because it is one of the two VVenC modules
+with no native NEON counterpart, which is where a finding still describes
+work SIMDe is doing.
 
 ### Every miss has one cause, and it is not the rules
 
