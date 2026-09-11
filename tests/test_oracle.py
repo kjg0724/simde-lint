@@ -26,7 +26,7 @@ CASES = ORACLE / "cases"
 _CHECKED = ("line", "type", "rule", "evidence", "reason", "intrinsic", "suggestion")
 _RATIONALE = ("rationale_includes", "rationale_excludes")
 _ALLOWED_IN_A_FINDING = frozenset(_CHECKED) | frozenset(_RATIONALE)
-_ALLOWED_IN_A_CASE = frozenset({"why", "findings"})
+_ALLOWED_IN_A_CASE = frozenset({"why", "findings", "covers"})
 
 
 def _expected() -> dict:
@@ -136,3 +136,66 @@ def test_every_case_file_has_an_expectation():
         if path.suffix in {".c", ".cc", ".cpp", ".h", ".hpp"}
     }
     assert cases == set(_expected())
+
+
+def _manifest() -> dict:
+    return yaml.safe_load((ORACLE / "coverage.yaml").read_text())
+
+
+def _all_cells() -> set[str]:
+    manifest = _manifest()
+    return {
+        f"{name}.{value}"
+        for name, dimension in manifest["dimensions"].items()
+        for value in dimension["values"]
+    }
+
+
+def _covered() -> set[str]:
+    return {cell for case in _expected().values() for cell in case.get("covers", ())}
+
+
+def test_every_declared_cell_is_a_cell_the_manifest_defines():
+    # A typo in a `covers:` entry would otherwise inflate coverage silently,
+    # the same way a typo in an expectation key once made a falsified
+    # assertion pass.
+    unknown = _covered() - _all_cells()
+    assert not unknown, f"undefined cell(s) in `covers:` {sorted(unknown)}"
+
+
+def test_every_cell_is_covered_or_a_named_gap():
+    """Coverage is computed, not claimed.
+
+    "The corpus covers all seven rules" was true and useless: every defect
+    since has been a shape nobody had written down. A cell that is neither
+    exercised nor listed as a gap fails here, so adding a dimension value is
+    how a shape gets recorded before it is forgotten.
+    """
+    gaps = set(_manifest()["known_gaps"])
+    missing = _all_cells() - _covered() - gaps
+    assert not missing, (
+        "cell(s) neither covered nor declared a gap: " + ", ".join(sorted(missing))
+    )
+
+
+def test_no_known_gap_is_already_covered():
+    # A gap that a case now exercises is a stale entry. Left in place it
+    # suppresses the failure that would otherwise demand the next case.
+    stale = set(_manifest()["known_gaps"]) & _covered()
+    assert not stale, f"stale known_gaps entry: {sorted(stale)}"
+
+
+def test_every_mandatory_combination_is_met_by_one_case():
+    """Pairs a past defect implicated, which no single cell would require.
+
+    A combination has to be exercised by one case, not by two cases that
+    each have half of it: the defects in this repository have been
+    interactions, and splitting them across files is how they stayed
+    invisible.
+    """
+    cases = {name: set(case.get("covers", ())) for name, case in _expected().items()}
+    for combination in _manifest()["mandatory_combinations"]:
+        wanted = set(combination)
+        assert any(wanted <= cells for cells in cases.values()), (
+            f"no single case covers {sorted(wanted)}"
+        )
