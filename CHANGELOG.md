@@ -210,6 +210,14 @@ Naming the assertion is the point. "Something fails" credits a test with
 catching a fault it fails for unrelated reasons — which is how three
 assertions in this repository went inert while still passing.
 
+Naming it was not quite enough, and the gap took until the runner-guard work
+below to surface: the replay asked whether the named assertion fails *with*
+the mutation, never whether it passed *without* it. An assertion already red
+for an unrelated reason would have been credited with catching anything
+pointed at it. It now runs the baseline first and refuses to credit a failing
+assertion. All ten entries pass that check, so nothing here is withdrawn —
+but until this change the evidence was weaker than the claim.
+
 **Six of the ten are over-restrictive**: a predicate that rejects too much, a
 family left unregistered, a producer retired before its second consumer.
 Every mutation run here before now made predicates *more* permissive, which
