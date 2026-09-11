@@ -29,7 +29,11 @@ about how many instances either of them misses in code neither has seen.
 
 Each clause names the assertion that decides it, so a clause cannot pass by
 some other test happening to be green -- the same reason `faults.yaml` names
-the assertion each fault must die to.
+the assertion each fault must die to. The last clause runs two catalogues:
+the shipped defects, and `runner_guards.yaml`, which neutralises the oracle
+runner's own checks one at a time. The runner decides whether anything else
+in `tests/oracle/` means anything, and a guard inside it goes inert in exactly
+the silent way the corpus exists to prevent.
 
     uv run python tests/acceptance.py
 
@@ -86,13 +90,16 @@ CLAUSES = [
             "tests/test_oracle.py::test_a_broad_expectation_does_not_starve_a_narrow_one",
         ],
     ),
-    ("every named fault mutation is detected", ["tests/run_faults.py"]),
+    (
+        "every named fault mutation is detected",
+        ["tests/run_faults.py", "tests/run_faults.py tests/runner_guards.yaml"],
+    ),
 ]
 
 
 def _check(target: str) -> bool:
-    if target.endswith("run_faults.py"):
-        command = [sys.executable, str(ROOT / target)]
+    if target.startswith("tests/run_faults.py"):
+        command = [sys.executable, *(str(ROOT / part) for part in target.split())]
     else:
         command = [sys.executable, "-m", "pytest", "-q", "--no-header", target]
     return subprocess.run(command, cwd=ROOT, capture_output=True).returncode == 0

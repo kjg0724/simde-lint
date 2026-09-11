@@ -44,7 +44,7 @@ jobs:
 
       - name: Check the oracle acceptance condition
         # Decides the condition #48 is closed against, clause by clause, and
-        # includes the fault replay -- each fault rewrites a source file and
+        # includes both fault catalogues -- each mutation rewrites a file and
         # requires a named assertion to fail. Run once, not per matrix entry:
         # it is a property of the suite, not of the interpreter.
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'

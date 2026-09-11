@@ -9,7 +9,13 @@ positives only.
 Requiring a *named* assertion, rather than "something fails", is what stops a
 test being credited with catching a fault it fails for unrelated reasons.
 
-    uv run python tests/run_faults.py [--only NAME]
+    uv run python tests/run_faults.py [CATALOGUE] [--only NAME]
+
+`faults.yaml` is the default and holds defects that reached a release.
+`runner_guards.yaml` holds the same shape aimed at the oracle runner itself:
+those are not shipped defects but guards whose inertness would be invisible,
+which is how a counterexample test that re-derived its comparison instead of
+calling it passed while the comparison it claimed to pin was reverted.
 
 Not part of the default suite: it rewrites source files and shells out to
 pytest once per fault. CI runs it as its own step.
@@ -63,11 +69,17 @@ def _run(node: str) -> subprocess.CompletedProcess:
 
 
 def main() -> int:
+    argv = sys.argv[1:]
     only = None
-    if "--only" in sys.argv:
-        only = sys.argv[sys.argv.index("--only") + 1]
+    if "--only" in argv:
+        index = argv.index("--only")
+        only = argv[index + 1]
+        argv = argv[:index] + argv[index + 2:]
+    catalogue = Path(argv[0]) if argv else CATALOGUE
+    if not catalogue.is_absolute():
+        catalogue = ROOT / catalogue if (ROOT / catalogue).exists() else catalogue
 
-    faults = yaml.safe_load(CATALOGUE.read_text())["faults"]
+    faults = yaml.safe_load(catalogue.read_text())["faults"]
     if only:
         faults = [f for f in faults if f["name"] == only]
         if not faults:
@@ -89,12 +101,12 @@ def main() -> int:
 
     print()
     if undetected:
-        print(f"{len(undetected)} of {len(faults)} faults are not caught by the "
-              "assertion credited with catching them:")
+        print(f"{len(undetected)} of {len(faults)} mutations in {catalogue.name} "
+              "are not caught by the assertion credited with catching them:")
         for fault in undetected:
             print(f"  {fault['name']} -> {fault['kills']}")
         return 1
-    print(f"all {len(faults)} historical faults caught")
+    print(f"all {len(faults)} mutations in {catalogue.name} caught")
     return 0
 
 

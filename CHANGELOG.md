@@ -86,6 +86,31 @@ Rule M's entries are the concrete blocker: per chain element, and turning on
 whether the scalar is already in a register. Recorded in
 `tests/oracle/README.md` as a decision, not left as a silence.
 
+### The runner's own guards, neutralised one at a time
+
+`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: ten
+mutations of `tests/test_oracle.py` itself, each naming the assertion that
+must die to it. Same harness — `run_faults.py` now takes a catalogue path.
+
+The catalogues are separate because the claims differ. One says "this shipped
+and this test would have stopped it". The other says "this check is not
+decorative", which is a different and, for the runner, more urgent claim: the
+runner decides whether every other test under `tests/oracle/` means anything,
+so a guard inside it fails in exactly the silent way the corpus was built to
+catch elsewhere.
+
+It exists because of what review found. A counterexample test written to pin
+the file-attribution check re-derived the path comparison instead of calling
+it, so reverting that comparison left both the check and its regression test
+green — the ninth inert assertion in this repository, added in the commit that
+fixed the eighth. That mutation is `attribution_by_name`, and it survived until
+the comparison moved into a shared helper. Naming both tests in an acceptance
+clause did not help, because a clause cannot see that two assertions do not
+share a code path.
+
+Adding a check to `test_oracle.py` without adding its mutation here is how the
+next one gets in.
+
 ### A script decides when #48 is done
 
 `tests/acceptance.py` runs the condition clause by clause, each clause naming

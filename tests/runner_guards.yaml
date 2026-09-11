@@ -1,0 +1,83 @@
+# Mutations of the oracle runner itself, each with the assertion that must die.
+#
+# `faults.yaml` holds defects that reached a release. These are not defects --
+# they are the runner's own guards, neutralised one at a time. The catalogues
+# are separate because the claims differ: one says "this shipped and this test
+# would have stopped it", the other says "this check is not decorative".
+#
+# It exists because the runner is the thing that decides whether every other
+# test in `tests/oracle/` means anything, and a guard inside it fails silently
+# in exactly the way the corpus was built to prevent. Four review rounds on
+# one change found four problems, and the sharpest was a counterexample test
+# that re-derived its comparison rather than calling it: reverting the
+# comparison left both the check and its regression test green. That mutation
+# is `attribution_by_name` below, and it survived until the comparison moved
+# into a shared helper.
+#
+# Same harness:
+#
+#     uv run python tests/run_faults.py tests/runner_guards.yaml
+#
+# Adding a check to `test_oracle.py` without adding its mutation here is how
+# the next inert guard gets in.
+
+faults:
+  - name: satisfies_ignores_fields
+    file: tests/test_oracle.py
+    find: "        if actual != want[field]:"
+    replace: "        if False:"
+    kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
+
+  - name: satisfies_ignores_costs
+    file: tests/test_oracle.py
+    find: '        if got != want["costs"]:'
+    replace: "        if False:"
+    kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
+
+  - name: satisfies_ignores_rationale_includes
+    file: tests/test_oracle.py
+    find: '    if "rationale_includes" in want and want["rationale_includes"] not in finding.rationale:'
+    replace: "    if False:"
+    kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
+
+  - name: satisfies_ignores_rationale_excludes
+    file: tests/test_oracle.py
+    find: '    if "rationale_excludes" in want and want["rationale_excludes"] in finding.rationale:'
+    replace: "    if False:"
+    kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
+
+  - name: match_falls_back_to_first_fit
+    file: tests/test_oracle.py
+    find: "            if finding not in taken or assign(taken[finding], seen):"
+    replace: "            if finding not in taken:"
+    kills: tests/test_oracle.py::test_a_broad_expectation_does_not_starve_a_narrow_one
+
+  - name: match_hides_extra_findings
+    file: tests/test_oracle.py
+    find: "    extra = [f for i, f in enumerate(findings) if i not in taken]"
+    replace: "    extra = []"
+    kills: tests/test_oracle.py::test_a_dropped_or_invented_expectation_fails
+
+  - name: match_hides_unmet_expectations
+    file: tests/test_oracle.py
+    find: "    missing = [w for i, w in enumerate(wanted) if i not in matched]"
+    replace: "    missing = []"
+    kills: tests/test_oracle.py::test_a_dropped_or_invented_expectation_fails
+
+  - name: attribution_by_name
+    file: tests/test_oracle.py
+    find: "    return Path(finding.file).resolve() == path.resolve()"
+    replace: "    return Path(finding.file).name == path.name"
+    kills: tests/test_oracle.py::test_the_attribution_check_reads_the_path_and_not_the_name
+
+  - name: costs_collapse_the_partial_state
+    file: tests/test_oracle.py
+    find: '        got = {(True, True): "reported", (False, False): "withheld"}.get(known, "partial")'
+    replace: '        got = "withheld" if finding.simde_insns is None else "reported"'
+    kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
+
+  - name: loader_keeps_the_last_duplicate
+    file: tests/test_oracle.py
+    find: "_Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)"
+    replace: "pass"
+    kills: tests/test_oracle.py::test_the_loader_refuses_a_repeated_key
