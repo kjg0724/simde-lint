@@ -570,7 +570,9 @@ def test_a_sixteen_lane_accumulator_names_its_fused_form(run_rule):
     finding = _only(run_rule, "sixteen_lane_accumulator")
     assert finding.intrinsic == "_mm256_mullo_epi16"
     assert finding.evidence is Evidence.A
-    assert finding.suggestion == "vmlaq_s16"
+    # The applied form, not the bare mnemonic: a 256-bit value takes two of a
+    # 128-bit instruction, and the machine-readable field says so too.
+    assert finding.suggestion == "vmlaq_s16 per 128-bit half"
 
 
 def test_every_recorded_accumulator_width_is_reachable_by_some_add():

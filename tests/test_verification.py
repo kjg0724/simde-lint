@@ -479,7 +479,9 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
         "total": 3404,
-        # F rises by 93 and nothing else moves: rule F now sees a multiply
+        # F rose by 93 when rule F gained the nested multiply-add, and M by 2
+        # when the 256-bit insert family was registered. Both are below.
+        # F: rule F now sees a multiply
         # written straight into the add, which it previously required to be
         # bound to a name first.
         "type": {"R": 1816, "F": 1149, "S": 341, "M": 66, "P": 31, "W": 1},
@@ -507,13 +509,13 @@ def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
     findings, _, _ = analyze([VVENC_X86])
     assert _aggregate(findings) == {
-        "total": 614,
+        "total": 620,
         # F more than doubles, 135 to 279. VVenC's adaptive loop filter writes
         # its accumulator as `accum = _mm_add_epi32(accum, _mm_madd_epi16(..))`
         # throughout, and every one of those was invisible while rule F
         # required a named product.
         # F gains the twelve float pairs; VVenC's film-grain analysis
         # evaluates two Horner polynomials, which is what FMA is for.
-        "type": {"S": 164, "F": 300, "R": 106, "M": 23, "W": 17, "P": 4},
-        "evidence": {"A": 117, "B": 87, "C": 410},
+        "type": {"S": 164, "F": 306, "R": 106, "M": 23, "W": 17, "P": 4},
+        "evidence": {"A": 117, "B": 87, "C": 416},
     }

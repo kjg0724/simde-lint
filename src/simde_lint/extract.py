@@ -250,6 +250,32 @@ _REGION_TYPES = ("compound_statement", "case_statement")
 _UNBRACED_BODY_FIELDS = ("consequence", "alternative", "body")
 
 
+def _region_chain(call: Node) -> tuple[int, ...]:
+    """Every enclosing region, outermost first.
+
+    `_control_region` returns the innermost of these. Keeping the rest lets a
+    rule ask whether two calls are on a common path -- one chain a prefix of
+    the other -- without reading nesting out of a single opaque id, which the
+    note below rightly forbids.
+    """
+    chain: list[int] = []
+    node = call.parent
+    while node is not None:
+        if node.type in _REGION_TYPES:
+            chain.append(node.id)
+        else:
+            parent = node.parent
+            if parent is not None:
+                for field in _UNBRACED_BODY_FIELDS:
+                    child = parent.child_by_field_name(field)
+                    if child is not None and child.id == node.id:
+                        chain.append(node.id)
+                        break
+        node = node.parent
+    chain.reverse()
+    return tuple(chain)
+
+
 def _control_region(call: Node) -> int:
     """Identity of the innermost region `call` sits in, for equality only.
 
@@ -432,6 +458,7 @@ def _extract_calls(
             result_var=result_var,
             result_lvalue=result_lvalue,
             control_region=_control_region(node),
+            region_chain=_region_chain(node),
             is_macro_alias=raw_name in aliases.targets,
         )
         calls.append(call)

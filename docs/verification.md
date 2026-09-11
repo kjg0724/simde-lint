@@ -104,8 +104,9 @@ source would make this document appear to corroborate the paper while
 measuring something else. Later measurements, if any, belong beside these as a
 separate baseline rather than in place of them.
 
-The measurement commands in this document were last run in full for
-`v2.5.0`, the release this document ships with. `v2.3.1` — and `v2.3.2`, which
+The measurement commands in this document were last run on `main`, after a
+code review of `v2.5.0` corrected the control-region relation; `v2.5.0` is the
+release this document last shipped with, and its VVenC figure was 614. `v2.3.1` — and `v2.3.2`, which
 is documentation-only on top of it and is what the paper cites — is the
 previous baseline. Both sets of figures appear below, each labelled by the
 release it belongs to and never by a branch name: a branch name read from a
@@ -557,8 +558,8 @@ SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
 emitted it**; `v2.3.1` gives the same 449 with evidence `A 101, B 87, C 261`,
 the 106 rule R findings having moved from A to C (see Section 1). On `main`
-`v2.4.0` totals 614 — `R 106, S 164, F 300, W 17, M 23, P 4` — evidence
-`A 117, B 87, C 410`. Rule F more than doubles here, 135 to 300, and the
+`v2.4.0` totals 614 — `R 106, S 164, F 306, W 17, M 23, P 4` — evidence
+`A 117, B 87, C 416`. Rule F more than doubles here, 135 to 306, and the
 reason is one idiom: VVenC's adaptive loop filter writes its accumulator as
 `accumA = _mm_add_epi32(accumA, _mm_madd_epi16(val01A, coeff01A))` throughout,
 and every one of those was invisible while rule F required a named product. By scope: **445 in function bodies, 4 in
@@ -1146,18 +1147,18 @@ concealed.
 
 ```
 $ uv run simde-lint "$VVDEC/source/Lib/CommonLib/x86" --format json
-597 findings: R 224, S 196, F 158, W 9, M 8, P 2
+600 findings: R 224, S 196, F 161, W 9, M 8, P 2
 $ echo $?
 0
 ```
 
-Rule F's changes since `v2.3.1` move this too, 77 to 158, and every other
+Rule F's changes since `v2.3.1` move this too, 77 to 161, and every other
 type is unchanged to the finding -- what a change confined to one rule should
 look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora at `v2.5.0`: SVT-AV1 3404 findings / 362 warnings, VVenC
-614 / 11, VVdeC 597 / 10 — every one exit 0. The warning counts do not move
+all three corpora on `main`: SVT-AV1 3404 findings / 362 warnings, VVenC
+620 / 11, VVdeC 600 / 10 — every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -1352,16 +1353,16 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 4018 (census, not a sample)
+findings checked: 4024 (census, not a sample)
 
-  agree          3986   99.2%
+  agree          3992   99.2%
   macro            32    0.8%
 
-agreement on structurally checkable findings: 3986 / 3986 = 100.00%
+agreement on structurally checkable findings: 3992 / 3992 = 100.00%
 ```
 
 Re-run against both pinned checkouts. The population is every finding from
-both sweeps -- 3404 + 614 = 4018 -- so it moves with them: at `v2.1.0` it read
+both sweeps -- 3404 + 620 = 4024 -- so it moves with them: at `v2.1.0` it read
 3713 / 3681 and at `v2.3.0` 3721 / 3689. The eight-finding step is SVT-AV1's
 3264 becoming 3272 under rule M's control-region split, which repartitions
 thirteen findings into twenty-one; the 237 after it are rule F's nested

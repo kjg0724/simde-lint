@@ -77,6 +77,11 @@ class CostInfo:
     # SIMDE_VECTORIZE and what a compiler makes of it is its own decision --
     # so a rule must not describe this call site in instruction terms.
     portable_fallback: bool = False
+    # The register width this intrinsic operates on. The NEON instructions
+    # these entries name are all 128-bit, so a wider value takes more than one
+    # of them and the suggestion has to say so. Read from the table rather
+    # than from a `_mm256_` prefix, so a 512-bit entry is a row to fill in.
+    register_bits: int | None = None
 
 
 @dataclass(frozen=True)
@@ -149,7 +154,18 @@ def _cost_entry(key: str, entry: dict, requires_transform_status: bool = False) 
         # checked against a call site, and a default would make the unchecked
         # case indistinguishable from the checked one.
         accumulator_lanes=entry["accumulator_lanes"] if requires_transform_status else None,
-        portable_fallback=bool(entry.get("portable_fallback", False)),
+        # A KeyError-free default only where the field is meaningless. On an
+        # F entry a typo'd key would silently switch the concession off, which
+        # is the same silence `transform_status` and `accumulator_lanes` are
+        # required for.
+        register_bits=(
+            256 if key.startswith("_mm256_") else 512 if key.startswith("_mm512_") else 128
+        ) if requires_transform_status else None,
+        portable_fallback=(
+            bool(entry.get("portable_fallback", False))
+            if requires_transform_status
+            else False
+        ),
     )
 
 

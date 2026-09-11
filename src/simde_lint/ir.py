@@ -70,6 +70,20 @@ class IntrinsicCall:
     # `test_extraction_gives_every_call_a_region` asserts extraction never
     # leaves it there.
     control_region: int = 0
+    # Every region enclosing this call, outermost first, innermost last, with
+    # `control_region` as the final element. Two calls are on a common path
+    # when one chain is a prefix of the other -- that is, when one region
+    # encloses the other or they are the same.
+    #
+    # `control_region` alone answers a different question, and rules must not
+    # confuse them. A *chain* (rule M) has to be wholly inside one region, so
+    # equality is right there. A *producer and its consumer* (rules F, W, P)
+    # only have to be able to run together, and inequality of the innermost
+    # region does not say they cannot: it is equally true of `if`/`else` arms,
+    # which exclude each other, and of a statement nested inside the block
+    # holding the other, which does not. Equality rejected both, and cost six
+    # real VVenC findings.
+    region_chain: tuple[int, ...] = ()
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
     # `macros.build_alias_map`) — a macro whose *body* extraction never sees,

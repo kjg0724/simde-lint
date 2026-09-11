@@ -31,3 +31,11 @@ the property the rest of the evidence base does not have.
 
 An empty `findings` list is a claim, not an omission: it says this file
 contains no instance of any mechanism.
+
+Only the keys the runner checks may appear — `why` and `findings` on a case,
+and `line`, `type`, `rule`, `evidence`, `reason`, `intrinsic`, `suggestion`,
+`rationale_includes`, `rationale_excludes` on a finding. A test enforces that.
+Before it did, an unrecognised key was skipped, so `evidance: A` was
+indistinguishable from a satisfied `evidence` and four deliberate
+falsifications left the corpus green. A corpus whose own vocabulary is
+unchecked can fail silently, which is the failure it is here to prevent.
