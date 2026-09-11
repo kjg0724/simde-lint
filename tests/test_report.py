@@ -283,7 +283,8 @@ RAW_NAME_FINDING = Finding(
     evidence=Evidence.A, file="a.c", line=4,
     function="kernel", intrinsic="_mm_cmpgt_epi64", raw_name="_my_cmpgt_epi64",
     rationale="consumed by the next call",
-    simde_insns=1, native_insns=1, suggestion=None,
+    simde_insns=1, native_insns=1,
+    suggestion="reorder independent work between the compare and its use",
 )
 
 

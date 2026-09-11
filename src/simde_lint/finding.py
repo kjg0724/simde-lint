@@ -115,6 +115,22 @@ class Finding:
                 )
         else:
             raise ValueError(f"scope must be 'function' or 'macro', got {self.scope!r}")
+        # `native_insns` counts the instructions of a specific replacement, so
+        # it is meaningless without one: a withdrawn suggestion that kept the
+        # count belonging to the instruction it withdrew reached a release,
+        # and nothing in the report marked which transform the number was for.
+        #
+        # The mirror -- native known, expansion unknown -- is NOT an error.
+        # Where SIMDe falls through to portable code the header does not say
+        # what is emitted, while the NEON replacement's own count is still a
+        # fact; `report/text.py` renders that pair deliberately. Only the
+        # saving is unavailable there, not the number.
+        if self.native_insns is not None and self.suggestion is None:
+            raise ValueError(
+                "native_insns counts a named replacement: "
+                f"suggestion={self.suggestion!r}, "
+                f"native_insns={self.native_insns!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {

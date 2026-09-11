@@ -87,6 +87,28 @@ dimensions:
       grade_c_changes_result: applies, and does not preserve results
       grade_c_width_mismatch: checked, and does not fit
 
+  output:
+    applies_to: [R, S, W, F, M, P]
+    why: >-
+      What the finding puts in the `simde_insns`/`native_insns`/`suggestion`
+      triple, which is a separate question from what it claims. Two shipped
+      faults lived here and neither was a wrong judgement: a portable-fallback
+      path asserted instruction counts SIMDe never emits, and a withdrawn
+      suggestion kept the count belonging to the instruction it withdrew. Both
+      read as ordinary findings.
+
+      Which of the first two applies is read off the SIMDe source -- whether
+      the expansion has a NEON branch -- not off the tool's cost table, so a
+      case can decide it without validating that table against itself.
+    values:
+      costs_reported: a NEON branch exists, so counts must be present
+      costs_adjudicated: the numbers themselves, counted off the header
+      costs_adjudicated_for_chains: the same, where the unit is a chain element
+      costs_withheld: no NEON branch to read, so neither count is claimed
+      costs_partial: one count known and the other not, which is a third state
+      no_replacement_named: no suggestion, and no native count with it
+      cost_without_replacement: the expansion's cost named, no replacement
+
 # Pairs of dimension values that a past defect implicated, and that no single
 # case would otherwise be required to combine.
 mandatory_combinations:
@@ -94,8 +116,36 @@ mandatory_combinations:
   - [control.consumer_nested, value_flow.named]
   - [value_flow.nested, multiplicity.two_producers_one_consumer]
   - [claims.cost_unknown, claims.replacement_mismatched, representation.width_256]
+  - [output.costs_withheld, claims.replacement_applies]
+  - [output.no_replacement_named, claims.replacement_mismatched]
+
+# Fields of the output contract that the runner checks but no case asserts
+# yet, each with the reason. A field asserted by no case and absent from this
+# list fails the suite: adding a field to the runner without either using it
+# or recording why not is how a checked field becomes a decorative one.
+unasserted_fields:
+  rule_mechanism: >-
+    The mechanism sentence belongs to the rule, not to the call site, so a
+    case asserting it would pin prose a rule may reword without changing what
+    it finds. `rule` already pins which mechanism matched.
+  scope: >-
+    Function scope by construction in every case here. The macro half is
+    `representation.spelling_macro`, a declared gap; the two close together.
+  macro: >-
+    Same as `scope` -- only a macro-scoped case can assert it, and there is
+    none yet.
+  raw_name: >-
+    Set only where a file-local `#define` renames an intrinsic. VVenC has the
+    shape; the corpus does not, for the same reason `spelling_macro` is open.
 
 known_gaps:
+  output.costs_adjudicated_for_chains: >-
+    `shuffle_epi8` is one header line and its count falls straight out of it.
+    Rule M's entries are per chain element and turn on whether the scalar is
+    already in a register or still in memory -- a modelling choice about the
+    call site, not a line to count. Deciding it independently means fixing
+    that question first; reconstructing the table's reasoning from its own
+    `note:` is restating the table, not checking it.
   control.independent_conditionals: >-
     Two separate `if`s can both be taken, so this must report. No case yet;
     the exclusivity test passes it by construction, which is exactly the kind

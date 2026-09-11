@@ -2,6 +2,267 @@
 
 ## Unreleased
 
+### The oracle runner checks the output contract's shape, and every field it asserts is load-bearing
+
+#48 names a tuple — `(file, line, type, evidence, reason, intrinsic,
+suggestion, simde_insns, native_insns)` — and the runner checked six of the
+nine. All nine are checked now, plus `rule`, `rule_mechanism`, `scope`,
+`macro` and `raw_name`.
+
+**Checked is not the same as decided, and the counts are where the two come
+apart.** `costs: reported|withheld|partial` says whether the tool must report
+instruction counts at all, which follows from whether SIMDe compiles the
+intrinsic to NEON — a question `x86/ssse3.h` and `x86/avx2.h` answer
+directly. Three values, not two: one count known and the other not is a state
+`report/text.py` renders on purpose and rule R produces at every call site, so
+a check reading only `simde_insns` would file it under whichever of the other
+two happened to match and a rule that started dropping a count would look
+unchanged. The numbers themselves are asserted in one case only:
+`_mm_shuffle_epi8` expands to `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))`,
+three instructions of which two are the pshufb guard, so a mask that needs no
+guard leaves the `vqtbl1q` alone — 3 to 1, counted off the header. Rule M's
+entries are per chain element and turn on whether the scalar is already in a
+register, which is a modelling choice about the call site rather than a line
+to count. Reconstructing that reasoning from the table's own `note:` would
+restate the table, not check it, so it is a recorded gap.
+
+**A present null is an assertion.** `suggestion:` with no value requires the
+tool to offer none; omitting the key asserts nothing. Two of the ten
+historical faults live in exactly that gap — a portable-fallback path
+asserting instruction counts SIMDe never emits, and a withdrawn suggestion
+keeping the count of the instruction it withdrew — and no expectation could
+state the contract they broke. Five cases state it now.
+
+**Matched, not zipped.** Expectations paired with findings by sorting both
+sides, which needs a key both can compute. `line` is not one: it is optional,
+and where a mechanism anchors is not always something the contract fixes.
+`shared_producers.c` has two findings at line 8 and two at line 19, and one
+case passed only because its chain happened to anchor earliest of three.
+
+The pairing is maximum-cardinality, not first-fit. With first-fit, a broad
+expectation claims a finding a narrower one needed, and the narrow one is
+reported as unmet — a disagreement with the tool that is really an artefact of
+which expectation was written first. `shared_producers.c` already holds two
+findings at one line differing only in `suggestion`, so that shape is one
+asserted field away.
+
+**Every asserted field is falsified, one at a time, and the comparison must
+notice.** Six assertions have shipped in this repository that could not fail.
+Corrupting a field and requiring the case to go red is the only evidence that
+the corpus checks what it says it checks — it says nothing about whether the
+tool is right, which is `faults.yaml`'s job. Dropping any expectation, or
+inventing one, must fail too: a rule reporting one extra finding per call site
+is the failure mode this corpus was built for, and a runner that only checked
+what it was told about would not see it.
+
+**The runner validates its own input.** Value kinds and enum members, so
+`reason: guard-required` fails as a malformed expectation rather than as a
+disagreement with the tool. Repeated YAML keys, which PyYAML resolves to the
+last one silently — at case level that drops a whole case's expectations while
+every completeness test still passes. And a field the runner checks that no
+case asserts now fails unless `coverage.yaml` records why: four were added at
+once here, and adding the capability is not the same as exercising it.
+
+**One invariant moved into the type.** `native_insns` counts a named
+replacement, so `Finding` rejects a native count without a `suggestion`. It
+holds on every finding the three corpora produce when each is scanned whole,
+9,526 of them; moving it into `__post_init__` makes it a guarantee rather than
+an observation. One test fixture violated it and was wrong — rule P does name
+a replacement.
+
+The mirror — a replacement's count known while the expansion's is not — was
+briefly forbidden too, and that was a mistake caught in review.
+`report/text.py` renders exactly that pair on purpose, arguing in its own
+docstring that collapsing it to "unknown" throws away a fact the header
+states. Where SIMDe falls through to portable code only the *saving* is
+unavailable, not the number.
+
+**What the corpus still does not assert: most of the numbers.** One case pins
+a pair — `shuffle_guard.c`'s 3 → 1, counted off the header above. Every other
+`simde_insns` and `native_insns` in the corpus is either null or unasserted,
+because deciding a number by hand otherwise means reading the tool's own
+knowledge table, and reading a table is not independent validation of it.
+Rule M's entries are the concrete blocker: per chain element, and turning on
+whether the scalar is already in a register. Recorded in
+`tests/oracle/README.md` as a decision, not left as a silence.
+
+### The runner's own guards, neutralised one at a time
+
+`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: twenty-two
+mutations of the machinery that decides whether the corpus means anything —
+nine in `tests/test_oracle.py`, eleven in the replay harness, two in the
+shared YAML loader — each naming the assertion that must die to it. Same
+harness; `run_faults.py` takes a catalogue path now.
+
+One check has no entry, and the absence is deliberate: narrowing `caught` from
+"exited non-zero" to "a test failed" is subsumed by the count comparison,
+which reaches every scenario found so far. The code keeps the narrower form as
+the precise statement of what counts; claiming a mutation pinned it would
+report coverage it does not have.
+
+The catalogues are separate because the claims differ. One says "this shipped
+and this test would have stopped it". The other says "this check is not
+decorative", which is a different and, for the runner, more urgent claim: the
+runner decides whether every other test under `tests/oracle/` means anything,
+so a guard inside it fails in exactly the silent way the corpus was built to
+catch elsewhere.
+
+It exists because of what review found. A counterexample test written to pin
+the file-attribution check re-derived the path comparison instead of calling
+it, so reverting that comparison left both the check and its regression test
+green — the ninth inert assertion in this repository, added in the commit that
+fixed the eighth. That mutation is `attribution_by_name`, and it survived until
+the comparison moved into a shared helper. Naming both tests in an acceptance
+clause did not help, because a clause cannot see that two assertions do not
+share a code path.
+
+Adding a check to `test_oracle.py` without adding its mutation here is how the
+next one gets in.
+
+**The harness needed the same treatment, and a catalogue cannot give it.**
+`run_faults.py` read the new catalogue with `yaml.safe_load`, so a repeated
+top-level `faults:` would discard the earlier list and the run would print
+"all 0 mutations caught" and exit zero — the strict loader written for
+`expected.yaml`, re-opened one file over. It is shared now
+(`tests/strict_yaml.py`) rather than copied, an empty catalogue is refused
+outright however it arose, and `tests/test_run_faults.py` pins both, because
+a catalogue of mutations cannot test the code that reads catalogues.
+
+The first version of that pin was itself inert, and this time the sweep said
+so rather than a reviewer. Its duplicate key left an *empty* surviving list,
+so the emptiness guard caught the file first and the test still passed with
+the permissive loader restored. The fixture now leaves a real mutation behind
+the duplicate, so only the loader can object, and the test asserts the message
+rather than the exit code.
+
+### Fail-closed reading, for the tables as well as the tests
+
+The tables the tool publishes numbers from had the duplicate-key half of the
+same hole: `knowledge.py` read `patterns.yaml`, `redundant.yaml` and
+`aliases.yaml` with `yaml.safe_load`, where a repeated intrinsic keeps only
+the last row — silently changing every instruction count and replacement the
+tool reports for it. The loader lives in the package now
+(`simde_lint/strictyaml.py`) rather than under `tests/`, and the tables use it.
+
+The catalogue hole generalised. Almost every check under `tests/oracle/` is a
+universal statement, and a universal statement over an empty collection is
+true — so an emptied `coverage.yaml` passes "every cell is covered or a named
+gap" and "every mandatory combination is met by one case" **without examining
+anything**. Measured, not supposed:
+
+    all_cells: set()
+    every_cell_covered: PASSES VACUOUSLY
+    mandatory:          PASSES VACUOUSLY
+
+`strictyaml.require()` now guards each collection these checks quantify over:
+the manifest's dimensions, each dimension's values, each mandatory combination
+individually (an empty one is `set() <= cells`, met by every case without
+naming anything), the gaps, the unasserted fields, the expectations, the cells
+cases declare, the fields cases assert, and both catalogues. Zero entries is
+zero evidence, whatever emptied it.
+
+Guarding was not enough on its own. The guards sat on collections that are
+never empty on disk, so nothing exercised them: neutralising `require()`
+entirely left 504 tests passing. Nine tests now hand the loaders emptied
+fixtures, and the same neutralisation takes ten of them down.
+
+### Four ways the replay could credit a mutation it had not caught
+
+Chasing that generalisation turned up four more, and the sweep found three of
+them rather than a reviewer:
+
+**An anchor can be unique and still wrong.** Moving the loader into its own
+module left `if not faults:` matching the `--only` filter instead of the
+emptiness guard. `run_faults.py` refuses an anchor occurring zero times *or*
+more than once now, because `.replace(find, replace, 1)` otherwise mutates the
+first occurrence, which need not be the one the entry describes.
+
+**And it still printed `caught`.** The harness asked only whether the named
+assertion fails with the mutation applied — never whether it passes without
+it. That test was red at the time for an unrelated reason, so a mutation
+landing somewhere harmless looked caught. A baseline run comes first now, and
+an already-failing assertion is refused rather than credited.
+
+**A test can pass off the traceback of the thing it is testing.** With
+required-field validation removed, every malformed entry died of a `KeyError`
+whose traceback printed the missing key's name — which is exactly what the
+test asserted. It now requires the refusal's own wording and no traceback at
+all.
+
+**A catalogue can describe a mutation it cannot perform.** Missing fields and
+repeated names are refused up front: a missing `kills` would credit the run to
+whatever node id `None` resolves to, and "caught twin" would not say which of
+two entries was caught.
+
+One of those guards was itself too strict, and only the shipped catalogue
+showed it: `replace: ""` deletes the anchor, which is how
+`sixteen-lane-family-unregistered` expresses two absent table rows, and a
+required-field check that read empty as missing rejected all ten entries. It
+was caught because the acceptance run covers both catalogues rather than the
+new one alone.
+
+**A guard's own mutation can be the thing that breaks.** Disabling the
+"`kills` must name an assertion" check made the harness run the whole file the
+test named -- which contained that test, which spawns the harness. It did not
+fail; it forked until several hundred pytest processes were alive. The fixture
+names a throwaway file under `tmp_path` now.
+
+A first attempt at the collection check had the same shape more quietly: an
+extra `--collect-only` pass per entry is not a constant cost when the tests
+spawn the harness that spawns pytest, and the catalogue went from seconds to
+unfinishable. The count comes out of pytest's own summary line now, and the
+whole run takes 17 seconds.
+
+**And an interrupted run left a mutation in the tree.** `finally` does not run
+for SIGTERM, so a killed replay left a guard neutralised in the working tree,
+where the next run would measure its baseline against it -- and where it could
+be committed by accident. A signal handler restores every in-flight file;
+verified by killing a run and finding the tree clean, where the same kill had
+previously left `if False:` behind.
+
+**Three of the guards above were themselves wrong, in ways the sweep could not
+see.** Review found each:
+
+- *"Empty is always bad" is false for an exception list.* `known_gaps` and
+  `unasserted_fields` are subtracted from what the checks demand, so emptying
+  one makes the suite stricter, not vacuous — and an empty one is the goal
+  state, every gap closed. Requiring them non-empty would have forbidden ever
+  finishing. Only the collections a check quantifies over positively are
+  guarded now.
+- *A guard with no reachable scenario.* `_all_cells` carried its own emptiness
+  check, but `_manifest` already refuses an empty `dimensions` and any
+  dimension with no values, and those two make the cell set non-empty. Its
+  mutation was being credited to a failure raised by a different call site.
+  The guard is gone and the test that named it says what it actually pins.
+- *The restore was registered after the write.* A signal arriving in that
+  window found the file already mutated and nothing recorded to restore it —
+  reintroducing, inside the handler added to prevent it, the failure that put
+  `if False:` in the tree. Registration now precedes the write.
+
+`tests/test_run_faults.py` pins the rest, and `runner_guards.yaml` carries a
+mutation for each.
+
+**The first version of that claim was false, and it is the reason for the
+section below.** One entry deleted an argument from `require(collection,
+what)` rather than neutralising the emptiness guard, so the named test died of
+`TypeError` without ever reaching it — and the harness printed `caught`. The
+guard was reported covered by a mutation that never touched it.
+
+### A script decides when #48 is done
+
+`tests/acceptance.py` runs the condition clause by clause, each clause naming
+the assertion that decides it, and prints what a green run does and does not
+establish. Two clauses are narrower than first written, because what they
+actually decide is narrower: the counts are excluded except the one adjudicated
+case, and "every discrepancy has a recorded resolution" became "no discrepancy
+remains, and every case carries its reasoning" — the suite checks that nothing
+is open and that every case has a `why`, not that a past disagreement and its
+settlement were written down.
+
+The exclusions print with the result rather than sitting in a document beside
+it, so a green run cannot be quoted as more than it is. CI runs the script in
+place of the fault replay, which it contains.
+
 ### The faults that shipped, replayed against the assertions credited with catching them
 
 `tests/faults.yaml` holds ten defects that reached a release, each as a
@@ -11,6 +272,25 @@ applies each, runs that one assertion, and requires a failure. CI runs it.
 Naming the assertion is the point. "Something fails" credits a test with
 catching a fault it fails for unrelated reasons — which is how three
 assertions in this repository went inert while still passing.
+
+Naming it was not quite enough, and the gap took until the runner-guard work
+below to surface: the replay asked whether the named assertion fails *with*
+the mutation, never whether it passed *without* it. An assertion already red
+for an unrelated reason would have been credited with catching anything
+pointed at it. It now runs the baseline first and refuses to credit a failing
+assertion.
+
+The precise statement of what the earlier logs established is: *non-zero
+termination after the mutation.* What the strengthened replay establishes is
+that each named assertion passes before the reconstructed mutation, still runs
+after it, and then fails by assertion. All ten entries meet the stronger
+condition, so nothing is withdrawn.
+
+One claim is narrowed rather than withdrawn. These are *reconstructed* faults:
+the assertions were almost all written after the defect they name, so the
+replay shows that the current regression assertion detects the reconstructed
+shipped fault — not that the assertion would have blocked the release, which
+would require it to have existed in that commit's suite.
 
 **Six of the ten are over-restrictive**: a predicate that rejects too much, a
 family left unregistered, a producer retired before its second consumer.
@@ -37,7 +317,7 @@ rule F's half still demands a case.
 
 ### Coverage the suite computes instead of a claim someone makes
 
-`tests/oracle/coverage.yaml` names five dimensions and 34 values, each
+`tests/oracle/coverage.yaml` names six dimensions and 39 values, each
 dimension carrying the defect history that makes it one. Every case declares
 the cells it covers, and four tests decide the rest:
 

@@ -4,10 +4,19 @@
 # findings expected. An empty list is a claim that the file contains no
 # instance of any mechanism, not an omission.
 #
-# Fields checked when present: line, type, rule, evidence, reason, intrinsic,
-# suggestion, rationale_includes, rationale_excludes. Anything not named is
-# not asserted, so a case pins what it reasoned about and no more — but a key
+# Fields checked when present: line, type, rule, rule_mechanism, evidence,
+# reason, intrinsic, suggestion, simde_insns, native_insns, scope, macro,
+# raw_name, rationale_includes, rationale_excludes. Anything not named is not
+# asserted, so a case pins what it reasoned about and no more — but a key
 # outside that list is a mistake, not a silent no-op, and a test says so.
+#
+# Present-and-null is an assertion too: `suggestion:` with no value requires
+# the tool to offer none, which is not the same as leaving the key out.
+#
+# `costs: reported|withheld|partial` says whether instruction counts exist,
+# never what they are. Which one is right is read off the SIMDe source --
+# whether the expansion has a NEON branch -- not off the tool's cost table.
+# README.md carries the citations and why the numbers stay unasserted.
 
 exclusive_arms.c:
   covers:
@@ -69,11 +78,14 @@ portable_fallback.c:
     - claims.replacement_mismatched
     - claims.grade_a
     - claims.grade_c_width_mismatch
+    - output.costs_withheld
+    - output.no_replacement_named
   why: >-
     A multiply-add is present and unfused, so a type F finding belongs here.
     What must not appear is a claim about emitted machine instructions:
-    `_mm256_mullo_epi16` has no NEON branch in SIMDe 0.8.4 and falls through
-    to a portable loop, so the SIMDe source does not say what the compiler
+    `simde/x86/avx2.h:4050` gives `simde_mm256_mullo_epi16` an x86 branch and
+    a LOONGARCH LASX branch and nothing else, falling through to a portable
+    `SIMDE_VECTORIZE` loop, so the SIMDe source does not say what the compiler
     produces. The knowledge entry concedes this by recording both instruction
     counts as unknown; the rationale has to concede it too. `vmlaq_s16` is
     still the right fused form to name, and for a 256-bit value it applies to
@@ -90,6 +102,9 @@ portable_fallback.c:
       type: F
       intrinsic: _mm256_mullo_epi16
       suggestion: vmlaq_s16 per 128-bit half
+      simde_insns: null
+      native_insns: null
+      costs: withheld
       rationale_excludes: emitted as separate instructions
       rationale_includes: per 128-bit half
     - line: 16
@@ -98,6 +113,9 @@ portable_fallback.c:
       reason: transform_width_mismatch
       intrinsic: _mm256_mullo_epi16
       suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
       rationale_excludes: emitted as separate instructions
 
 redundant_zero_init.c:
@@ -106,6 +124,8 @@ redundant_zero_init.c:
     - representation.element_integer
     - representation.spelling_direct
     - claims.grade_c_requires_context
+    - output.cost_without_replacement
+    - output.costs_partial
   why: >-
     Rule R matches calls to the intrinsics registered in redundant.yaml and
     never inspects the consumer, so each registered call is one finding and
@@ -113,17 +133,40 @@ redundant_zero_init.c:
     the zero-init is dead only for a consumer it cannot see. `_mm_loadu_si128`
     loads a full vector, so there is no zero-init for the expansion to make
     redundant and nothing to report.
+
+    The rule names what the zero-init costs and proposes nothing in its
+    place, so `native_insns` has to be absent: a count of instructions for a
+    replacement nobody named is a number about nothing. The pinned pair is
+    the asymmetric one — a cost with no transform beside it, which is neither
+    "counts reported" nor "counts withheld" and has to be distinguishable from
+    both. `report/text.py` renders it as its own line for the same reason.
+
+    That the expansion cost exists at all is read off the source, not off the
+    tool: `simde/x86/sse2.h:5750` gives `simde_mm_loadu_si32` an
+    `SIMDE_ARM_NEON_A32V7_NATIVE` branch whose two operations are
+    `vdupq_n_s32(0)` and `vsetq_lane_s32` — the `vdup` being the zero-init
+    this rule is about — and `simde/x86/sse2.h:4156` gives
+    `simde_mm_loadl_epi64` one built from `vdup_n_s64(0)` and
+    `vcombine_s64(vld1_s64(...), ...)`. Both compile to NEON, so a count
+    exists; that no replacement count joins it follows from the rule offering
+    no replacement.
   findings:
     - line: 7
       type: R
       evidence: C
       reason: transform_requires_context
       intrinsic: _mm_loadu_si32
+      suggestion: null
+      native_insns: null
+      costs: partial
     - line: 8
       type: R
       evidence: C
       reason: transform_requires_context
       intrinsic: _mm_loadl_epi64
+      suggestion: null
+      native_insns: null
+      costs: partial
 
 scalar_assembly.c:
   covers:
@@ -132,6 +175,8 @@ scalar_assembly.c:
     - representation.element_integer
     - representation.spelling_direct
     - claims.grade_a
+    - output.costs_reported
+    - output.costs_withheld
   why: >-
     Type M's two mechanisms. Three inserts on one target meet the default
     threshold of three and are one finding, not three — the mechanism is the
@@ -140,17 +185,37 @@ scalar_assembly.c:
     constant vector and is excluded by the rule's own description. The line a
     chain anchors at is not something the published description fixes, so it
     is deliberately not asserted here.
+
+    `simde/x86/sse4.1.h:1582` and `simde/x86/sse2.h:5720` both carry an
+    `SIMDE_ARM_NEON_A32V7_NATIVE` branch — `vsetq_lane_s32` and `vld1q_s32` —
+    so the two 128-bit findings have an expansion to count.
+
+    The 256-bit chain is the same mechanism and still a finding, but
+    `simde/x86/avx.h:4086` offers `simde_mm256_insert_epi64` only an x86 and a
+    LOONGARCH LASX branch, falling through to a scalar store, so what it costs
+    and
+    what would replace it are both outside what the source says. The finding
+    reports the shape and withholds the numbers, which is the same
+    concession `portable_fallback.c` pins for rule F — one contract, not a
+    per-rule habit.
   findings:
     - type: M
       rule: M.scalar_insert_chain
+      intrinsic: _mm_insert_epi32
+      costs: reported
     - line: 21
       type: M
       rule: M.scalar_set_build
       intrinsic: _mm_set_epi32
+      costs: reported
     - line: 34
       type: M
       rule: M.scalar_insert_chain
       intrinsic: _mm256_insert_epi64
+      suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
 
 shuffle_guard.c:
   covers:
@@ -159,24 +224,43 @@ shuffle_guard.c:
     - representation.spelling_direct
     - claims.grade_a
     - claims.grade_c_unresolved
+    - output.costs_reported
+    - output.costs_adjudicated
+    - output.no_replacement_named
   why: >-
     Rule S matches every `_mm_shuffle_epi8` and grades on whether the mask's
     lanes are known to be safe, so both calls are findings and the grades
     differ. The first mask is sixteen literal indices, all inside 0..15,
     where pshufb and tbl agree — nothing is unknown and nothing needs a
-    guard, so grade A. The second mask is loaded at runtime: no lane can be
+    guard, so grade A. `simde/x86/ssse3.h:346` is one line —
+    `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))` — three NEON instructions,
+    of which the `vdup` and the `vand` exist only to make lanes above 15
+    zero the way pshufb does. A mask whose lanes are all inside 0..15 never
+    reaches them, so the replacement is the `vqtbl1q` alone: 3 to 1. Counted
+    off the header, not off the tool's table, which is the only reading that
+    validates the table rather than restating it. The second mask is loaded
+    at runtime: no lane can be
     read from the source, which is unresolved rather than a guard the rule
-    confirmed is load-bearing.
+    confirmed is load-bearing. Not naming `vqtbl1q_u8` there is only half the
+    concession: the instruction's cost must go with it, or the report still
+    offers the saving of a substitution it just declined to propose.
   findings:
     - line: 9
       type: S
       evidence: A
       intrinsic: _mm_shuffle_epi8
+      suggestion: vqtbl1q_u8
+      costs: reported
+      simde_insns: 3
+      native_insns: 1
     - line: 16
       type: S
       evidence: C
       reason: unresolved
       intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+      costs: withheld
 
 fusion_shapes.c:
   covers:
@@ -327,6 +411,7 @@ hop_and_guard.c:
     - representation.width_128
     - representation.element_integer
     - representation.spelling_direct
+    - output.no_replacement_named
   why: >-
     Two cells nothing else reached. A product arriving through one widening
     conversion is grade B: the path is resolved, one step less directly than a
@@ -351,6 +436,8 @@ hop_and_guard.c:
       evidence: C
       reason: guard_required
       intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
 
 consumer_choice.c:
   covers:
