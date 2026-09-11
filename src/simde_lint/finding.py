@@ -29,6 +29,12 @@ class Reason(str, Enum):
       under a condition this rule does not check (a consumer shape, for
       instance). The rule saw the call clearly; what it did not verify is
       that the condition holds here.
+    - **TRANSFORM_WIDTH_MISMATCH** — a fused replacement is recorded, the rule
+      checked it, and it does not fit: the instruction accumulates at a
+      different lane width than the accumulator at this call site. The
+      inefficiency is real; the recorded replacement is not the fix for it.
+      Distinct from the two above because the rule reached an answer rather
+      than declining to — neither "could not see" nor "did not check".
 
     v1 keeps one grade, C, for all three: the action each warrants is
     identical — do not transform without human confirmation. A fourth grade
@@ -39,6 +45,7 @@ class Reason(str, Enum):
     UNRESOLVED = "unresolved"
     GUARD_REQUIRED = "guard_required"
     TRANSFORM_REQUIRES_CONTEXT = "transform_requires_context"
+    TRANSFORM_WIDTH_MISMATCH = "transform_width_mismatch"
 
 
 @dataclass(frozen=True)

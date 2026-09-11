@@ -1,11 +1,59 @@
 # Changelog
 
-## 2.3.3 — 2026-09-09
+## 2.3.4 — 2026-09-11
 
-Documentation only, on top of `v2.3.2`. `git diff v2.3.2 v2.3.3 -- src tests`
-shows one line, the `__version__` constant. Every figure measured at `v2.3.1`
-still holds -- re-run to confirm: SVT-AV1 3272 `A 845, B 60, C 2367`, VVenC
-449 `A 101, B 87, C 261`, gate 204.
+### Rule F stops naming an instruction that cannot be dropped in
+
+The one behavioural change against `v2.3.3`. `git diff v2.3.3 v2.3.4 -- src`
+touches four files and no rule but F.
+
+`_mm_mul_epi32` products accumulated by `_mm_add_epi32` were reported at grade
+**A** suggesting `vmlal_s32`, which accumulates into 64-bit lanes. The
+accumulator there is 32, and `_mm_add_epi32` does not carry across the 32-bit
+boundary while `vmlal_s32` does — so following the suggestion changes the
+result. Five call sites in SVT-AV1, all grade A, the layer `--min-evidence A`
+exists to isolate. VVenC and the VVdeC holdout have none.
+
+The cost table maps a suggestion per intrinsic, so the multiply alone picked
+it; which add the product reaches is what decides whether it can be used, and
+nothing consulted that. `accumulator_lanes` now sits beside `suggestion` in
+`knowledge/patterns.yaml`, required for every F entry the way
+`transform_status` is — a `KeyError`, not a default, so an entry naming an
+instruction without saying what it accumulates into cannot go unchecked.
+
+The findings stay: the multiply-add is real and unfused. What is withdrawn is
+the replacement — `suggestion` becomes null, both instruction counts are
+withheld, and the grade drops to C with `reason: transform_width_mismatch`.
+
+**Reported by the paper session against `v2.3.3`, with the source read by
+hand.** Two of the five are `_mm_mul_epi32` + `_mm_add_epi32` where the
+product is later re-widened by `_mm_srli_epi64`; one is `_mm_mullo_epi16`
+against a 32-bit round constant, a deliberate mixed-width idiom.
+
+### Why this tag exists
+
+`v2.3.0`–`v2.3.3` differ from one another only in documentation and version
+metadata, and the width defect above is present in all four. `v2.4.0` fixed it
+— but `v2.4.0` was tagged on 2026-09-08 and `v2.3.3` on 2026-09-09, off
+`v2.3.2`, so the later tag carries the lower version number **and not the
+fix**. A reader comparing version numbers alone would draw the wrong
+conclusion about which behaviour each tag has.
+
+This release exists so that work citing the `v2.3.x` line has a tag with the
+fix and nothing else. It is `v2.3.3` plus this change: no other rule, cost
+table, or reported figure moves. Releases from `v2.4.0` on add capability
+beyond that line — a nested multiply spelling for rule F, the single-precision
+float family, control-region and consumer-selection corrections, and the
+oracle corpus and verification machinery — and their figures are not
+comparable to these.
+
+### Figures
+
+SVT-AV1 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence
+`A 840, B 60, C 2372`. Against `v2.3.1`–`v2.3.3`'s `A 845, B 60, C 2367`:
+five findings move A to C, none appear or disappear, and every other published
+figure is unchanged, gate 204 included.
+
 
 Five claims that a citation pinned to `v2.3.2` would have carried:
 
@@ -35,6 +83,13 @@ The last one defeats the release check added for `v2.4.0`, which reads the
 version out of the tool: `CITATION.cff` is a file the tool never loads. A test
 asserting it against the package metadata belongs on `main`, not in a
 documentation-only release, and is tracked there.
+
+## 2.3.3 — 2026-09-09
+
+Documentation only, on top of `v2.3.2`. `git diff v2.3.2 v2.3.3 -- src tests`
+shows one line, the `__version__` constant. Every figure measured at `v2.3.1`
+still holds -- re-run to confirm: SVT-AV1 3272 `A 845, B 60, C 2367`, VVenC
+449 `A 101, B 87, C 261`, gate 204.
 
 ## 2.3.2 — 2026-09-08
 

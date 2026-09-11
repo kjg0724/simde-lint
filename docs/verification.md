@@ -236,8 +236,12 @@ warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
 3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`, evidence
 `A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. **At this release
-(`v2.3.1`)** the same sweep gives 3272 findings,
-`F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence `A 845, B 60, C 2367`.
+(`v2.3.4`)** the same sweep gives 3272 findings,
+`F 1019, R 1816, S 341, M 64, P 31, W 1`, evidence `A 840, B 60, C 2372`.
+
+The evidence split is the one figure that moves against `v2.3.1`–`v2.3.3`,
+which reported `A 845, B 60, C 2367`. Five findings changed grade and none
+appeared or disappeared; the next section says which and why.
 
 Two changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -251,6 +255,29 @@ a loop boundary it is narrower than that, since the outer run and the first
 iteration do run consecutively — what the rule declines to do is report one
 chain whose cost holds for a single iteration count.
 
+This release makes one behavioural change against `v2.3.3`, and it moves five
+findings without moving any count. Rule F now checks that the instruction it
+names accumulates at the width the add uses. `vmlal_s32` writes 64-bit lanes;
+four `_mm_mul_epi32` call sites in `highbd_inv_txfm_sse4.c` accumulate into 32
+through `_mm_add_epi32`, and one `_mm_mullo_epi16` in `intrapred_ssse3.c` does
+the same against `vmlaq_s16`. All five were grade **A** — the layer
+`--min-evidence A` exists to isolate — while naming an instruction that cannot
+be dropped in: `_mm_add_epi32` does not carry across the 32-bit boundary and
+`vmlal_s32` does, so substituting it changes the result.
+
+They stay as findings, because the multiply-add is real and unfused. What is
+withdrawn is the replacement: `suggestion` becomes null, both instruction
+counts are withheld, and the grade drops to C with
+`reason: transform_width_mismatch`. VVenC and the VVdeC holdout have none.
+
+That check also means rule F emits no grade **B** on either corpus. A widening
+hop moves the product to a width the recorded fused form does not accumulate
+at, which is what widening means. Rule F emitted no B on either corpus before
+the check existed either, so nothing observed was lost — but it is now visible
+as a gap in the knowledge table rather than as silence: no fused form is
+recorded for multiply-then-widen-then-accumulate, and `vmlal_s32` is not the
+missing entry, since it takes the full 64-bit product where `_mm_mullo_epi32`
+truncates to 32 first.
 The 3264 figures above are left as `v2.2.0`'s output so this document
 continues to reproduce that release too.
 

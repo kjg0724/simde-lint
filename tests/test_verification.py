@@ -418,10 +418,13 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
     assert _aggregate(findings) == {
         "total": 3272,
         "type": {"R": 1816, "F": 1019, "S": 341, "M": 64, "P": 31, "W": 1},
-        # B rises with M: the eight findings the control-region split adds are
-        # all rule M, and M grades B unless every insert names its own target
-        # directly.
-        "evidence": {"A": 845, "B": 60, "C": 2367},
+        # Five findings move A to C against v2.3.3 and nothing else changes:
+        # rule F now checks that the instruction it names accumulates at the
+        # width the add uses. `vmlal_s32` writes 64-bit lanes and four
+        # `_mm_mul_epi32` call sites accumulate into 32; one `_mm_mullo_epi16`
+        # likewise. The findings stay -- the multiply-add is real and unfused
+        # -- and the suggestion is withdrawn, so the total does not move.
+        "evidence": {"A": 840, "B": 60, "C": 2372},
     }
 
 
