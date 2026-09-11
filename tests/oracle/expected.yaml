@@ -125,6 +125,7 @@ redundant_zero_init.c:
     - representation.spelling_direct
     - claims.grade_c_requires_context
     - output.cost_without_replacement
+    - output.costs_partial
   why: >-
     Rule R matches calls to the intrinsics registered in redundant.yaml and
     never inspects the consumer, so each registered call is one finding and
@@ -136,7 +137,9 @@ redundant_zero_init.c:
     The rule names what the zero-init costs and proposes nothing in its
     place, so `native_insns` has to be absent: a count of instructions for a
     replacement nobody named is a number about nothing. The pinned pair is
-    the asymmetric one — a cost with no transform beside it.
+    the asymmetric one — a cost with no transform beside it, which is neither
+    "counts reported" nor "counts withheld" and has to be distinguishable from
+    both. `report/text.py` renders it as its own line for the same reason.
   findings:
     - line: 7
       type: R
@@ -145,6 +148,7 @@ redundant_zero_init.c:
       intrinsic: _mm_loadu_si32
       suggestion: null
       native_insns: null
+      costs: partial
     - line: 8
       type: R
       evidence: C
@@ -152,6 +156,7 @@ redundant_zero_init.c:
       intrinsic: _mm_loadl_epi64
       suggestion: null
       native_insns: null
+      costs: partial
 
 scalar_assembly.c:
   covers:

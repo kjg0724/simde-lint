@@ -73,14 +73,17 @@ satisfied `evidence` and four deliberate falsifications left the corpus green.
 
 ## What the corpus deliberately does not assert
 
-**The instruction counts themselves.** No case pins a number. Deciding one by
-hand means reading the tool's own knowledge table, and reading a table is not
-independent validation of that table.
+**Most of the instruction counts.** One case pins numbers: `shuffle_guard.c`
+asserts 3 → 1, because `simde_mm_shuffle_epi8`'s AArch64 branch is a single
+line — `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))` — whose two guard
+operations a safe mask does not need. Nothing else does, because deciding a
+number by hand otherwise means reading the tool's own knowledge table, and
+reading a table is not independent validation of that table.
 
-What a case does decide is whether the counts exist at all — `costs: reported`
-or `costs: withheld` — because that follows from whether SIMDe compiles the
-intrinsic to NEON or falls through to portable code, which is a question the
-source answers directly. Against SIMDe 0.8.4:
+What every case decides is whether the counts exist at all — `costs:
+reported`, `withheld`, or `partial` — because that follows from whether SIMDe
+compiles the intrinsic to NEON or falls through to portable code, which is a
+question the source answers directly. Against SIMDe 0.8.4:
 
 | intrinsic | SIMDe source | NEON branch | `costs` |
 | --- | --- | --- | --- |

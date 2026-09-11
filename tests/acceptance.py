@@ -1,7 +1,7 @@
 """Decide, by script, whether the oracle suite meets its stated condition.
 
-The condition is fixed and quoted below. It was chosen before this script
-existed, so that what "done" means is not adjustable by whoever runs it:
+The condition was proposed in these terms, and is quoted here because what
+"done" means should not be adjustable by whoever runs the script:
 
     For the versioned seven-mechanism contract and committed coverage
     manifest, every mandatory case exists; every expected output field is
@@ -10,10 +10,22 @@ existed, so that what "done" means is not adjustable by whoever runs it:
     establish conformance on this finite suite, not corpus-wide recall or
     freedom from shared assumptions.
 
-The last sentence is part of the condition, not a disclaimer attached to it.
-A green run says the corpus agrees with the tool on the cases it contains and
-that no assertion in it is inert. It says nothing about how many instances
-either of them misses in code neither has seen.
+Two of those clauses are narrower here than as written, because what the
+suite actually decides is narrower, and the gap between them is where a green
+run would start meaning more than it should:
+
+- "every expected output field is checked" holds for the fields and for
+  whether the counts exist, but not for the count values, which are asserted
+  in one case only. `CLAUSES` and the printed exclusions say which.
+- "every discrepancy has a recorded resolution" is not mechanically decidable.
+  What is decided is that no discrepancy remains and that every case carries
+  a `why`; nothing checks that a past disagreement and its settlement were
+  written down.
+
+The last sentence of the quotation is part of the condition rather than a
+disclaimer attached to it. A green run says the corpus agrees with the tool on
+the cases it contains and that no assertion in it is inert. It says nothing
+about how many instances either of them misses in code neither has seen.
 
 Each clause names the assertion that decides it, so a clause cannot pass by
 some other test happening to be green -- the same reason `faults.yaml` names

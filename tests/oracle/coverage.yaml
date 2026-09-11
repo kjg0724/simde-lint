@@ -105,6 +105,7 @@ dimensions:
       costs_adjudicated: the numbers themselves, counted off the header
       costs_adjudicated_for_chains: the same, where the unit is a chain element
       costs_withheld: no NEON branch to read, so neither count is claimed
+      costs_partial: one count known and the other not, which is a third state
       no_replacement_named: no suggestion, and no native count with it
       cost_without_replacement: the expansion's cost named, no replacement
 

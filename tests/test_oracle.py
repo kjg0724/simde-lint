@@ -44,9 +44,15 @@ _CHECKED = (
 _RATIONALE = ("rationale_includes", "rationale_excludes")
 # Whether the tool reports instruction counts at all, which is decidable from
 # the SIMDe source without reading the tool's own table of numbers: a NEON
-# branch exists for this intrinsic, or it does not. The numbers themselves stay
-# unasserted -- see README.md.
-_COSTS = ("reported", "withheld")
+# branch exists for this intrinsic, or it does not. Most numbers themselves
+# stay unasserted -- see README.md.
+#
+# Three values, not two. `partial` -- one count known, the other not -- is a
+# state the reporter renders on purpose and `Finding` allows, so reading only
+# `simde_insns` would file every partial finding under whichever of the other
+# two happened to match, and a rule that started dropping one count would look
+# unchanged.
+_COSTS = ("reported", "withheld", "partial")
 _ALLOWED_IN_A_FINDING = frozenset(_CHECKED) | frozenset(_RATIONALE) | {"costs"}
 _ALLOWED_IN_A_CASE = frozenset({"why", "findings", "covers"})
 
@@ -155,7 +161,8 @@ def _satisfies(finding, want: dict) -> str | None:
         if actual != want[field]:
             return f"{field} is {actual!r}, expected {want[field]!r}"
     if "costs" in want:
-        got = "withheld" if finding.simde_insns is None else "reported"
+        known = (finding.simde_insns is not None, finding.native_insns is not None)
+        got = {(True, True): "reported", (False, False): "withheld"}.get(known, "partial")
         if got != want["costs"]:
             return f"costs are {got}, expected {want['costs']}"
     if "rationale_includes" in want and want["rationale_includes"] not in finding.rationale:
@@ -312,7 +319,7 @@ def _corruptions(want: dict, finding) -> list[tuple[str, dict]]:
     out = []
     for field, value in want.items():
         if field == "costs":
-            broken = _COSTS[value == _COSTS[0]]
+            broken = next(other for other in _COSTS if other != value)
         elif field == "rationale_includes":
             broken = "a phrase no rationale contains"
         elif field == "rationale_excludes":
@@ -396,12 +403,28 @@ def test_every_finding_is_attributed_to_the_file_scanned(case):
     which one it anchors at; nothing in the rules forces that anchor to be in
     the file the scan started from once headers are involved. An expectation
     cannot state this, because the expectation is keyed by the file, so it
-    goes here instead of in `_CHECKED`.
+    goes here instead of in `_CHECKED`. The whole path is compared, not the
+    basename: a different tree holding a file of the same name is exactly the
+    attribution this is meant to catch.
     """
+    wanted = (CASES / case).resolve()
     for finding in _actual(CASES / case):
-        assert Path(finding.file).name == case, (
+        assert Path(finding.file).resolve() == wanted, (
             f"{case}: a finding is attributed to {finding.file}"
         )
+
+
+def test_the_attribution_check_reads_the_path_and_not_the_name():
+    # Pins the difference the basename form could not see. A same-named file
+    # in another tree is precisely the misattribution worth catching, and
+    # comparing `Path(...).name` accepts it.
+    import dataclasses
+
+    findings = _actual(CASES / "shuffle_guard.c")
+    assert findings, "the fixture must produce something to move"
+    moved = dataclasses.replace(findings[0], file="/wrong/tree/shuffle_guard.c")
+    assert Path(moved.file).name == "shuffle_guard.c"
+    assert Path(moved.file).resolve() != (CASES / "shuffle_guard.c").resolve()
 
 
 def test_every_case_file_has_an_expectation():

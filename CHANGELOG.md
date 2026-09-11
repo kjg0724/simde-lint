@@ -10,10 +10,14 @@ nine. All nine are checked now, plus `rule`, `rule_mechanism`, `scope`,
 `macro` and `raw_name`.
 
 **Checked is not the same as decided, and the counts are where the two come
-apart.** `costs: reported|withheld` says whether the tool must report
+apart.** `costs: reported|withheld|partial` says whether the tool must report
 instruction counts at all, which follows from whether SIMDe compiles the
 intrinsic to NEON — a question `x86/ssse3.h` and `x86/avx2.h` answer
-directly. The numbers themselves are asserted in one case only:
+directly. Three values, not two: one count known and the other not is a state
+`report/text.py` renders on purpose and rule R produces at every call site, so
+a check reading only `simde_insns` would file it under whichever of the other
+two happened to match and a rule that started dropping a count would look
+unchanged. The numbers themselves are asserted in one case only:
 `_mm_shuffle_epi8` expands to `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))`,
 three instructions of which two are the pshufb guard, so a mask that needs no
 guard leaves the `vqtbl1q` alone — 3 to 1, counted off the header. Rule M's
