@@ -64,22 +64,27 @@ case asserts now fails unless `coverage.yaml` records why: four were added at
 once here, and adding the capability is not the same as exercising it.
 
 **One invariant moved into the type.** `native_insns` counts a named
-replacement against a known expansion, so `Finding` rejects a native count
-without a `suggestion` or without `simde_insns`. Checked first by measurement
-— it holds on every finding the three corpora produce when each is scanned
-whole, 9,526 of them, a superset of the pinned module sets the published
-aggregates cover — and then moved into `__post_init__`, which makes it a
-guarantee rather than an observation. One test fixture violated it and was wrong — rule P does name
+replacement, so `Finding` rejects a native count without a `suggestion`. It
+holds on every finding the three corpora produce when each is scanned whole,
+9,526 of them; moving it into `__post_init__` makes it a guarantee rather than
+an observation. One test fixture violated it and was wrong — rule P does name
 a replacement.
 
-**What the corpus still does not assert: the numbers.** `simde_insns` and
-`native_insns` appear only as null, as the claim that a count would be
-unfounded. Deciding a number by hand means reading the tool's own knowledge
-table, and reading a table is not independent validation of it. Pinning
-numbers needs a citation into the SIMDe source at the pinned version, per
-intrinsic; until that exists, asserting them would import the blind spot the
-corpus was built to avoid. Recorded in `tests/oracle/README.md` as a decision,
-not left as a silence.
+The mirror — a replacement's count known while the expansion's is not — was
+briefly forbidden too, and that was a mistake caught in review.
+`report/text.py` renders exactly that pair on purpose, arguing in its own
+docstring that collapsing it to "unknown" throws away a fact the header
+states. Where SIMDe falls through to portable code only the *saving* is
+unavailable, not the number.
+
+**What the corpus still does not assert: most of the numbers.** One case pins
+a pair — `shuffle_guard.c`'s 3 → 1, counted off the header above. Every other
+`simde_insns` and `native_insns` in the corpus is either null or unasserted,
+because deciding a number by hand otherwise means reading the tool's own
+knowledge table, and reading a table is not independent validation of it.
+Rule M's entries are the concrete blocker: per chain element, and turning on
+whether the scalar is already in a register. Recorded in
+`tests/oracle/README.md` as a decision, not left as a silence.
 
 ### A script decides when #48 is done
 

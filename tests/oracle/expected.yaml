@@ -13,7 +13,7 @@
 # Present-and-null is an assertion too: `suggestion:` with no value requires
 # the tool to offer none, which is not the same as leaving the key out.
 #
-# `costs: reported|withheld` says whether instruction counts exist at all,
+# `costs: reported|withheld|partial` says whether instruction counts exist,
 # never what they are. Which one is right is read off the SIMDe source --
 # whether the expansion has a NEON branch -- not off the tool's cost table.
 # README.md carries the citations and why the numbers stay unasserted.
@@ -140,6 +140,16 @@ redundant_zero_init.c:
     the asymmetric one — a cost with no transform beside it, which is neither
     "counts reported" nor "counts withheld" and has to be distinguishable from
     both. `report/text.py` renders it as its own line for the same reason.
+
+    That the expansion cost exists at all is read off the source, not off the
+    tool: `simde/x86/sse2.h:5750` gives `simde_mm_loadu_si32` an
+    `SIMDE_ARM_NEON_A32V7_NATIVE` branch whose two operations are
+    `vdupq_n_s32(0)` and `vsetq_lane_s32` — the `vdup` being the zero-init
+    this rule is about — and `simde/x86/sse2.h:4156` gives
+    `simde_mm_loadl_epi64` one built from `vdup_n_s64(0)` and
+    `vcombine_s64(vld1_s64(...), ...)`. Both compile to NEON, so a count
+    exists; that no replacement count joins it follows from the rule offering
+    no replacement.
   findings:
     - line: 7
       type: R

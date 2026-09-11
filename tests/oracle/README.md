@@ -80,10 +80,12 @@ operations a safe mask does not need. Nothing else does, because deciding a
 number by hand otherwise means reading the tool's own knowledge table, and
 reading a table is not independent validation of that table.
 
-What every case decides is whether the counts exist at all — `costs:
-reported`, `withheld`, or `partial` — because that follows from whether SIMDe
-compiles the intrinsic to NEON or falls through to portable code, which is a
-question the source answers directly. Against SIMDe 0.8.4:
+What an expectation *can* decide without the table is whether the counts
+exist at all — `costs: reported`, `withheld`, or `partial` — because that
+follows from whether SIMDe compiles the intrinsic to NEON or falls through to
+portable code, which is a question the source answers directly. Four of the
+eleven cases declare it, covering nine of the twenty-seven expected findings;
+the rest assert nothing about costs. Against SIMDe 0.8.4:
 
 | intrinsic | SIMDe source | NEON branch | `costs` |
 | --- | --- | --- | --- |
@@ -92,6 +94,12 @@ question the source answers directly. Against SIMDe 0.8.4:
 | `_mm_set_epi32` | `x86/sse2.h:5720` | `A32V7` → `vld1q_s32` | reported |
 | `_mm256_mullo_epi16` | `x86/avx2.h:4050` | none — portable loop | withheld |
 | `_mm256_insert_epi64` | `x86/avx.h:4086` | none — scalar store | withheld |
+| `_mm_loadu_si32` | `x86/sse2.h:5750` | `A32V7` → `vdupq_n_s32` + `vsetq_lane_s32` | partial |
+| `_mm_loadl_epi64` | `x86/sse2.h:4156` | `A32V7` → `vdup_n_s64` + `vcombine_s64` | partial |
+
+`partial` is two claims, not one: the expansion compiles to NEON so a count
+exists, and the rule proposes no replacement so no second count joins it. Only
+the first is a question for the source.
 
 Pinning the numbers needs the same citation carried further, into the complete
 idiom each count covers. Until that exists, asserting them would import the

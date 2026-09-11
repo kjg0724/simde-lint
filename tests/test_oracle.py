@@ -393,6 +393,18 @@ def test_a_dropped_or_invented_expectation_fails(case):
     assert missing, f"{case}: an invented expectation was matched by something"
 
 
+def _is_attributed_to(finding, path: Path) -> bool:
+    """Whether `finding` was recorded against `path`.
+
+    One function, called by the check below and by the counterexample that
+    proves the check is the strict one. Written separately first, the two
+    shared no code: reverting this comparison to `Path(...).name` left both
+    green, because the counterexample was re-deriving two facts about `Path`
+    instead of exercising what the corpus runs.
+    """
+    return Path(finding.file).resolve() == path.resolve()
+
+
 @pytest.mark.parametrize("case", sorted(_expected()))
 def test_every_finding_is_attributed_to_the_file_scanned(case):
     """`file` is in the tuple #48 names and nothing was comparing it.
@@ -407,24 +419,28 @@ def test_every_finding_is_attributed_to_the_file_scanned(case):
     basename: a different tree holding a file of the same name is exactly the
     attribution this is meant to catch.
     """
-    wanted = (CASES / case).resolve()
     for finding in _actual(CASES / case):
-        assert Path(finding.file).resolve() == wanted, (
+        assert _is_attributed_to(finding, CASES / case), (
             f"{case}: a finding is attributed to {finding.file}"
         )
 
 
 def test_the_attribution_check_reads_the_path_and_not_the_name():
-    # Pins the difference the basename form could not see. A same-named file
-    # in another tree is precisely the misattribution worth catching, and
-    # comparing `Path(...).name` accepts it.
+    """A same-named file in another tree must not count as attributed.
+
+    Calls `_is_attributed_to`, which is the point: the first version of this
+    test re-derived the `Path` comparison itself, so reverting the check to a
+    basename comparison left it passing. That is the ninth inert guard in this
+    repository, and it was added in the commit that fixed the eighth.
+    """
     import dataclasses
 
-    findings = _actual(CASES / "shuffle_guard.c")
+    case = CASES / "shuffle_guard.c"
+    findings = _actual(case)
     assert findings, "the fixture must produce something to move"
     moved = dataclasses.replace(findings[0], file="/wrong/tree/shuffle_guard.c")
-    assert Path(moved.file).name == "shuffle_guard.c"
-    assert Path(moved.file).resolve() != (CASES / "shuffle_guard.c").resolve()
+    assert Path(moved.file).name == case.name, "the counterexample must share the name"
+    assert not _is_attributed_to(moved, case)
 
 
 def test_every_case_file_has_an_expectation():
