@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased
+
+### Code review of v2.5.0: ten defects, four of them grade-A visible
+
+The release went out without a code review of its diff. It has one now, and
+everything below was reproduced before being changed.
+
+**The control-region relation was wrong** (#60). `control_region` equality was
+added to rule F in `v2.4.0` and to rules W and P in `v2.5.0` to reject arms of
+an `if` that cannot both execute. It also rejects nesting, which is a different
+relation: where one region encloses the other, a path reaching the inner one
+runs both. Six real VVenC findings were suppressed — VVenC returns from 614 to
+620, and the holdout from 597 to 600.
+
+The IR had said so. `_control_region`'s note warns that rules "must not read
+nesting out of it", and equality is the other half of that warning: treating
+different regions as mutually exclusive. Rule M compares for equality because a
+*chain* must sit in one region; a *producer and its consumer* only have to be
+able to run together. `IntrinsicCall` now carries `region_chain`, and
+`on_a_common_path` is shared by the three rules that ask the question, so they
+cannot drift apart on it.
+
+**The oracle ignored any key it did not recognise** (#61). `evidance: A` was
+indistinguishable from a satisfied `evidence`: four deliberate falsifications
+left the corpus green. The corpus exists because it is the one check that
+cannot inherit the implementation's blind spot, and its own failure mode was
+silence. A test now validates the expectation's vocabulary.
+
+**Rule W tested the consumer's region after choosing it** (#62), so the search
+ended at a candidate the rule then rejected and a later unpack in the
+multiplies' own region was never reached. The test moved inside the search.
+
+**A portable fallback conceded on one path and asserted on the other** (#63).
+`_width_mismatch` built its own rationale and hardcoded the sentence
+`portable_fallback` exists to suppress. Both paths now share `_observed`.
+
+Five smaller ones. The `suggestion` field said `vmlaq_s16` while the rationale
+said "vmlaq_s16 per 128-bit half" — one finding, two claims; register width is
+now a table column rather than a `_mm256_` prefix test, and every branch and
+the JSON field use the same applied form. The oracle's two sort keys disagreed
+and a case passed on the luck of its anchor line. `portable_fallback` loaded
+with a default where its siblings raise. The completeness test globbed `*.c`
+only. A comment explained numbers it no longer matched.
+
+| corpus | v2.5.0 | now |
+|---|---:|---:|
+| SVT-AV1 `Source` | 3404 | 3404 |
+| VVenC `CommonLib/x86` | 614 | 620 |
+| VVdeC `CommonLib/x86` (holdout) | 597 | 600 |
+
+Census 4024 / 3992 / 100.00%, no edit to `verify.py`. Gate 204 == 204.
+
+**Why the oracle missed these.** Its cases covered the shapes the fixes were
+written for and not their neighbours: exclusive arms but not nesting, the
+portable path at a matching width but not a mismatched one. Both gaps are
+cases now.
+
 ## 2.5.0 — 2026-09-11
 
 Rules W, P, M and F, plus the verification surface that found most of it.

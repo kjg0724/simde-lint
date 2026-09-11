@@ -12,7 +12,13 @@ from typing import Iterator
 from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from ..knowledge import CostInfo, TransformStatus
-from .base import Context, location_fields, own_availability, raw_name_if_aliased
+from .base import (
+    Context,
+    location_fields,
+    on_a_common_path,
+    own_availability,
+    raw_name_if_aliased,
+)
 
 _MULTIPLIES = {
     "_mm_mullo_epi32",
@@ -100,6 +106,51 @@ def _operand_hop(unit: AnalysisUnit, add: IntrinsicCall, mul: IntrinsicCall):
     return _NOT_AN_OPERAND
 
 
+def _applied(cost: CostInfo) -> str | None:
+    """The suggestion as it applies to this call site's register width.
+
+    Every NEON instruction these entries name operates on 128 bits, so a
+    256-bit value takes two of them. Saying so is part of the suggestion, not
+    decoration on one rationale branch: it was rendered only for
+    `established` entries, leaving `_mm256_madd_epi16` and `_mm256_mul_ps`
+    unqualified three lines away, and the JSON `suggestion` field carried the
+    bare mnemonic while the text said "per 128-bit half" — two claims for one
+    finding.
+
+    `register_bits` comes from the table rather than a `_mm256_` prefix test,
+    so a future 512-bit entry is a row to fill in and not a silent omission.
+    """
+    if cost.suggestion is None:
+        return None
+    if cost.register_bits and cost.register_bits > 128:
+        return f"{cost.suggestion} per 128-bit half"
+    return cost.suggestion
+
+
+def _observed(cost: CostInfo) -> str:
+    """What the rule can say it saw, which depends on whether SIMDe's
+    expansion reaches NEON at all.
+
+    With a NEON branch the two operations are separate instructions and the
+    source says so. Without one -- a portable per-element loop carrying
+    SIMDE_VECTORIZE -- what a compiler emits is its own decision, and the
+    knowledge entry concedes as much by recording both counts as unknown. The
+    claim is lowered to what the source supports rather than dropped, because
+    the multiply-add is there either way.
+
+    Shared by every rationale path. It lived inside `_fusion_claim` and the
+    width-mismatch path built its own string, hardcoding the very sentence
+    this concession exists to avoid -- so the same intrinsic conceded at one
+    accumulator width and asserted at another.
+    """
+    if cost.portable_fallback:
+        return (
+            "SIMDe expresses the multiply and the accumulate separately, with no "
+            "NEON branch for this intrinsic, so what is emitted is the compiler's"
+        )
+    return "the multiply and the accumulate are emitted as separate instructions"
+
+
 class FusionRule:
     type = "F"
     rule_id = "F.mul_add_no_fuse"
@@ -132,7 +183,7 @@ class FusionRule:
                 if capped is not None:
                     evidence, reason = capped, cap_reason
                 claim = self._fusion_claim(cost)
-                suggestion = cost.suggestion
+                suggestion = _applied(cost)
                 native_insns = cost.native_insns
                 mismatch = self._width_mismatch(cost, add)
                 if mismatch is not None:
@@ -191,8 +242,8 @@ class FusionRule:
             return None
         described = f"{actual}-bit {'float' if kind == 'f' else 'integer'} lanes"
         return (
-            "the multiply and the accumulate are emitted as separate "
-            f"instructions; the recorded fused form {cost.suggestion} accumulates "
+            f"{_observed(cost)}; "
+            f"the recorded fused form {_applied(cost)} accumulates "
             f"into {wanted}-bit {'float' if _ELEMENT_KIND[cost.key] == 'f' else 'integer'} "
             f"lanes, but {add.name} accumulates into {described}, "
             "so it is not the replacement here"
@@ -231,36 +282,23 @@ class FusionRule:
         names the instruction — the count is reported separately, and is
         absent when SIMDe's expansion leaves it to the compiler.
         """
-        if cost.portable_fallback:
-            # No NEON branch: SIMDe expands this through a portable loop, so
-            # the source shows the two operations expressed separately and
-            # says nothing about what a compiler emits from them. The claim
-            # is lowered to what the source supports rather than dropped --
-            # the multiply-add is there either way.
-            observed = (
-                "SIMDe expresses the multiply and the accumulate separately, with no "
-                "NEON branch for this intrinsic, so what is emitted is the compiler's"
-            )
-        else:
-            observed = "the multiply and the accumulate are emitted as separate instructions"
+        observed = _observed(cost)
         if cost.transform_status is TransformStatus.CONDITIONAL:
             return (
-                f"{observed}; {cost.suggestion} applies only when the consumer is a "
+                f"{observed}; {_applied(cost)} applies only when the consumer is a "
                 "horizontal reduction, which this rule does not check"
             )
         if cost.transform_status is TransformStatus.CHANGES_RESULT:
             return (
-                f"{observed}; {cost.suggestion} fuses them but rounds once where the "
+                f"{observed}; {_applied(cost)} fuses them but rounds once where the "
                 "separate multiply and add round twice, so the results differ"
             )
         if cost.transform_status is not TransformStatus.ESTABLISHED:
             return f"{observed}; no fused multiply-accumulate form is established for this intrinsic"
-        applied = (
-            f"{cost.suggestion} per 128-bit half"
-            if cost.key.startswith("_mm256_")
-            else cost.suggestion
+        return (
+            f"{observed}; NEON fuses this into {_applied(cost)} for some "
+            "accumulator shapes"
         )
-        return f"{observed}; NEON fuses this into {applied} for some accumulator shapes"
 
     @staticmethod
     def _reaches_by_position(
@@ -293,7 +331,7 @@ class FusionRule:
         """
         if _operand_hop(unit, add, mul) is not _NOT_AN_OPERAND:
             return True
-        if not mul.result_var or mul.control_region != add.control_region:
+        if not mul.result_var or not on_a_common_path(mul, add):
             return False
         return add.start_byte >= own_availability(unit, mul)
 

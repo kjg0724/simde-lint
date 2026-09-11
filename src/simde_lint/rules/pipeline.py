@@ -12,7 +12,13 @@ from typing import Iterator
 
 from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, ValueKind
-from .base import Context, location_fields, own_availability, raw_name_if_aliased
+from .base import (
+    Context,
+    location_fields,
+    on_a_common_path,
+    own_availability,
+    raw_name_if_aliased,
+)
 
 _COMPARES = {
     "_mm_cmpgt_epi64",
@@ -37,7 +43,7 @@ class PipelineRule:
         for current, following in zip(ordered, ordered[1:]):
             if current.name not in _COMPARES or not current.result_var:
                 continue
-            if current.control_region != following.control_region:
+            if not on_a_common_path(current, following):
                 # Source order approximates scheduling order along one path.
                 # It says nothing across arms of an `if`, where the compare is
                 # never followed by that consumer in any execution -- the two

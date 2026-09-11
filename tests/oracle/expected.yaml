@@ -4,9 +4,10 @@
 # findings expected. An empty list is a claim that the file contains no
 # instance of any mechanism, not an omission.
 #
-# Fields checked when present: line, type, evidence, reason, intrinsic,
+# Fields checked when present: line, type, rule, evidence, reason, intrinsic,
 # suggestion, rationale_includes, rationale_excludes. Anything not named is
-# not asserted, so a case pins what it reasoned about and no more.
+# not asserted, so a case pins what it reasoned about and no more — but a key
+# outside that list is a mistake, not a silent no-op, and a test says so.
 
 exclusive_arms.c:
   why: >-
@@ -49,14 +50,28 @@ portable_fallback.c:
     produces. The knowledge entry concedes this by recording both instruction
     counts as unknown; the rationale has to concede it too. `vmlaq_s16` is
     still the right fused form to name, and for a 256-bit value it applies to
-    each 128-bit half.
+    each 128-bit half — which the `suggestion` field says as well as the
+    rationale, so a JSON consumer and a text reader get one claim.
+
+    The second function is the same intrinsic against a 32-lane accumulator,
+    where the recorded instruction does not fit and the suggestion is
+    withdrawn. The concession about what is emitted does not depend on the
+    width: there is no NEON branch either way, so that path must not assert
+    separate instructions while the matching-width path declines to.
   findings:
     - line: 8
       type: F
       intrinsic: _mm256_mullo_epi16
-      suggestion: vmlaq_s16
+      suggestion: vmlaq_s16 per 128-bit half
       rationale_excludes: emitted as separate instructions
       rationale_includes: per 128-bit half
+    - line: 16
+      type: F
+      evidence: C
+      reason: transform_width_mismatch
+      intrinsic: _mm256_mullo_epi16
+      suggestion: null
+      rationale_excludes: emitted as separate instructions
 
 redundant_zero_init.c:
   why: >-
@@ -154,3 +169,29 @@ fusion_shapes.c:
       reason: transform_changes_result
       intrinsic: _mm_mul_ps
       suggestion: vfmaq_f32
+
+nested_regions.c:
+  why: >-
+    The control-region test exists to reject arms of an `if` that cannot both
+    execute. Nesting is a different relation: where one region encloses the
+    other, any path reaching the inner one has already run, or will run, the
+    outer. All three of these are real instances. In the first the add is
+    inside the `if` and consumes the product whenever the branch is taken; in
+    the second the multiply is inside and the add after it consumes whatever
+    the name holds, which on the taken path is that product; in the third both
+    multiplies sit together and only the unpack is nested. Rejecting these
+    would trade one false-positive class for a false-negative one, and VVenC
+    has six of exactly this shape.
+  findings:
+    - line: 7
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+    - line: 17
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+    - line: 24
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16

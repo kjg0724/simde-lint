@@ -16,7 +16,13 @@ from typing import Iterable, Iterator
 
 from ..finding import Evidence, Finding
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
-from .base import Context, location_fields, own_availability, raw_name_if_aliased
+from .base import (
+    Context,
+    location_fields,
+    on_a_common_path,
+    own_availability,
+    raw_name_if_aliased,
+)
 
 # Which half of the 16-bit lanes the consumer reconstructs, and therefore
 # which widening multiply replaces the round-trip. Both are one instruction --
@@ -67,7 +73,7 @@ class WideningRule:
             hi = self._partner(his, claimed_his, lo)
             if hi is None or not lo.result_var or not hi.result_var:
                 continue
-            if lo.control_region != hi.control_region:
+            if not on_a_common_path(lo, hi):
                 # A round-trip is one multiply pair feeding one unpack. Split
                 # across arms of an `if`, only one of the pair ever runs, so
                 # there is no round-trip to report -- adjacency in source text
@@ -76,11 +82,9 @@ class WideningRule:
                 # after; the consumer is checked below for the same reason.
                 continue
             consumer = self._consumer(
-                unpacks, claimed_unpacks, lo.result_var, hi.result_var, hi.start_byte
+                unpacks, claimed_unpacks, lo, lo.result_var, hi.result_var, hi.start_byte
             )
             if consumer is None:
-                continue
-            if consumer.control_region != lo.control_region:
                 continue
             if unit.redefined_between(
                 lo.result_var, own_availability(unit, lo), consumer.start_byte
@@ -140,11 +144,13 @@ class WideningRule:
     def _consumer(
         unpacks: list[IntrinsicCall],
         claimed: set[int],
+        lo: IntrinsicCall,
         lo_var: str,
         hi_var: str,
         after_position: int,
     ) -> IntrinsicCall | None:
-        """First unclaimed unpack at or after the multiplies taking both results.
+        """First unclaimed unpack on a common path with the multiplies, at or
+        after them, taking both results.
 
         This only matches by variable name and position, the same as the
         other rules' first pass over their candidate consumer. It does not
@@ -157,6 +163,13 @@ class WideningRule:
         """
         for unpack in unpacks:
             if unpack.id in claimed or unpack.start_byte < after_position:
+                continue
+            if not on_a_common_path(lo, unpack):
+                # Rejected while choosing, not after. Filtering the chosen
+                # candidate instead ended the search at it, so an unpack
+                # further on -- in the multiplies' own region, an unambiguous
+                # round-trip -- was never reached and the file reported
+                # nothing.
                 continue
             texts = {arg.text for arg in unpack.args}
             if lo_var in texts and hi_var in texts:

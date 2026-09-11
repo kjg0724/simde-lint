@@ -164,3 +164,26 @@ def validate_config(config: dict, rules) -> dict:
             raise ConfigError(f"{name} must be at least {option.minimum}, not {value}")
         resolved[name] = value
     return resolved
+
+
+def on_a_common_path(one: "IntrinsicCall", other: "IntrinsicCall") -> bool:
+    """Whether two calls can both run on some execution of their unit.
+
+    True when one's region chain is a prefix of the other's: one region
+    encloses the other, or they are the same. False only when the chains
+    diverge, which is the `if`/`else` case -- two arms that exclude each other.
+
+    This is the relation a producer and its consumer need. It is NOT the
+    relation a chain needs: rule M requires every link inside one region, so
+    it compares `control_region` for equality and should keep doing so.
+    Reusing equality here rejected nesting along with exclusivity and cost six
+    real VVenC findings.
+
+    Conservative in one direction and deliberately so: a loop body may run
+    zero times, and an `if` may not be taken, so "can both run" is weaker than
+    "do both run". The rules built on it already report a potential
+    inefficiency rather than an executed one.
+    """
+    a, b = one.region_chain, other.region_chain
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return longer[: len(shorter)] == shorter
