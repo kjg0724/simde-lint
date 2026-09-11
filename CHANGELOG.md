@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Recall for the widening round-trip
+
+`W.mul16_widen_roundtrip` names three calls and one relation between them, and
+operands compared as written settle it. `docs/precision/recall_widening.py`
+enumerates it without importing the tool: SVT-AV1 1/1, VVenC 17/17, VVdeC 9/9,
+site for site.
+
+The enumeration was wrong once, as the previous one was. It required a binding
+to end in `;` and so missed VVenC's `RdCostX86.h:2905`, where both multiplies
+sit in one declarator list ending in a comma. Twice out of two the independent
+check has been the side in error. That does not make it useless — a check that
+can only agree proves nothing — but the document now says it is not the more
+reliable of the two.
+
 ### Recall, for one more mechanism than was claimed
 
 `docs/verification.md` said F, M, W and P turn on structure so their ground
