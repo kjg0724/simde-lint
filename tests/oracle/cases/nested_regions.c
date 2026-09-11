@@ -29,3 +29,12 @@ void widening_consumer_nested(int t, __m128i a, __m128i b) {
     }
     (void)r;
 }
+
+// Sequential sibling blocks. Their regions diverge and both run, one after
+// the other -- neither contains the other, and nothing makes them exclusive.
+void sequential_sibling_blocks(__m128i a, __m128i b, __m128i acc) {
+    __m128i p = _mm_setzero_si128();
+    { p = _mm_mullo_epi32(a, b); }
+    { acc = _mm_add_epi32(acc, p); }
+    (void)acc;
+}

@@ -182,6 +182,12 @@ nested_regions.c:
     multiplies sit together and only the unpack is nested. Rejecting these
     would trade one false-positive class for a false-negative one, and VVenC
     has six of exactly this shape.
+
+    The fourth is neither nesting nor exclusivity: two sibling blocks that run
+    one after the other. Their regions diverge and neither contains the other,
+    so a relation built on containment rejects it -- but nothing makes two
+    sequential blocks unable to both run. Only different arms of one `if` or
+    `switch` do.
   findings:
     - line: 7
       type: F
@@ -195,3 +201,7 @@ nested_regions.c:
       type: W
       evidence: A
       intrinsic: _mm_mullo_epi16
+    - line: 37
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
