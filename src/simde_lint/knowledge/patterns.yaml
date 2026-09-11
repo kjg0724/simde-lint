@@ -195,6 +195,18 @@ patterns:
       suggestion: unknown
       source: x86/avx.h:4046
       note: no NEON branch
+    _mm256_insert_epi32:
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/avx.h:4065
+      note: no NEON branch — a scalar store into the private lane array
+    _mm256_insert_epi64:
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
+      source: x86/avx.h:4086
+      note: no NEON branch — a scalar store into the private lane array
   M.scalar_set_build:
     _mm_set_epi64x:
       simde_insns: 1

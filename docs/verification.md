@@ -301,8 +301,8 @@ not the tool erring.
 `A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1` — and `v2.3.2`,
 which is documentation-only on top of it and is what the paper cites — gives
 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
-evidence `A 845, B 60, C 2367`. `v2.4.0` gives 3402 findings,
-`F 1149, R 1816, S 341, M 64, P 31, W 1`, evidence `A 904, B 60, C 2438`.
+evidence `A 845, B 60, C 2367`. `main` gives 3404 findings,
+`F 1149, R 1816, S 341, M 66, P 31, W 1`, evidence `A 906, B 60, C 2438`.
 
 Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
@@ -1156,7 +1156,7 @@ type is unchanged to the finding -- what a change confined to one rule should
 look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
-all three corpora at `v2.4.0`: SVT-AV1 3402 findings / 362 warnings, VVenC
+all three corpora on `main`: SVT-AV1 3404 findings / 362 warnings, VVenC
 614 / 11, VVdeC 597 / 10 — every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
@@ -1206,6 +1206,28 @@ written settle it. `docs/precision/recall_widening.py` enumerates it:
 | SVT-AV1 `Source` | 1 | 1 | 0 | 100% |
 | VVenC `CommonLib/x86` | 17 | 17 | 0 | 100% |
 | VVdeC `CommonLib/x86` | 9 | 9 | 0 | 100% |
+
+**`M.scalar_insert_chain` is decidable as well**, once "chain" is read as the
+description writes it rather than as consecutive statements: SVT-AV1's
+`pickrst` builds `dd[0]` and `dd[1]` alternately, and a call on another target
+does not end the chain on this one. `docs/precision/recall_insert_chain.py`
+groups inserts by the lvalue as written, within one brace block:
+
+| Corpus | Ground truth | Reported | Missed | Recall |
+|---|---:|---:|---:|---:|
+| SVT-AV1 `Source` | 37 | 37 | 0 | 100% |
+| VVenC `CommonLib/x86` | 0 | 0 | 0 | — |
+| VVdeC `CommonLib/x86` | 0 | 0 | 0 | — |
+
+That enumeration disagreed twice before agreeing, and the second disagreement
+was the tool's. Written strictly — a chain broken by any intervening call — it
+found nothing at all where the tool found 35. Relaxed to the description, it
+found 37 against 35, and the two extra were real chains of
+`_mm256_insert_epi64`, an intrinsic the rule had never registered while
+`_mm256_insert_epi16` was. There is no difference in the mechanism: all three
+store a scalar into a lane and all three expand without a NEON branch.
+Registering `_mm256_insert_epi32` and `_mm256_insert_epi64` is what moved
+SVT-AV1 from 3402 to 3404.
 
 Site for site again, and this enumeration was wrong once too. It required a
 binding to end in `;`, so it missed VVenC's `RdCostX86.h:2905`, where both
@@ -1285,16 +1307,16 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 4016 (census, not a sample)
+findings checked: 4018 (census, not a sample)
 
-  agree          3984   99.2%
+  agree          3986   99.2%
   macro            32    0.8%
 
-agreement on structurally checkable findings: 3984 / 3984 = 100.00%
+agreement on structurally checkable findings: 3986 / 3986 = 100.00%
 ```
 
 Re-run against both pinned checkouts. The population is every finding from
-both sweeps -- 3402 + 614 = 4016 -- so it moves with them: at `v2.1.0` it read
+both sweeps -- 3404 + 614 = 4018 -- so it moves with them: at `v2.1.0` it read
 3713 / 3681 and at `v2.3.0` 3721 / 3689. The eight-finding step is SVT-AV1's
 3264 becoming 3272 under rule M's control-region split, which repartitions
 thirteen findings into twenty-one; the 237 after it are rule F's nested

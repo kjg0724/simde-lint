@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Recall for the insert chain, and the family it was missing
+
+`M.scalar_insert_chain` turned out to be decidable without the tool, once
+"chain" is read as the description writes it rather than as consecutive
+statements -- SVT-AV1's `pickrst` builds `dd[0]` and `dd[1]` alternately, and
+a call on another target does not end the chain on this one.
+
+The enumeration disagreed twice before agreeing. Written strictly it found
+nothing where the tool found 35. Relaxed to the description it found 37, and
+**the two extra were real**: chains of `_mm256_insert_epi64`, which the rule
+had never registered while `_mm256_insert_epi16` was. There is no difference
+in the mechanism -- all three store a scalar into a lane, all three expand
+without a NEON branch -- so `_mm256_insert_epi32` and `_mm256_insert_epi64`
+are registered now.
+
+This is the second gap of this shape found by an independent enumeration, and
+the first time the independent side was right rather than wrong.
+
+| corpus | before | after | rule M |
+|---|---:|---:|---|
+| SVT-AV1 | 3402 | 3404 | 64 -> 66 |
+| VVenC | 614 | 614 | unchanged |
+| VVdeC (holdout) | 597 | 597 | unchanged |
+
+Recall after the fix: SVT-AV1 37/37, VVenC and VVdeC 0/0.
+
 ### Recall for the widening round-trip
 
 `W.mul16_widen_roundtrip` names three calls and one relation between them, and

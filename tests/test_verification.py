@@ -478,11 +478,11 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['svt-av1'][:12]}")
     findings, _, _ = analyze([SVT_AV1])
     assert _aggregate(findings) == {
-        "total": 3402,
+        "total": 3404,
         # F rises by 93 and nothing else moves: rule F now sees a multiply
         # written straight into the add, which it previously required to be
         # bound to a name first.
-        "type": {"R": 1816, "F": 1149, "S": 341, "M": 64, "P": 31, "W": 1},
+        "type": {"R": 1816, "F": 1149, "S": 341, "M": 66, "P": 31, "W": 1},
         # The 93 split 28/65 between A and C -- the cap the intrinsic's
         # transform status imposes decides that, not the new path. B does not
         # move at all: a nested multiply reaching its add through a widening
@@ -496,7 +496,7 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         # One more C: the single `_mm256_mul_ps` pair in this corpus, now that
         # rule F registers the float family. It grades C by construction --
         # `vfmaq_f32` is never an exact substitution.
-        "evidence": {"A": 904, "B": 60, "C": 2438},
+        "evidence": {"A": 906, "B": 60, "C": 2438},
     }
 
 

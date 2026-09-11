@@ -27,3 +27,12 @@ void set_from_literals(void) {
     __m128i v = _mm_set_epi32(1, 2, 3, 4);
     (void)v;
 }
+
+// The 256-bit insert family. epi16 was registered and epi32/epi64 were not,
+// with no difference in the mechanism: all three store a scalar into a lane.
+void wide_insert_chain(__m256i v, long long x, long long y, long long z) {
+    v = _mm256_insert_epi64(v, x, 0);
+    v = _mm256_insert_epi64(v, y, 1);
+    v = _mm256_insert_epi64(v, z, 2);
+    (void)v;
+}
