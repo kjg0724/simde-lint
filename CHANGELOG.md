@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### The region relation names what it tests
+
+Third correction to the same relation, and the reason it needed three: each
+was written against the shape in front of it.
+
+- `control_region` equality (v2.4.0, v2.5.0) rejected exclusive arms, and
+  nesting with them — six real VVenC findings.
+- Prefix-of region chains (#60) fixed nesting, and still rejected two
+  sequential sibling blocks, which run one after the other.
+
+Both were syntactic relations standing in for an execution one. Two calls
+cannot both run on one pass exactly when some `if` or `switch` encloses both
+and they sit in different arms of it; nesting, sequential siblings and
+independent conditionals all can. `IntrinsicCall` now records which arm of
+each enclosing selection it sits in, and `on_a_common_path` compares those
+directly instead of inferring from region identity.
+
+Found by an external review of the oracle work. No corpus figure moves — the
+sibling shape appears in none of the three — and the oracle carries it as a
+case beside the other two, where it failed before this change.
+
+Rule M is untouched: a chain must sit in one region, so equality is the right
+relation there.
+
 ### Code review of v2.5.0: ten defects, four of them grade-A visible
 
 The release went out without a code review of its diff. It has one now, and

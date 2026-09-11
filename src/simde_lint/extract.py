@@ -250,6 +250,43 @@ _REGION_TYPES = ("compound_statement", "case_statement")
 _UNBRACED_BODY_FIELDS = ("consequence", "alternative", "body")
 
 
+def _selection_arms(call: Node) -> tuple[tuple[int, int], ...]:
+    """For each enclosing `if`/`switch`, which arm this call sits in.
+
+    Two calls cannot both run on one pass exactly when some selection
+    statement encloses both and they are in different arms of it. Everything
+    else -- nesting, sequential sibling blocks, independent conditionals --
+    can run together.
+
+    Recorded directly rather than inferred from region identity. Region
+    equality called sequential siblings exclusive and nesting exclusive too;
+    prefix-of fixed nesting and still called siblings exclusive. Both were
+    syntactic relations standing in for an execution one, and each was
+    corrected against the shape in front of it. This names the thing being
+    tested.
+    """
+    arms: list[tuple[int, int]] = []
+    node = call
+    while node.parent is not None:
+        parent = node.parent
+        if parent.type == "if_statement":
+            consequence = parent.child_by_field_name("consequence")
+            if consequence is not None and consequence.id == node.id:
+                arms.append((parent.id, 0))
+            elif node.type == "else_clause" or (
+                parent.child_by_field_name("alternative") is not None
+                and parent.child_by_field_name("alternative").id == node.id
+            ):
+                arms.append((parent.id, 1))
+        elif node.type == "case_statement" and parent.parent is not None:
+            switch = parent.parent
+            if switch.type == "switch_statement":
+                arms.append((switch.id, node.id))
+        node = parent
+    arms.reverse()
+    return tuple(arms)
+
+
 def _region_chain(call: Node) -> tuple[int, ...]:
     """Every enclosing region, outermost first.
 
@@ -459,6 +496,7 @@ def _extract_calls(
             result_lvalue=result_lvalue,
             control_region=_control_region(node),
             region_chain=_region_chain(node),
+            selection_arms=_selection_arms(node),
             is_macro_alias=raw_name in aliases.targets,
         )
         calls.append(call)

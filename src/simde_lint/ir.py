@@ -84,6 +84,10 @@ class IntrinsicCall:
     # holding the other, which does not. Equality rejected both, and cost six
     # real VVenC findings.
     region_chain: tuple[int, ...] = ()
+    # Which arm of each enclosing `if`/`switch` this call sits in, outermost
+    # first. Two calls exclude each other exactly when one selection appears
+    # in both with different arms; see `rules/base.py`'s `excludes`.
+    selection_arms: tuple[tuple[int, int], ...] = ()
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
     # `macros.build_alias_map`) — a macro whose *body* extraction never sees,

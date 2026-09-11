@@ -167,23 +167,29 @@ def validate_config(config: dict, rules) -> dict:
 
 
 def on_a_common_path(one: "IntrinsicCall", other: "IntrinsicCall") -> bool:
-    """Whether two calls can both run on some execution of their unit.
+    """Whether two calls can both run on one pass through their unit.
 
-    True when one's region chain is a prefix of the other's: one region
-    encloses the other, or they are the same. False only when the chains
-    diverge, which is the `if`/`else` case -- two arms that exclude each other.
+    False exactly when some `if` or `switch` encloses both and they sit in
+    different arms of it -- the one relation that makes two calls unable to
+    run together. Nesting, sequential sibling blocks and independent
+    conditionals all can.
 
-    This is the relation a producer and its consumer need. It is NOT the
-    relation a chain needs: rule M requires every link inside one region, so
-    it compares `control_region` for equality and should keep doing so.
-    Reusing equality here rejected nesting along with exclusivity and cost six
-    real VVenC findings.
+    Two earlier versions of this asked a syntactic question instead. Region
+    equality rejected nesting along with exclusivity, costing six real VVenC
+    findings; prefix-of fixed nesting and still rejected sequential sibling
+    blocks, which run one after the other. Each was corrected against the
+    shape in front of it, so this one names what it tests.
 
-    Conservative in one direction and deliberately so: a loop body may run
-    zero times, and an `if` may not be taken, so "can both run" is weaker than
-    "do both run". The rules built on it already report a potential
-    inefficiency rather than an executed one.
+    Still conservative in the other direction, and deliberately: a loop body
+    may run zero times and a taken arm is not guaranteed, so "can both run" is
+    weaker than "do both run". The rules built on it report a potential
+    inefficiency, not an executed one.
+
+    NOT the relation a chain needs: rule M requires every link inside one
+    region and compares `control_region` for equality, which is right there.
     """
-    a, b = one.region_chain, other.region_chain
-    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
-    return longer[: len(shorter)] == shorter
+    mine = dict(one.selection_arms)
+    for selection, arm in other.selection_arms:
+        if selection in mine and mine[selection] != arm:
+            return False
+    return True
