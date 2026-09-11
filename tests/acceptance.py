@@ -65,6 +65,7 @@ CLAUSES = [
             "tests/test_oracle.py::test_every_asserted_field_is_load_bearing",
             "tests/test_oracle.py::test_a_dropped_or_invented_expectation_fails",
             "tests/test_oracle.py::test_every_finding_is_attributed_to_the_file_scanned",
+            "tests/test_oracle.py::test_the_attribution_check_reads_the_path_and_not_the_name",
         ],
     ),
     (
