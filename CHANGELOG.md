@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Coverage the suite computes instead of a claim someone makes
+
+`tests/oracle/coverage.yaml` names five dimensions and 34 values, each
+dimension carrying the defect history that makes it one. Every case declares
+the cells it covers, and four tests decide the rest:
+
+- a cell must be covered or listed as a gap with a reason;
+- a `covers:` entry naming no defined cell fails, so a typo cannot inflate
+  coverage the way a mistyped expectation key once hid a falsified assertion;
+- a gap a case now exercises fails as stale, because leaving it suppresses the
+  failure that would demand the next case;
+- a mandatory combination must be met by **one** case, not by two with half of
+  it each — the defects here have all been interactions, and splitting them
+  across files is how they stayed invisible.
+
+"The corpus covers all seven rules" was true and useless. Every defect since
+has been a shape nobody had written down, so adding a dimension value now
+fails the suite until a case exists: that is how a shape gets recorded before
+it is forgotten.
+
+It found three empty cells immediately — `value_flow.widening_hop`,
+`claims.grade_b` and `claims.grade_c_guard_required`. Nine cases and nothing
+pinned grade B.
+
+Writing the case for them caught two of my own errors. A mask bound to a
+variable is not traced to its literals, so it grades `unresolved` rather than
+`guard_required`; and `0x80` is a **safe** lane, because a high bit means
+zeroing on both sides. The unsafe lanes are the middle ones, `[16,127]`.
+
+Six gaps are recorded rather than closed: independent conditionals, a loop
+boundary, an early exit, an invalid candidate before a valid one for rule F,
+a macro-resolved consumer, and a rebinding after the consumer. Each says what
+is untested and why.
+
 ### Both counting-unit divergences closed
 
 `docs/mechanisms.md` was written with two places the implementation did not

@@ -1,0 +1,115 @@
+# Coverage manifest for the oracle corpus.
+#
+# Every case in `expected.yaml` declares which cells it covers. A test then
+# computes what is missing, instead of a person claiming the set is adequate.
+# That is the point: "the corpus covers all seven rules" was true and useless,
+# because every defect since has been a shape nobody had thought to write down.
+#
+# `mandatory` is what must be covered for the corpus to be considered complete
+# against this manifest. `known_gaps` names cells deliberately not covered yet,
+# each with a reason; the test treats an uncovered cell that is not listed as
+# a failure, and a listed cell that IS covered as a stale entry to remove.
+#
+# Adding a dimension value here without a case makes the suite fail. That is
+# intended — it is how a shape gets written down before it is forgotten.
+
+dimensions:
+  control:
+    applies_to: [F, W, P]
+    why: >-
+      Whether a producer and its consumer can both run. Three defects came
+      from this one dimension, each fixed against the shape in front of it:
+      region equality rejected nesting, prefix-of rejected sequential
+      siblings, and before either, nothing rejected exclusive arms.
+    values:
+      same_block: producer and consumer in one block
+      consumer_nested: consumer inside a block the producer encloses
+      producer_nested: producer inside a block the consumer follows
+      sequential_siblings: two sibling blocks, one after the other
+      exclusive_arms: different arms of one `if` — the only non-runnable pair
+      independent_conditionals: two separate `if`s, which can both be taken
+      loop_boundary: producer in a loop, consumer after it
+      early_exit: a `return` between producer and consumer
+
+  value_flow:
+    applies_to: [F, W]
+    why: >-
+      How the product reaches the consumer. `named` was required for two
+      years and the nested spelling went unreported; the overwrite cases are
+      what `redefined_between` exists for.
+    values:
+      named: product bound to a variable the consumer names
+      nested: product written as the consumer's own operand
+      widening_hop: one conversion between producer and consumer
+      overwritten_before_use: the name rebound before the consumer runs
+      overwritten_after_use: rebound after, which must not suppress
+
+  multiplicity:
+    applies_to: [F, W]
+    why: >-
+      The counting unit. Both halves were wrong in one direction each until
+      `docs/mechanisms.md` settled them.
+    values:
+      one_to_one: one producer, one consumer
+      two_producers_one_consumer: one finding — the consumer is the unit
+      one_producer_two_consumers: two findings, one per consumer
+      invalid_candidate_first: a rejected candidate before a valid one
+
+  representation:
+    applies_to: [R, S, W, F, M, P]
+    why: >-
+      Two registration gaps were found by measurement rather than by design:
+      a 16-lane accumulator family and a 256-bit insert family.
+    values:
+      width_128: 128-bit registers
+      width_256: 256-bit registers
+      element_integer: integer lanes
+      element_float: float lanes
+      spelling_direct: the x86 name as written
+      spelling_macro: reached through a file-local `#define`
+
+  claims:
+    applies_to: [R, S, W, F, M, P]
+    why: >-
+      What the finding asserts about the replacement, which is a separate
+      axis from how well the operands resolved.
+    values:
+      cost_known: the SIMDe expansion's instruction count is readable
+      cost_unknown: no NEON branch, or the count left to the compiler
+      replacement_applies: the recorded instruction fits this call site
+      replacement_mismatched: it does not, and is withdrawn
+      grade_a: fully resolved and the replacement stands
+      grade_b: resolved through one hop
+      grade_c_unresolved: could not see far enough
+      grade_c_guard_required: saw everything; the guard is load-bearing
+      grade_c_requires_context: a condition this rule does not check
+      grade_c_changes_result: applies, and does not preserve results
+      grade_c_width_mismatch: checked, and does not fit
+
+# Pairs of dimension values that a past defect implicated, and that no single
+# case would otherwise be required to combine.
+mandatory_combinations:
+  - [control.exclusive_arms, multiplicity.one_to_one]
+  - [control.consumer_nested, value_flow.named]
+  - [value_flow.nested, multiplicity.two_producers_one_consumer]
+  - [claims.cost_unknown, claims.replacement_mismatched, representation.width_256]
+
+known_gaps:
+  control.independent_conditionals: >-
+    Two separate `if`s can both be taken, so this must report. No case yet;
+    the exclusivity test passes it by construction, which is exactly the kind
+    of "correct for now" that this manifest exists to stop relying on.
+  control.loop_boundary: >-
+    A producer in a loop and a consumer after it. Reported today because the
+    loop body encloses nothing the consumer is in, but nothing pins it.
+  control.early_exit: >-
+    A `return` between producer and consumer. The IR models no control flow,
+    so the finding stands; recording that as a decision rather than an
+    accident needs a case.
+  multiplicity.invalid_candidate_first: >-
+    Covered for W by `shared_producers.c`'s redefined pair, not for F.
+  representation.spelling_macro: >-
+    Rules F and P abstain on a macro-resolved consumer. Exercised in
+    `tests/fixtures`, not yet as an oracle case with a hand-decided answer.
+  value_flow.overwritten_after_use: >-
+    A rebinding after the consumer must not suppress the finding. No case.

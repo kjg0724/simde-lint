@@ -10,6 +10,12 @@
 # outside that list is a mistake, not a silent no-op, and a test says so.
 
 exclusive_arms.c:
+  covers:
+    - control.exclusive_arms
+    - multiplicity.one_to_one
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
   why: >-
     Both shapes are split across arms of an `if`. In `widening_pair_...` no
     execution reaches the unpack carrying both products, so there is no
@@ -24,6 +30,16 @@ exclusive_arms.c:
   findings: []
 
 exclusive_arms_control.c:
+  covers:
+    - control.same_block
+    - value_flow.named
+    - multiplicity.one_to_one
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.cost_known
+    - claims.replacement_applies
+    - claims.grade_a
   why: >-
     The same two shapes with no branching, so both are instances. The
     widening round-trip is one finding, not two: the mechanism is the
@@ -42,6 +58,17 @@ exclusive_arms_control.c:
       intrinsic: _mm_cmpgt_epi32
 
 portable_fallback.c:
+  covers:
+    - control.same_block
+    - value_flow.nested
+    - multiplicity.one_to_one
+    - representation.width_256
+    - representation.element_integer
+    - claims.cost_unknown
+    - claims.replacement_applies
+    - claims.replacement_mismatched
+    - claims.grade_a
+    - claims.grade_c_width_mismatch
   why: >-
     A multiply-add is present and unfused, so a type F finding belongs here.
     What must not appear is a claim about emitted machine instructions:
@@ -74,6 +101,11 @@ portable_fallback.c:
       rationale_excludes: emitted as separate instructions
 
 redundant_zero_init.c:
+  covers:
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.grade_c_requires_context
   why: >-
     Rule R matches calls to the intrinsics registered in redundant.yaml and
     never inspects the consumer, so each registered call is one finding and
@@ -94,6 +126,12 @@ redundant_zero_init.c:
       intrinsic: _mm_loadl_epi64
 
 scalar_assembly.c:
+  covers:
+    - representation.width_128
+    - representation.width_256
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.grade_a
   why: >-
     Type M's two mechanisms. Three inserts on one target meet the default
     threshold of three and are one finding, not three — the mechanism is the
@@ -115,6 +153,12 @@ scalar_assembly.c:
       intrinsic: _mm256_insert_epi64
 
 shuffle_guard.c:
+  covers:
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.grade_a
+    - claims.grade_c_unresolved
   why: >-
     Rule S matches every `_mm_shuffle_epi8` and grades on whether the mask's
     lanes are known to be safe, so both calls are findings and the grades
@@ -135,6 +179,20 @@ shuffle_guard.c:
       intrinsic: _mm_shuffle_epi8
 
 fusion_shapes.c:
+  covers:
+    - control.same_block
+    - value_flow.named
+    - value_flow.nested
+    - multiplicity.one_to_one
+    - multiplicity.two_producers_one_consumer
+    - representation.width_128
+    - representation.element_integer
+    - representation.element_float
+    - representation.spelling_direct
+    - claims.cost_known
+    - claims.replacement_applies
+    - claims.grade_a
+    - claims.grade_c_changes_result
   why: >-
     Rule F's mechanism is a multiply whose product an add consumes instead of
     fusing, and whether the author named the product is a spelling choice —
@@ -171,6 +229,15 @@ fusion_shapes.c:
       suggestion: vfmaq_f32
 
 nested_regions.c:
+  covers:
+    - control.consumer_nested
+    - control.producer_nested
+    - control.sequential_siblings
+    - value_flow.named
+    - multiplicity.one_to_one
+    - representation.width_128
+    - representation.element_integer
+    - claims.grade_a
   why: >-
     The control-region test exists to reject arms of an `if` that cannot both
     execute. Nesting is a different relation: where one region encloses the
@@ -207,6 +274,14 @@ nested_regions.c:
       intrinsic: _mm_mullo_epi32
 
 shared_producers.c:
+  covers:
+    - control.same_block
+    - value_flow.named
+    - value_flow.overwritten_before_use
+    - multiplicity.one_producer_two_consumers
+    - representation.width_128
+    - representation.element_integer
+    - claims.grade_a
   why: >-
     `docs/mechanisms.md` makes the consumer the counting unit for both
     mechanisms. Rule W's unit is one consuming unpack — four lanes replaced by
@@ -241,3 +316,38 @@ shared_producers.c:
       type: W
       evidence: A
       intrinsic: _mm_mullo_epi16
+
+hop_and_guard.c:
+  covers:
+    - value_flow.widening_hop
+    - claims.grade_b
+    - claims.grade_c_guard_required
+    - control.same_block
+    - multiplicity.one_to_one
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+  why: >-
+    Two cells nothing else reached. A product arriving through one widening
+    conversion is grade B: the path is resolved, one step less directly than a
+    product handed straight to the add — the only grade between "fully
+    resolved" and the caps, and until this case no oracle entry pinned it.
+
+    The shuffle mask is written inline at the call and every lane is a
+    literal, so nothing is unresolved; lane 15 is 0x20, inside the [16,127]
+    range where pshufb zeroes and tbl does not. That is `guard_required` —
+    the rule saw everything and the guard is load-bearing — and it is a
+    different claim from `unresolved`, which is what a mask the rule cannot
+    read produces. Writing this case caught two of my own errors: a mask bound
+    to a variable is not traced, and 0x80 is safe rather than unsafe, because
+    a high bit means zeroing on both sides.
+  findings:
+    - line: 8
+      type: F
+      evidence: B
+      intrinsic: _mm_mullo_epi32
+    - line: 22
+      type: S
+      evidence: C
+      reason: guard_required
+      intrinsic: _mm_shuffle_epi8
