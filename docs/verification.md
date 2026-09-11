@@ -1180,9 +1180,8 @@ or the left side of a `#define` is not a call.
 | `_mm_loadl_epi64` | 1 | 1 | 0 | 100% |
 | **Total** | **431** | **420** | **11** | **97.4%** |
 
-This is recall for the two name-matched mechanisms. F, W, P and rule M's
-insert chain turn on structure, so their ground truth cannot be built by
-`grep` and is not claimed here.
+This is recall for the two name-matched mechanisms. F, P and rule M's insert
+chain turn on structure, so their ground truth is not claimed here.
 
 **`M.scalar_set_build` is not one of them**, and saying it was overstated the
 gap. Its description — `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
@@ -1196,6 +1195,33 @@ enumerates it without importing the tool:
 | VVenC `CommonLib/x86` | 23 | 23 | 0 | 100% |
 
 Both agree site for site, not only in total.
+
+**`W.mul16_widen_roundtrip` is decidable too.** Its description names three
+calls and one relation between them — `_mm_mullo_epi16` and `_mm_mulhi_epi16`
+over the same operands, consumed by an unpack — and operands compared as
+written settle it. `docs/precision/recall_widening.py` enumerates it:
+
+| Corpus | Ground truth | Reported | Missed | Recall |
+|---|---:|---:|---:|---:|
+| SVT-AV1 `Source` | 1 | 1 | 0 | 100% |
+| VVenC `CommonLib/x86` | 17 | 17 | 0 | 100% |
+| VVdeC `CommonLib/x86` | 9 | 9 | 0 | 100% |
+
+Site for site again, and this enumeration was wrong once too. It required a
+binding to end in `;`, so it missed VVenC's `RdCostX86.h:2905`, where both
+multiplies are one declarator list:
+
+```cpp
+const __m128i
+xmlo = _mm_mullo_epi16   ( xcur, xcur ),
+xmhi = _mm_mulhi_epi16   ( xcur, xcur );
+```
+
+The tool had it; the enumeration did not. That is twice out of two that the
+independent check was the side in error, which is worth stating plainly: it
+does not make the check useless — a check that can only agree proves nothing —
+but it is not the more reliable of the two, and this document should not
+imply that it is.
 
 The first version of that enumeration disagreed on five SVT-AV1 sites, and
 **the enumeration was wrong on all five**. It tested the argument list against
