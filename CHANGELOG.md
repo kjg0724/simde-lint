@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### A mechanism contract, and two places the implementation does not meet it
+
+`docs/mechanisms.md` states, per mechanism, what one finding counts, which
+families are in scope, where detection stops, what each field asserts, and
+whether two findings' costs may be added. `README.md` says what a rule matches,
+for someone deciding whether to run the tool; this says what a finding *is*,
+which is what an expectation cannot be written without.
+
+It exists because those answers were spread across a docstring, a
+knowledge-table note and the implementation, and did not all agree. Rule W's
+docstring says a pair feeding both unpacks is "two separate matches, not one";
+its code reports one. An expectation written from the README and one written
+from the docstring disagreed, and nothing decided between them.
+
+Two divergences are declared rather than fixed here, each reproduced:
+
+- rule W reports one finding where the contract says two (#66) — and the cost
+  model agrees with the contract, since 5 -> 1 is the cost of the four lanes
+  one unpack rebuilds;
+- rule F reports one finding for a product reaching two adds, where each add is
+  its own opportunity (#68).
+
+Both move corpus figures, so they are separate changes. The contract is the
+specification; where they differ the implementation is the defect.
+
+Also recorded: **costs are not additive across findings that share a matched
+call.** Two rule W findings over one multiply pair each report the pair, so
+summing them double-counts it. A corpus total is a count of findings, not a
+saving.
+
 ### The region relation names what it tests
 
 Third correction to the same relation, and the reason it needed three: each
