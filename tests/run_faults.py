@@ -6,8 +6,14 @@ retired too early -- and the guard-neutralisation used elsewhere does not
 reach them, because making a predicate more permissive exercises false
 positives only.
 
-Requiring a *named* assertion, rather than "something fails", is what stops a
-test being credited with catching a fault it fails for unrelated reasons.
+Requiring a *named* assertion, rather than "something fails", is most of what
+stops a test being credited with catching a fault it fails for unrelated
+reasons. The rest had to be added after two in-tree instances of exactly the
+thing this sentence used to claim was already prevented: the name must reach
+an assertion (`::`, not a bare filename), it must collect the same tests
+before and after, it must pass before the mutation, and it must then fail
+rather than merely exit non-zero -- an import the mutation breaks is not a
+test deciding against the code.
 
     uv run python tests/run_faults.py [CATALOGUE] [--only NAME]
 
@@ -22,14 +28,15 @@ pytest once per fault. CI runs it as its own step.
 """
 from __future__ import annotations
 
+import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-import strict_yaml
 import yaml  # noqa: F401  -- `runner_guards.yaml` mutates the loader back to this
+
+from simde_lint import strictyaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOGUE = Path(__file__).parent / "faults.yaml"
@@ -101,13 +108,60 @@ def _validate(faults: list[dict], catalogue: Path) -> None:
         if fault["name"] in seen:
             raise SystemExit(f"{catalogue}: two entries named {fault['name']!r}")
         seen.add(fault["name"])
+        if "::" not in fault["kills"]:
+            raise SystemExit(
+                f"{catalogue}: {fault['name']} names {fault['kills']!r}, which is a "
+                "file rather than an assertion. A whole file fails for any reason "
+                "at all, including a mutation that only breaks the import, so "
+                "crediting one says nothing about what the mutation did."
+            )
 
+
+# pytest's exit codes. Only `FAILED` is a test deciding against the code; the
+# rest are the run never reaching that decision, and crediting them is how a
+# mutation that merely breaks an import gets reported as caught.
+FAILED = 1
 
 def _run(node: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "pytest", node, "-q", "--no-header", "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True,
     )
+
+
+# Only outcomes of a test that actually executed. An `error` is collection or
+# a fixture failing, which is the run never reaching the assertion -- counting
+# those as "ran" let a mutation that broke an import keep the count unchanged
+# and slip past the comparison below.
+_COUNT = re.compile(r"(\d+) (passed|failed|xfailed|xpassed)\b")
+
+
+def _ran(run: subprocess.CompletedProcess) -> int:
+    """How many tests actually ran, from pytest's own summary line.
+
+    Read out of the run already performed rather than measured with a second
+    `--collect-only` pass. These tests spawn this harness, which spawns
+    pytest, so an extra invocation per entry is not a constant cost: the first
+    version multiplied at every level of that nesting and left 357 pytest
+    processes alive.
+    """
+    return sum(int(count) for count, _ in _COUNT.findall(run.stdout))
+
+
+def _restore_on_interrupt(paths: dict[Path, str]):
+    """Put every mutated file back if the run is killed.
+
+    `finally` does not run for SIGTERM, and a killed run left a guard
+    neutralised in the working tree -- where the next run would measure its
+    baseline against it, and where it could be committed by accident.
+    """
+    def handler(signum, _frame):
+        for path, text in paths.items():
+            path.write_text(text)
+        raise SystemExit(
+            f"interrupted (signal {signum}); restored {len(paths)} file(s)"
+        )
+    return handler
 
 
 def main() -> int:
@@ -121,10 +175,21 @@ def main() -> int:
     if not catalogue.is_absolute():
         catalogue = ROOT / catalogue if (ROOT / catalogue).exists() else catalogue
 
-    faults = strict_yaml.load(catalogue.read_text())["faults"]
     try:
-        strict_yaml.require(faults, f"{catalogue}: faults")
-    except strict_yaml.EmptyCollection as empty:
+        document = strictyaml.load(catalogue.read_text())
+    except yaml.constructor.ConstructorError as clash:
+        # Refused deliberately rather than crashed into. Letting this escape
+        # made the test that checks it match on the source line Python echoes
+        # in the traceback, not on anything the harness meant to say.
+        where = str(clash.problem_mark).strip().splitlines()[0]
+        raise SystemExit(
+            f"{catalogue}: {clash.problem} ({where}). PyYAML keeps the last "
+            "one, so the entries before it would vanish without a word."
+        ) from None
+    faults = document["faults"]
+    try:
+        strictyaml.require(faults, f"{catalogue}: faults")
+    except strictyaml.EmptyCollection as empty:
         raise SystemExit(
             f"{empty}\nAn empty catalogue would print 'all 0 mutations caught' "
             "and exit zero, which is the silent success this file exists to "
@@ -137,22 +202,55 @@ def main() -> int:
             raise SystemExit(f"no fault named {only}")
 
     undetected = []
+    in_flight: dict[Path, str] = {}
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, _restore_on_interrupt(in_flight))
+
     for fault in faults:
         path = ROOT / fault["file"]
         # The named assertion has to pass before the mutation, or "it failed
         # with the mutation applied" says nothing. An entry whose anchor had
         # drifted onto a different line reported `caught` here purely because
         # its target test was already red for an unrelated reason.
-        if _run(fault["kills"]).returncode != 0:
+        baseline = _run(fault["kills"])
+        before = _ran(baseline)
+        if before < 1:
+            raise SystemExit(
+                f"{fault['name']}: {fault['kills']} runs no tests, so there is "
+                "no assertion for the mutation to fail."
+            )
+        if baseline.returncode != 0:
             raise SystemExit(
                 f"{fault['name']}: {fault['kills']} already fails without the "
-                "mutation, so it cannot be credited with catching it."
+                f"mutation (exit {baseline.returncode}), so it cannot be "
+                "credited with catching it."
             )
         original = _apply(fault)
+        in_flight[path] = original
         try:
-            caught = _run(fault["kills"]).returncode != 0
+            after = _run(fault["kills"])
+            # The same tests must still run: a mutation that breaks the import
+            # makes every entry naming that file look caught at once, which is
+            # how a mutation deleting a function argument was credited for
+            # neutralising a guard it never reached.
+            if _ran(after) != before:
+                raise SystemExit(
+                    f"{fault['name']}: the mutation changed what "
+                    f"{fault['kills']} runs ({before} -> {_ran(after)}), so the "
+                    "failure is a broken run rather than an assertion deciding "
+                    "against the code."
+                )
+            # Narrower than `!= 0` deliberately, though the count check above
+            # reaches every scenario found so far: a run that never gets to
+            # the assertion also changes how many tests ran. Kept as the
+            # precise statement of what counts, and `runner_guards.yaml`
+            # carries no entry for it -- nothing can falsify it on its own,
+            # and an unfalsifiable entry would report coverage it does not
+            # have.
+            caught = after.returncode == FAILED
         finally:
             path.write_text(original)
+            in_flight.pop(path, None)
         mark = "caught" if caught else "MISSED"
         print(f"  {mark:7} {fault['name']}")
         if not caught:

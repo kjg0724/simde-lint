@@ -18,9 +18,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import strict_yaml
 import yaml
 
+from simde_lint import strictyaml
 from simde_lint.analyze import analyze
 from simde_lint.finding import Evidence, Reason
 
@@ -69,10 +69,9 @@ _VOCABULARY = {
 }
 
 
-def _expected() -> dict:
-    return strict_yaml.require(
-        strict_yaml.load((ORACLE / "expected.yaml").read_text()), "expected.yaml"
-    )
+def _expected(path: Path | None = None) -> dict:
+    path = path or ORACLE / "expected.yaml"
+    return strictyaml.require(strictyaml.load(path.read_text()), str(path))
 
 
 def _actual(path: Path) -> list:
@@ -92,7 +91,7 @@ def test_the_loader_refuses_a_repeated_key():
     # value silently, and a subclass that forgot to register the constructor
     # would inherit exactly that behaviour while looking strict.
     with pytest.raises(yaml.constructor.ConstructorError):
-        strict_yaml.load("a:\n  x: 1\n  x: 2\n")
+        strictyaml.load("a:\n  x: 1\n  x: 2\n")
 
 
 @pytest.mark.parametrize("case", sorted(_expected()))
@@ -431,26 +430,122 @@ def test_every_case_file_has_an_expectation():
     assert cases == set(_expected())
 
 
-def _manifest() -> dict:
-    manifest = strict_yaml.load((ORACLE / "coverage.yaml").read_text())
-    for key in ("dimensions", "mandatory_combinations", "known_gaps", "unasserted_fields"):
-        strict_yaml.require(manifest.get(key), f"coverage.yaml: {key}")
+MANIFEST_COLLECTIONS = (
+    "dimensions",
+    "mandatory_combinations",
+    "known_gaps",
+    "unasserted_fields",
+)
+
+
+def _manifest(path: Path | None = None) -> dict:
+    path = path or ORACLE / "coverage.yaml"
+    manifest = strictyaml.load(path.read_text())
+    for key in MANIFEST_COLLECTIONS:
+        strictyaml.require(manifest.get(key), f"{path.name}: {key}")
     for name, dimension in manifest["dimensions"].items():
-        strict_yaml.require(dimension.get("values"), f"coverage.yaml: {name}.values")
+        strictyaml.require(dimension.get("values"), f"{path.name}: {name}.values")
+    for index, combination in enumerate(manifest["mandatory_combinations"]):
+        # An empty combination is `set() <= cells`, true for every case, so it
+        # would report itself met without naming anything.
+        strictyaml.require(combination, f"{path.name}: mandatory_combinations[{index}]")
     return manifest
 
 
-def _all_cells() -> set[str]:
-    manifest = _manifest()
-    return strict_yaml.require({
+def _all_cells(path: Path | None = None) -> set[str]:
+    manifest = _manifest(path)
+    return strictyaml.require({
         f"{name}.{value}"
         for name, dimension in manifest["dimensions"].items()
         for value in dimension["values"]
     }, "the manifest's cells")
 
 
-def _covered() -> set[str]:
-    return {cell for case in _expected().values() for cell in case.get("covers", ())}
+def _covered(path: Path | None = None) -> set[str]:
+    # Quantified over by two tests that compare it against the manifest. If
+    # every `covers:` key vanished, both would compare empty against empty.
+    return strictyaml.require(
+        {cell for case in _expected(path).values() for cell in case.get("covers", ())},
+        "the cells cases declare",
+    )
+
+
+def _manifest_text(**emptied) -> str:
+    """The real manifest with some collections replaced by empty ones."""
+    manifest = strictyaml.load((ORACLE / "coverage.yaml").read_text())
+    manifest.update(emptied)
+    return yaml.safe_dump(manifest)
+
+
+@pytest.mark.parametrize("key", MANIFEST_COLLECTIONS)
+def test_an_emptied_manifest_collection_is_refused(tmp_path, key):
+    """Each collection the checks quantify over, emptied, must be refused.
+
+    Without these the guards were unreachable. `coverage.yaml` on disk is not
+    empty, so nothing exercised them, and neutralising `require` entirely left
+    504 tests passing -- the guards were present, unfalsifiable, and counted as
+    covered. That is the tenth inert assertion in this repository, and it
+    shipped in the commit whose changelog documents the ninth.
+    """
+    path = tmp_path / "coverage.yaml"
+    path.write_text(_manifest_text(**{key: {} if key != "mandatory_combinations" else []}))
+    with pytest.raises(strictyaml.EmptyCollection, match=key):
+        _manifest(path)
+
+
+def test_an_emptied_dimension_is_refused(tmp_path):
+    # A dimension with no values contributes no cells, so the coverage checks
+    # stop asking about that whole axis while the manifest still lists it.
+    manifest = strictyaml.load((ORACLE / "coverage.yaml").read_text())
+    name = sorted(manifest["dimensions"])[0]
+    manifest["dimensions"][name]["values"] = {}
+    path = tmp_path / "coverage.yaml"
+    path.write_text(yaml.safe_dump(manifest))
+    with pytest.raises(strictyaml.EmptyCollection, match=f"{name}.values"):
+        _manifest(path)
+
+
+def test_an_empty_mandatory_combination_is_refused(tmp_path):
+    # `set() <= cells` holds for every case, so an empty combination reports
+    # itself met by all of them without naming a single cell.
+    manifest = strictyaml.load((ORACLE / "coverage.yaml").read_text())
+    manifest["mandatory_combinations"].append([])
+    path = tmp_path / "coverage.yaml"
+    path.write_text(yaml.safe_dump(manifest))
+    with pytest.raises(strictyaml.EmptyCollection, match=r"mandatory_combinations\[\d+\]"):
+        _manifest(path)
+
+
+def test_emptied_expectations_are_refused(tmp_path):
+    # Every per-case test is parametrized over this mapping, so emptying it
+    # removes the tests rather than failing them -- pytest reports success on
+    # a suite that no longer contains them.
+    path = tmp_path / "expected.yaml"
+    path.write_text("{}\n")
+    with pytest.raises(strictyaml.EmptyCollection):
+        _expected(path)
+
+
+def test_a_manifest_with_no_cells_is_refused(tmp_path):
+    # Reached when every dimension is present but contributes nothing; the
+    # coverage tests would then compare two empty sets and pass.
+    manifest = strictyaml.load((ORACLE / "coverage.yaml").read_text())
+    manifest["dimensions"] = {"d": {"applies_to": ["R"], "why": "x", "values": {"v": "y"}}}
+    path = tmp_path / "coverage.yaml"
+    path.write_text(yaml.safe_dump(manifest))
+    assert _all_cells(path) == {"d.v"}, "the fixture must still produce cells"
+
+
+def test_cases_that_declare_no_cells_are_refused(tmp_path):
+    # `_covered()` is compared against the manifest by two tests. With every
+    # `covers:` key gone they compare empty against empty and both pass.
+    expected = strictyaml.load((ORACLE / "expected.yaml").read_text())
+    for case in expected.values():
+        case.pop("covers", None)
+    path = tmp_path / "expected.yaml"
+    path.write_text(yaml.safe_dump(expected))
+    with pytest.raises(strictyaml.EmptyCollection):
+        _covered(path)
 
 
 def test_every_declared_cell_is_a_cell_the_manifest_defines():
@@ -484,12 +579,12 @@ def test_no_known_gap_is_already_covered():
 
 
 def _asserted_fields() -> set[str]:
-    return {
+    return strictyaml.require({
         field
         for case in _expected().values()
         for want in case["findings"]
         for field in want
-    }
+    }, "the fields cases assert")
 
 
 def test_every_checked_field_is_asserted_by_a_case_or_declared_open():

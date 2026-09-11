@@ -77,26 +77,26 @@ faults:
     kills: tests/test_oracle.py::test_every_asserted_field_is_load_bearing
 
   - name: loader_keeps_the_last_duplicate
-    file: tests/strict_yaml.py
+    file: src/simde_lint/strictyaml.py
     find: "StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)"
     replace: "pass"
     kills: tests/test_oracle.py::test_the_loader_refuses_a_repeated_key
 
   - name: harness_reads_its_catalogue_permissively
     file: tests/run_faults.py
-    find: '    faults = strict_yaml.load(catalogue.read_text())["faults"]'
-    replace: '    faults = yaml.safe_load(catalogue.read_text())["faults"]'
+    find: "        document = strictyaml.load(catalogue.read_text())"
+    replace: "        document = yaml.safe_load(catalogue.read_text())"
     kills: tests/test_run_faults.py::test_a_repeated_top_level_key_is_refused
 
   - name: harness_accepts_an_empty_catalogue
     file: tests/run_faults.py
-    find: '        strict_yaml.require(faults, f"{catalogue}: faults")'
+    find: '        strictyaml.require(faults, f"{catalogue}: faults")'
     replace: "        pass"
     kills: tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass
 
   - name: harness_credits_an_already_failing_assertion
     file: tests/run_faults.py
-    find: '        if _run(fault["kills"]).returncode != 0:'
+    find: "        if baseline.returncode != 0:"
     replace: "        if False:"
     kills: tests/test_run_faults.py::test_an_already_failing_assertion_cannot_be_credited
 
@@ -118,14 +118,39 @@ faults:
     replace: "        if False:"
     kills: tests/test_run_faults.py::test_two_entries_with_one_name_are_refused
 
-  - name: manifest_cells_may_be_empty
-    file: tests/test_oracle.py
-    find: ", \"the manifest's cells\")"
-    replace: ")"
-    kills: tests/test_oracle.py::test_every_cell_is_covered_or_a_named_gap
+  - name: emptiness_guard_lets_everything_through
+    file: src/simde_lint/strictyaml.py
+    find: "    if not collection:"
+    replace: "    if False:"
+    kills: tests/test_oracle.py::test_an_emptied_manifest_collection_is_refused
 
   - name: harness_treats_an_empty_replace_as_missing
     file: tests/run_faults.py
     find: 'MAY_BE_EMPTY = frozenset({"replace"})'
     replace: "MAY_BE_EMPTY = frozenset()"
     kills: tests/test_run_faults.py::test_deleting_the_anchor_is_a_legitimate_mutation
+
+  - name: harness_credits_a_broken_collection
+    file: tests/run_faults.py
+    find: "            if _ran(after) != before:"
+    replace: "            if False:"
+    kills: tests/test_run_faults.py::test_a_mutation_that_breaks_collection_is_not_credited
+
+  - name: harness_accepts_a_kills_naming_a_file
+    file: tests/run_faults.py
+    find: '        if "::" not in fault["kills"]:'
+    replace: "        if False:"
+    kills: tests/test_run_faults.py::test_kills_must_name_an_assertion_not_a_file
+
+  - name: harness_accepts_a_kills_that_collects_nothing
+    file: tests/run_faults.py
+    find: "        if before < 1:"
+    replace: "        if False:"
+    kills: tests/test_run_faults.py::test_a_kills_that_collects_nothing_is_refused
+
+  - name: harness_crashes_on_a_duplicate_key
+    file: tests/run_faults.py
+    find: "    except yaml.constructor.ConstructorError as clash:"
+    replace: "    except NotImplementedError as clash:"
+    kills: tests/test_run_faults.py::test_a_repeated_top_level_key_is_refused
+

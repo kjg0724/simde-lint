@@ -17,8 +17,10 @@ import sys
 from pathlib import Path
 
 import pytest
-import strict_yaml
+import run_faults
 import yaml
+
+from simde_lint import strictyaml
 
 ROOT = Path(__file__).resolve().parent.parent
 HARNESS = ROOT / "tests" / "run_faults.py"
@@ -57,13 +59,19 @@ def test_a_repeated_top_level_key_is_refused(tmp_path):
         "leaving something non-empty so no other guard fires"
     )
     with pytest.raises(yaml.constructor.ConstructorError):
-        strict_yaml.load(catalogue.read_text())
+        strictyaml.load(catalogue.read_text())
 
     result = _run(str(catalogue))
+    output = result.stderr + result.stdout
     assert result.returncode != 0
-    assert "duplicate key" in result.stderr + result.stdout, (
+    assert "duplicate key" in output, (
         "must fail for the duplicate, not for some later consequence of it"
     )
+    # An uncaught ConstructorError also prints "duplicate key", in a traceback.
+    # Matching the phrase alone could not tell a deliberate refusal from a
+    # crash, so the mutation that stops catching it went undetected.
+    assert "Traceback" not in output, "must be refused, not crashed into"
+    assert "PyYAML keeps the last one" in output
 
 
 def test_an_empty_catalogue_is_not_a_pass(tmp_path):
@@ -77,6 +85,35 @@ def test_an_empty_catalogue_is_not_a_pass(tmp_path):
     assert "is empty" in result.stderr + result.stdout
 
 
+def _catalogue(tmp_path, **entry) -> Path:
+    """A one-entry catalogue whose target is a file under `tmp_path`.
+
+    Mutating a real source file to test the harness worked only because these
+    run sequentially; under `pytest -n auto`, or on an interrupt between the
+    write and the restore, the tree is left corrupted and the next entry's
+    baseline is measured against it.
+    """
+    target = tmp_path / "subject.py"
+    if not target.exists():
+        target.write_text("VALUE = 1\n")
+    entry.setdefault("file", str(target))
+    catalogue = tmp_path / f"{entry['name']}.yaml"
+    catalogue.write_text(yaml.safe_dump({"faults": [entry]}))
+    return catalogue
+
+
+def test_a_kills_that_collects_nothing_is_refused(tmp_path):
+    # Distinct from an already-red assertion, and it used to be reported as
+    # one: a typo'd node id sent a maintainer to debug a green test.
+    catalogue = _catalogue(
+        tmp_path, name="collects_nothing", find="VALUE = 1", replace="VALUE = 2",
+        kills="tests/test_run_faults.py::test_that_does_not_exist",
+    )
+    result = _run(str(catalogue))
+    assert result.returncode != 0
+    assert "runs no tests" in result.stderr + result.stdout
+
+
 def test_an_already_failing_assertion_cannot_be_credited(tmp_path):
     """"It failed with the mutation applied" says nothing if it failed anyway.
 
@@ -85,35 +122,73 @@ def test_an_already_failing_assertion_cannot_be_credited(tmp_path):
     `caught` -- because the test it named was red at that moment for an
     unrelated reason. The anchor-uniqueness check could not see it; the string
     was unique, just no longer the right one.
+
+    The assertion here is genuinely red, not merely absent. Written with a
+    node id that matched nothing, this exercised the collection path above
+    instead and never reached the baseline comparison it is named for.
     """
-    catalogue = tmp_path / "already-red.yaml"
-    catalogue.write_text(
-        "faults:\n"
-        "  - name: points_at_a_failing_test\n"
-        "    file: tests/strict_yaml.py\n"
-        '    find: "class EmptyCollection(Exception):"\n'
-        '    replace: "class EmptyCollection(Exception):  # touched"\n'
-        "    kills: tests/test_run_faults.py::test_that_does_not_exist\n"
+    red = tmp_path / "test_red.py"
+    red.write_text("def test_red():\n    assert False, 'red on purpose'\n")
+    catalogue = _catalogue(
+        tmp_path, name="points_at_a_failing_test", find="VALUE = 1", replace="VALUE = 2",
+        kills=f"{red}::test_red",
+    )
+    result = _run(str(catalogue))
+    output = result.stderr + result.stdout
+    assert result.returncode != 0
+    assert "already fails without the mutation" in output
+    assert "runs no tests" not in output, "the node must be found, and red"
+
+
+def test_a_mutation_that_breaks_collection_is_not_credited(tmp_path):
+    """A mutation can fail a test by stopping it existing.
+
+    Any non-zero pytest exit used to count, so a mutation that only broke an
+    import was credited -- and every entry naming that file was credited at
+    once. This is the mechanism that let a bogus mutation stand in for a real
+    one in `runner_guards.yaml`.
+    """
+    green = tmp_path / "test_green.py"
+    green.write_text("import subject\n\ndef test_green():\n    assert subject.VALUE == 1\n")
+    catalogue = _catalogue(
+        tmp_path, name="breaks_collection", find="VALUE = 1",
+        replace="this is not python", kills=f"{green}::test_green",
+    )
+    result = _run(str(catalogue))
+    output = result.stderr + result.stdout
+    assert result.returncode != 0
+    assert "changed what" in output and "runs (1 -> 0)" in output
+
+
+def test_kills_must_name_an_assertion_not_a_file(tmp_path):
+    """A whole file fails for any reason at all, including a broken import.
+
+    The file named here is a throwaway under `tmp_path`, not this one. Pointing
+    it at `tests/test_run_faults.py` made the guard's own mutation recurse:
+    with the check disabled the harness ran every test in this file, one of
+    which is this test, which spawns the harness again. It did not fail -- it
+    forked until the machine was carrying several hundred pytest processes.
+    """
+    green = tmp_path / "test_green.py"
+    green.write_text("def test_green():\n    assert True\n")
+    catalogue = _catalogue(
+        tmp_path, name="names_a_file", find="VALUE = 1", replace="VALUE = 2",
+        kills=str(green),
     )
     result = _run(str(catalogue))
     assert result.returncode != 0
-    assert "already fails without the mutation" in result.stderr + result.stdout
+    assert "rather than an assertion" in result.stderr + result.stdout
 
 
 def test_an_anchor_that_appears_twice_is_refused(tmp_path):
     # `.replace(find, replace, 1)` mutates the first occurrence, which need
     # not be the one the entry describes. Ambiguity here is indistinguishable
     # afterwards from a mutation that did land where it was meant to.
-    target = tmp_path / "twice.py"
-    target.write_text("x = 1\nx = 1\n")
-    catalogue = tmp_path / "ambiguous.yaml"
-    catalogue.write_text(
-        "faults:\n"
-        "  - name: ambiguous\n"
-        f"    file: {target}\n"
-        '    find: "x = 1"\n'
-        '    replace: "x = 2"\n'
-        "    kills: tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass\n"
+    target = tmp_path / "subject.py"
+    target.write_text("VALUE = 1\nVALUE = 1\n")
+    catalogue = _catalogue(
+        tmp_path, name="ambiguous", find="VALUE = 1", replace="VALUE = 2",
+        kills="tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass",
     )
     result = _run(str(catalogue))
     assert result.returncode != 0
@@ -129,14 +204,23 @@ def test_deleting_the_anchor_is_a_legitimate_mutation(tmp_path):
     caught here only because the acceptance run covers both catalogues, not
     the new one alone.
     """
-    catalogue = tmp_path / "deletion.yaml"
-    catalogue.write_text(yaml.safe_dump({"faults": [{
-        "name": "deletes", "file": "tests/strict_yaml.py",
-        "find": "class EmptyCollection(Exception):", "replace": "",
-        "kills": "tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass",
-    }]}))
+    subject = tmp_path / "subject.py"
+    subject.write_text("VALUE = 1\nGUARD = True\n")
+    green = tmp_path / "test_green.py"
+    green.write_text("import subject\n\ndef test_green():\n    assert subject.GUARD\n")
+    catalogue = _catalogue(
+        tmp_path, name="deletes", find="GUARD = True\n", replace="",
+        kills=f"{green}::test_green",
+    )
     result = _run(str(catalogue))
-    assert "is missing" not in result.stderr + result.stdout
+    output = result.stderr + result.stdout
+    assert "is missing" not in output
+    # The deletion has to have been performed and noticed, not merely not
+    # refused: asserting the absence of one phrase said nothing about whether
+    # anything happened.
+    assert result.returncode == 0
+    assert "caught  deletes" in output
+    assert subject.read_text() == "VALUE = 1\nGUARD = True\n", "tree must be restored"
 
 
 @pytest.mark.parametrize("missing", sorted(("name", "file", "find", "kills")))
@@ -145,7 +229,7 @@ def test_an_entry_missing_a_required_field_is_refused(tmp_path, missing):
     # resolves to, which pytest reports as an error rather than a pass -- so
     # every mutation would look caught.
     entry = {
-        "name": "incomplete", "file": "tests/strict_yaml.py",
+        "name": "incomplete", "file": "tests/strictyaml.py",
         "find": "import yaml", "replace": "import yaml  # touched",
         "kills": "tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass",
     }
@@ -166,7 +250,7 @@ def test_an_entry_missing_a_required_field_is_refused(tmp_path, missing):
 def test_two_entries_with_one_name_are_refused(tmp_path):
     # "caught twin" would not say which of them was caught.
     entry = {
-        "name": "twin", "file": "tests/strict_yaml.py",
+        "name": "twin", "file": "tests/strictyaml.py",
         "find": "import yaml", "replace": "import yaml  # touched",
         "kills": "tests/test_run_faults.py::test_an_empty_catalogue_is_not_a_pass",
     }
@@ -182,11 +266,11 @@ def test_every_shipped_catalogue_parses_strictly_and_is_not_empty(catalogue):
     # The guards above protect against a catalogue going empty later; this
     # says the committed ones are not empty now, and that neither has
     # acquired a duplicate key since.
-    faults = strict_yaml.load((ROOT / catalogue).read_text())["faults"]
-    strict_yaml.require(faults, catalogue)
-    names = [fault["name"] for fault in faults]
-    assert len(names) == len(set(names)), f"{catalogue} repeats a name"
-    for fault in faults:
-        assert set(fault) >= {"name", "file", "find", "replace", "kills"}, (
-            f"{catalogue}: {fault.get('name')} is missing a required field"
-        )
+    faults = strictyaml.load((ROOT / catalogue).read_text())["faults"]
+    strictyaml.require(faults, catalogue)
+    # Calls the validator rather than restating its rule. Retyping the
+    # required-field set here meant a field added to `REQUIRED` would never be
+    # checked against the shipped catalogues while this test went on reporting
+    # that they "parse strictly" -- the same re-derivation that produced the
+    # ninth inert assertion.
+    run_faults._validate(faults, ROOT / catalogue)

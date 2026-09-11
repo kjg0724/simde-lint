@@ -88,11 +88,17 @@ whether the scalar is already in a register. Recorded in
 
 ### The runner's own guards, neutralised one at a time
 
-`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: eighteen
+`tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: twenty-two
 mutations of the machinery that decides whether the corpus means anything —
-nine in `tests/test_oracle.py`, two in the replay harness, one in the shared
-YAML loader — each naming the assertion that must die to it. Same harness;
-`run_faults.py` takes a catalogue path now.
+nine in `tests/test_oracle.py`, eleven in the replay harness, two in the
+shared YAML loader — each naming the assertion that must die to it. Same
+harness; `run_faults.py` takes a catalogue path now.
+
+One check has no entry, and the absence is deliberate: narrowing `caught` from
+"exited non-zero" to "a test failed" is subsumed by the count comparison,
+which reaches every scenario found so far. The code keeps the narrower form as
+the precise statement of what counts; claiming a mutation pinned it would
+report coverage it does not have.
 
 The catalogues are separate because the claims differ. One says "this shipped
 and this test would have stopped it". The other says "this check is not
@@ -129,7 +135,14 @@ the permissive loader restored. The fixture now leaves a real mutation behind
 the duplicate, so only the loader can object, and the test asserts the message
 rather than the exit code.
 
-### Fail-closed reading, everywhere the evidence base is loaded from
+### Fail-closed reading, for the tables as well as the tests
+
+The tables the tool publishes numbers from had the duplicate-key half of the
+same hole: `knowledge.py` read `patterns.yaml`, `redundant.yaml` and
+`aliases.yaml` with `yaml.safe_load`, where a repeated intrinsic keeps only
+the last row — silently changing every instruction count and replacement the
+tool reports for it. The loader lives in the package now
+(`simde_lint/strictyaml.py`) rather than under `tests/`, and the tables use it.
 
 The catalogue hole generalised. Almost every check under `tests/oracle/` is a
 universal statement, and a universal statement over an empty collection is
@@ -141,10 +154,17 @@ anything**. Measured, not supposed:
     every_cell_covered: PASSES VACUOUSLY
     mandatory:          PASSES VACUOUSLY
 
-`strict_yaml.require()` now guards each collection these checks quantify over
-— the manifest's dimensions, each dimension's values, the mandatory
-combinations, the gaps, the unasserted fields, the expectations and both
-catalogues. Zero entries is zero evidence, whatever emptied it.
+`strictyaml.require()` now guards each collection these checks quantify over:
+the manifest's dimensions, each dimension's values, each mandatory combination
+individually (an empty one is `set() <= cells`, met by every case without
+naming anything), the gaps, the unasserted fields, the expectations, the cells
+cases declare, the fields cases assert, and both catalogues. Zero entries is
+zero evidence, whatever emptied it.
+
+Guarding was not enough on its own. The guards sat on collections that are
+never empty on disk, so nothing exercised them: neutralising `require()`
+entirely left 504 tests passing. Nine tests now hand the loaders emptied
+fixtures, and the same neutralisation takes ten of them down.
 
 ### Four ways the replay could credit a mutation it had not caught
 
@@ -182,8 +202,13 @@ was caught because the acceptance run covers both catalogues rather than the
 new one alone.
 
 `tests/test_run_faults.py` pins all of these, and `runner_guards.yaml` carries
-a mutation for each — eighteen now, over the runner, the harness, the shared
-loader and the manifest.
+a mutation for each.
+
+**The first version of that claim was false, and it is the reason for the
+section below.** One entry deleted an argument from `require(collection,
+what)` rather than neutralising the emptiness guard, so the named test died of
+`TypeError` without ever reaching it — and the harness printed `caught`. The
+guard was reported covered by a mutation that never touched it.
 
 ### A script decides when #48 is done
 

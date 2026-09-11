@@ -4,7 +4,10 @@ Each of these files answers "does this test mean anything", and each answers
 it by being a non-empty collection. Both halves of that can be lost quietly.
 
 **A repeated key.** PyYAML resolves `a: 1` followed by `a: 2` to `2`, in
-silence. In `tests/oracle/expected.yaml` a repeat inside a finding overwrites
+silence. In `knowledge/patterns.yaml` a repeated intrinsic keeps only the last
+entry, so every instruction count and replacement this tool publishes for that
+intrinsic would come from a row nobody meant to keep. In
+`tests/oracle/expected.yaml` a repeat inside a finding overwrites
 half an expectation while the file still parses, and at case level it drops a
 whole case while every completeness test still passes. In `tests/faults.yaml`
 and `tests/runner_guards.yaml` a second top-level `faults:` discards the list
@@ -17,9 +20,10 @@ without examining anything; an emptied catalogue passes the replay. Zero
 attempted is zero evidence, whatever emptied it — a duplicate key, a bad
 merge, a truncated edit.
 
-The loader is shared rather than copied because the catalogue hole was opened
-by writing a strict loader for `expected.yaml` and then reading the catalogue
-with `safe_load` one file over. `require` exists for the same reason: the
+The loader is shared rather than copied -- and lives in the package rather
+than under `tests/`, so the knowledge tables can use it too -- because the
+catalogue hole was opened by writing a strict loader for `expected.yaml` and
+then reading the catalogue with `safe_load` one file over. `require` exists for the same reason: the
 rule belongs in one place, not in each caller's memory.
 """
 from __future__ import annotations

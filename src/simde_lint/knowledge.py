@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-import yaml
+from simde_lint import strictyaml
 
 _DEFAULT_DIR = Path(__file__).parent / "knowledge"
 _UNKNOWN = "unknown"
@@ -120,8 +120,11 @@ class Knowledge:
 
 
 def _read(directory: Path, filename: str) -> dict:
-    with (directory / filename).open(encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
+    # Strict: a repeated intrinsic under one rule is last-wins in PyYAML, and
+    # these tables are where every published instruction count comes from. A
+    # silently discarded row would change what the tool claims about that
+    # intrinsic everywhere, with nothing to notice it.
+    return strictyaml.load((directory / filename).read_text(encoding="utf-8"))
 
 
 def _unknown_to_none(value):
