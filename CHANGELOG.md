@@ -201,6 +201,25 @@ required-field check that read empty as missing rejected all ten entries. It
 was caught because the acceptance run covers both catalogues rather than the
 new one alone.
 
+**A guard's own mutation can be the thing that breaks.** Disabling the
+"`kills` must name an assertion" check made the harness run the whole file the
+test named -- which contained that test, which spawns the harness. It did not
+fail; it forked until several hundred pytest processes were alive. The fixture
+names a throwaway file under `tmp_path` now.
+
+A first attempt at the collection check had the same shape more quietly: an
+extra `--collect-only` pass per entry is not a constant cost when the tests
+spawn the harness that spawns pytest, and the catalogue went from seconds to
+unfinishable. The count comes out of pytest's own summary line now, and the
+whole run takes 17 seconds.
+
+**And an interrupted run left a mutation in the tree.** `finally` does not run
+for SIGTERM, so a killed replay left a guard neutralised in the working tree,
+where the next run would measure its baseline against it -- and where it could
+be committed by accident. A signal handler restores every in-flight file;
+verified by killing a run and finding the tree clean, where the same kill had
+previously left `if False:` behind.
+
 `tests/test_run_faults.py` pins all of these, and `runner_guards.yaml` carries
 a mutation for each.
 
