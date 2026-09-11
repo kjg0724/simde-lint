@@ -1,9 +1,16 @@
 """An independent enumeration of `W.mul16_widen_roundtrip`, built without the tool.
 
-The rule's description: `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same
-operands, consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one
-unit. Every clause is decidable from the text of the calls -- the operands are
-compared as written, and "consumed by" means the unpack names both results.
+The counting unit, from `docs/mechanisms.md`: **one consuming unpack**. A
+`_mm_mullo_epi16`/`_mm_mulhi_epi16` pair over operands equal as written, and
+one finding for each unpack that names both results. A pair rebuilding all
+eight lanes is two.
+
+The first version of this file took one consumer per pair and stopped, which
+is what the implementation did -- so it agreed with the tool and preserved the
+omission instead of exposing it. It had been written from the README row,
+which says what the rule matches; the counting unit was in the module
+docstring, which it did not read. That is the reason `docs/mechanisms.md`
+exists.
 
 This file imports no `simde_lint`. It finds the three calls with regular
 expressions and pairs them by argument text, which is a cruder test than the
@@ -65,7 +72,7 @@ def enumerate_sites(roots):
                         break
                     if partner is None:
                         continue
-                    consumer = None
+                    consumers = []
                     for unpack in unpacks:
                         if unpack.start() in claimed_unpack:
                             continue
@@ -73,13 +80,13 @@ def enumerate_sites(roots):
                             continue
                         taken = _names(unpack.group("args"))
                         if lo.group("target") in taken and partner.group("target") in taken:
-                            consumer = unpack
-                            break
-                    if consumer is None:
+                            consumers.append(unpack)
+                    if not consumers:
                         continue
                     claimed_hi.add(partner.start())
-                    claimed_unpack.add(consumer.start())
-                    sites.append((path, text.count("\n", 0, lo.start()) + 1))
+                    for consumer in consumers:
+                        claimed_unpack.add(consumer.start())
+                        sites.append((path, text.count("\n", 0, lo.start()) + 1))
     return sites
 
 
@@ -89,7 +96,7 @@ def main():
         print("usage: recall_widening.py <root>...")
         return 1
     sites = enumerate_sites(roots)
-    print("mullo/mulhi round-trips into an unpack: %d  <- enumerated population" % len(sites))
+    print("consuming unpacks fed by a mullo/mulhi pair: %d  <- enumerated population" % len(sites))
     for name, count in Counter(os.path.basename(p) for p, _ in sites).most_common():
         print("  %5d  %s" % (count, name))
     return 0

@@ -286,3 +286,20 @@ void integer_product_into_a_float_add(__m128i a, __m128i b, __m128 acc) {
     acc = _mm_add_ps(acc, p);
     (void)acc;
 }
+
+// The widening hop runs before the only multiply that could claim it: `prod`
+// holds a load when `wide` is built, and is rebound to a madd afterwards. The
+// ordering guard is the only thing between this and a finding that credits a
+// product to a multiply that had not executed.
+//
+// One multiply and one add, deliberately: a fixture where another multiply
+// claims the add first never reaches the guard, which is how this assertion
+// went inert twice.
+void hop_precedes_its_apparent_multiply(const int *a, __m128i acc) {
+    __m128i va = _mm_loadu_si128((const __m128i *)a);
+    __m128i prod = _mm_loadu_si128((const __m128i *)a);
+    __m128i wide = _mm_cvtepi32_epi64(prod);
+    prod = _mm_madd_epi16(va, va);
+    __m128i sum = _mm_add_epi64(acc, wide);
+    (void)sum; (void)prod;
+}

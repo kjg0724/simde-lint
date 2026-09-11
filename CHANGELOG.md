@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Both counting-unit divergences closed
+
+`docs/mechanisms.md` was written with two places the implementation did not
+meet it. Both were the same defect — a shared producer retired after its first
+consumer — and both are fixed.
+
+Rule W reports one finding per consuming unpack (#66), so a pair rebuilding all
+eight lanes is two, which is what its own module docstring and its 5 -> 1 cost
+already said. Rule F reports one finding per add (#68), so a product
+accumulated into two of them is two, the mirror of two products into one add
+being one. The multiply pair is still claimed once, which is what kept VVenC's
+DeQuant from reporting sixteen findings for four round-trips.
+
+`docs/precision/recall_widening.py` was brought to the same unit. It had taken
+one consumer per pair, matching the implementation rather than the contract, so
+its 17/17 agreement preserved the omission instead of exposing it — the failure
+the recall work exists to catch, occurring inside the recall work.
+
+One mistake worth recording. Avoiding an infinite loop over a rejected consumer,
+the first attempt claimed it globally, on the reasoning that a consumer this
+pair cannot own is not one a later pair should inherit. That was asserted, not
+established, and it cost a real VVdeC finding — 9 became 8 where the change
+should only add. Rejections are per-pair now. It was caught by re-measuring,
+not by any test.
+
+| corpus | before | after | W | F |
+|---|---:|---:|---|---|
+| SVT-AV1 | 3404 | 3409 | 1 -> 2 | 1149 -> 1153 |
+| VVenC | 620 | 634 | 17 -> 31 | unchanged |
+| VVdeC (holdout) | 600 | 609 | 9 -> 18 | unchanged |
+
+Sampled at the source: VVdeC's nine pairs each feed an `unpacklo` and an
+`unpackhi`, and the two findings name different consumers.
+
+Gate 204 == 204. Census 4043 / 4011 / 100.00%, no edit to `verify.py`.
+Enumerator agreement after the change: 2/2, 31/31, 18/18.
+
+**These counts must not be summed as savings.** The two findings of an
+eight-lane rebuild share the multiply pair, and so do the two findings of a
+product reaching two adds.
+
 ### A mechanism contract, and two places the implementation does not meet it
 
 `docs/mechanisms.md` states, per mechanism, what one finding counts, which

@@ -76,8 +76,6 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
   multiply — which is why `suggestion` depends on which unpack matched
   (`vmull_s16` low, `vmull_high_s16` high) and why the cost is 5 -> 1 per
   finding rather than for the whole idiom.
-  **The implementation retires the multiply pair after the first consumer and
-  reports one (#66). This contract is what it must meet.**
 - **Anchor:** the low multiply.
 - **Families:** `_mm_mullo_epi16` + `_mm_mulhi_epi16` over operands equal as
   written, consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`. 128-bit only.
@@ -89,11 +87,8 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
 ## F.mul_add_no_fuse
 
 - **Unit: one add.** An add is one fusion opportunity, so two products
-  reaching one add is one finding. **One product reaching two adds is one
-  finding per add** — each add is its own opportunity — which the
-  implementation does not do: it reports the first and stops. Recorded here as
-  the specification; see the README's "does not cover" note, which describes
-  the current behaviour.
+  reaching one add is one finding, and one product reaching two adds is one
+  finding per add — each add is its own opportunity.
 - **Anchor:** the multiply.
 - **Families:** `mullo_epi16/epi32`, `madd_epi16`, `mul_epi32`, `mul_ps` at 128
   and 256 bits, reaching an `add_epi16/epi32/epi64/ps` of matching element kind
@@ -161,7 +156,13 @@ them are not supported. A `simde_`-prefixed name resolved through
 
 ## Open against this contract
 
-| # | mechanism | what the implementation does instead |
-|---|---|---|
-| #66 | W | reports one finding where the contract says two |
-| — | F | reports one finding for a product reaching two adds |
+Nothing. The two divergences this file was written with — rule W reporting one
+finding where the unit is the consuming unpack (#66), and rule F reporting one
+for a product reaching two adds (#68) — are closed.
+
+`docs/precision/recall_widening.py` was brought to the same unit in the same
+change. It had taken one consumer per pair, matching the implementation rather
+than the contract, so its agreement preserved the omission instead of exposing
+it. An enumerator written from the README row and a rule written from its own
+docstring are two readings of different documents; this file is the one both
+now read.

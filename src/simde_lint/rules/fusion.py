@@ -163,6 +163,12 @@ class FusionRule:
         # claims it. Without this, `sum = _mm_add_epi32(p1, p2)` over two
         # products reports twice — and since each finding is anchored at its
         # own multiply's line, no repeated-line check would reveal it.
+        #
+        # That is one direction only. A product reaching two adds is two
+        # opportunities and two findings, which is why this loop does not stop
+        # at the first match: `docs/mechanisms.md` makes the add the counting
+        # unit, and two adds are two units however many products feed them.
+        # Their costs share the multiply and must not be summed.
         claimed_adds: set[int] = set()
 
         for mul in sorted(unit.calls, key=lambda c: c.start_byte):
@@ -220,7 +226,6 @@ class FusionRule:
                     suggestion=suggestion,
                     raw_name=raw_name_if_aliased(mul),
                 )
-                break
 
     @staticmethod
     def _width_mismatch(cost: CostInfo, add: IntrinsicCall) -> str | None:

@@ -205,3 +205,39 @@ nested_regions.c:
       type: F
       evidence: A
       intrinsic: _mm_mullo_epi32
+
+shared_producers.c:
+  why: >-
+    `docs/mechanisms.md` makes the consumer the counting unit for both
+    mechanisms. Rule W's unit is one consuming unpack — four lanes replaced by
+    one widening multiply, which is why its cost is 5 to 1 per finding and why
+    the suggestion depends on which unpack matched — so a pair rebuilding all
+    eight lanes is two findings, both anchored at the low multiply. Rule F's
+    unit is one add, so a product accumulated into two of them is two
+    findings, both anchored at the multiply, the mirror of two products into
+    one add being one. The third function redefines the pair between the
+    unpacks, so the second unpack does not carry this pair's products and only
+    the first is a finding. Costs are per finding and the two findings of an
+    eight-lane rebuild share the multiply pair, so their numbers must not be
+    added.
+  findings:
+    - line: 8
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16
+    - line: 8
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16
+    - line: 19
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+    - line: 19
+      type: F
+      evidence: A
+      intrinsic: _mm_mullo_epi32
+    - line: 28
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16
