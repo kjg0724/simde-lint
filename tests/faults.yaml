@@ -1,0 +1,130 @@
+# Historical faults, each as a mutation that must break a named assertion.
+#
+# Every one of these shipped. Most were false negatives -- a predicate too
+# restrictive, a family unregistered, a producer retired too early -- and the
+# guard-neutralisation discipline used elsewhere does not reach them: it makes
+# predicates more permissive, which exercises false positives only.
+#
+# `kills` names the assertion that must fail. Requiring a specific one, rather
+# than "something fails", is what stops a test from passing for a reason
+# unrelated to the fault it is credited with catching.
+
+faults:
+  - name: region-equality-rejects-nesting
+    issue: 60
+    why: >-
+      control_region equality rejected a producer and consumer in nested
+      regions along with genuinely exclusive arms. Six real VVenC findings
+      went unreported.
+    file: src/simde_lint/rules/base.py
+    indent: 4
+    find: |
+      mine = dict(one.selection_arms)
+      for selection, arm in other.selection_arms:
+          if selection in mine and mine[selection] != arm:
+              return False
+      return True
+    replace: |
+      return one.control_region == other.control_region
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
+
+  - name: prefix-of-rejects-sequential-siblings
+    issue: 65
+    why: >-
+      The replacement for equality asked whether one region chain was a prefix
+      of the other. That admits nesting and still rejects two sibling blocks,
+      which run one after the other.
+    file: src/simde_lint/rules/base.py
+    indent: 4
+    find: |
+      mine = dict(one.selection_arms)
+      for selection, arm in other.selection_arms:
+          if selection in mine and mine[selection] != arm:
+              return False
+      return True
+    replace: |
+      a, b = one.region_chain, other.region_chain
+      shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+      return longer[: len(shorter)] == shorter
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
+
+  - name: widening-retires-producer-after-first-consumer
+    issue: 66
+    why: >-
+      Rule W stopped at one unpack per multiply pair, so a pair rebuilding all
+      eight lanes reported once where its own docstring and its cost model say
+      twice.
+    file: src/simde_lint/rules/widening.py
+    find: "                matched = True\n"
+    replace: "                matched = True\n                yield self._finding(unit, cost, lo, hi, consumer)\n                break\n"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[shared_producers.c]"
+
+  - name: fusion-stops-at-the-first-add
+    issue: 68
+    why: >-
+      Rule F reported one finding per multiply. An add is one opportunity, so
+      a product reaching two adds is two.
+    file: src/simde_lint/rules/fusion.py
+    find: "                    raw_name=raw_name_if_aliased(mul),\n                )\n"
+    replace: "                    raw_name=raw_name_if_aliased(mul),\n                )\n                break\n"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[shared_producers.c]"
+
+  - name: sixteen-lane-family-unregistered
+    issue: null
+    why: >-
+      _ADD_LANES carried no 16-lane add, so vmlaq_s16 could never be printed
+      and SVT-AV1's CDEF filters reported nothing at all.
+    file: src/simde_lint/rules/fusion.py
+    find: "    \"_mm_add_epi16\": (\"i\", 16),\n    \"_mm256_add_epi16\": (\"i\", 16),\n"
+    replace: ""
+    kills: "tests/test_rule_fusion.py::test_a_sixteen_lane_accumulator_names_its_fused_form"
+
+  - name: fusion-requires-a-named-product
+    issue: 42
+    why: >-
+      Rule F gated on mul.result_var, so the idiomatic nested spelling was
+      invisible. The independent checker shared the blind spot.
+    file: src/simde_lint/rules/fusion.py
+    find: "        if _operand_hop(unit, add, mul) is not _NOT_AN_OPERAND:\n            return True\n"
+    replace: ""
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[fusion_shapes.c]"
+
+  - name: width-check-ignores-element-kind
+    issue: null
+    why: >-
+      Comparing lane width alone let an integer product reaching _mm_add_ps
+      grade A, naming an integer multiply-accumulate for a float accumulator.
+    file: src/simde_lint/rules/fusion.py
+    find: "        if kind == _ELEMENT_KIND[cost.key] and wanted == actual:\n"
+    replace: "        if wanted == actual:\n"
+    kills: "tests/test_rule_fusion.py::test_an_integer_product_reaching_a_float_add_is_not_named"
+
+  - name: portable-fallback-asserts-emitted-instructions
+    issue: 63
+    why: >-
+      A rationale claimed which machine instructions SIMDe emits for an
+      expansion that has no NEON branch and leaves the count to the compiler.
+    file: src/simde_lint/rules/fusion.py
+    find: "    if cost.portable_fallback:\n"
+    replace: "    if False:\n"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[portable_fallback.c]"
+
+  - name: withdrawn-suggestion-keeps-its-instruction-count
+    issue: null
+    why: >-
+      A width-mismatched finding dropped its suggestion and kept native_insns,
+      so the report said "no suggestion offered (4 -> 3 instructions)".
+    file: src/simde_lint/rules/fusion.py
+    find: "                    native_insns = None\n"
+    replace: ""
+    kills: "tests/test_rule_fusion.py::test_a_withdrawn_suggestion_takes_its_instruction_count_with_it"
+
+  - name: widening-filters-the-consumer-after-choosing-it
+    issue: 62
+    why: >-
+      The region test ran on the chosen candidate, so the search ended at one
+      the rule then rejected and a later valid unpack was never reached.
+    file: src/simde_lint/rules/widening.py
+    find: "            if not on_a_common_path(lo, unpack):\n"
+    replace: "            if False:\n"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[consumer_choice.c]"
