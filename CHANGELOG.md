@@ -220,8 +220,27 @@ be committed by accident. A signal handler restores every in-flight file;
 verified by killing a run and finding the tree clean, where the same kill had
 previously left `if False:` behind.
 
-`tests/test_run_faults.py` pins all of these, and `runner_guards.yaml` carries
-a mutation for each.
+**Three of the guards above were themselves wrong, in ways the sweep could not
+see.** Review found each:
+
+- *"Empty is always bad" is false for an exception list.* `known_gaps` and
+  `unasserted_fields` are subtracted from what the checks demand, so emptying
+  one makes the suite stricter, not vacuous — and an empty one is the goal
+  state, every gap closed. Requiring them non-empty would have forbidden ever
+  finishing. Only the collections a check quantifies over positively are
+  guarded now.
+- *A guard with no reachable scenario.* `_all_cells` carried its own emptiness
+  check, but `_manifest` already refuses an empty `dimensions` and any
+  dimension with no values, and those two make the cell set non-empty. Its
+  mutation was being credited to a failure raised by a different call site.
+  The guard is gone and the test that named it says what it actually pins.
+- *The restore was registered after the write.* A signal arriving in that
+  window found the file already mutated and nothing recorded to restore it —
+  reintroducing, inside the handler added to prevent it, the failure that put
+  `if False:` in the tree. Registration now precedes the write.
+
+`tests/test_run_faults.py` pins the rest, and `runner_guards.yaml` carries a
+mutation for each.
 
 **The first version of that claim was false, and it is the reason for the
 section below.** One entry deleted an argument from `require(collection,
@@ -259,8 +278,19 @@ below to surface: the replay asked whether the named assertion fails *with*
 the mutation, never whether it passed *without* it. An assertion already red
 for an unrelated reason would have been credited with catching anything
 pointed at it. It now runs the baseline first and refuses to credit a failing
-assertion. All ten entries pass that check, so nothing here is withdrawn —
-but until this change the evidence was weaker than the claim.
+assertion.
+
+The precise statement of what the earlier logs established is: *non-zero
+termination after the mutation.* What the strengthened replay establishes is
+that each named assertion passes before the reconstructed mutation, still runs
+after it, and then fails by assertion. All ten entries meet the stronger
+condition, so nothing is withdrawn.
+
+One claim is narrowed rather than withdrawn. These are *reconstructed* faults:
+the assertions were almost all written after the defect they name, so the
+replay shows that the current regression assertion detects the reconstructed
+shipped fault — not that the assertion would have blocked the release, which
+would require it to have existed in that commit's suite.
 
 **Six of the ten are over-restrictive**: a predicate that rejects too much, a
 family left unregistered, a producer retired before its second consumer.

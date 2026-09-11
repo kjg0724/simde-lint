@@ -55,7 +55,7 @@ def _reindent(text: str, spaces: int) -> str:
     return "".join(pad + line if line.strip() else line for line in text.splitlines(keepends=True))
 
 
-def _apply(fault: dict) -> str:
+def _apply(fault: dict, in_flight: dict[Path, str] | None = None) -> str:
     path = ROOT / fault["file"]
     original = path.read_text()
     indent = fault.get("indent", 0)
@@ -70,6 +70,12 @@ def _apply(fault: dict) -> str:
             "and one that lands somewhere else reports the wrong thing. "
             "Both are the failure this file exists to prevent."
         )
+    # Registered before the write, not after. Registering afterwards left a
+    # window in which a signal arrived with the file already mutated and
+    # nothing recorded to restore it -- reintroducing, inside the handler that
+    # exists to prevent it, the failure that put `if False:` in the tree.
+    if in_flight is not None:
+        in_flight[path] = original
     path.write_text(original.replace(fault["find"], fault["replace"], 1))
     return original
 
@@ -225,8 +231,7 @@ def main() -> int:
                 f"mutation (exit {baseline.returncode}), so it cannot be "
                 "credited with catching it."
             )
-        original = _apply(fault)
-        in_flight[path] = original
+        original = _apply(fault, in_flight)
         try:
             after = _run(fault["kills"])
             # The same tests must still run: a mutation that breaks the import

@@ -430,12 +430,12 @@ def test_every_case_file_has_an_expectation():
     assert cases == set(_expected())
 
 
-MANIFEST_COLLECTIONS = (
-    "dimensions",
-    "mandatory_combinations",
-    "known_gaps",
-    "unasserted_fields",
-)
+# Only the collections a check quantifies over *positively*. `known_gaps` and
+# `unasserted_fields` are deliberately excluded: they are exception lists,
+# subtracted from what the checks demand, so emptying one makes the suite
+# stricter rather than vacuous -- and an empty one is the goal state, every
+# gap closed. Requiring them non-empty would forbid ever finishing.
+MANIFEST_COLLECTIONS = ("dimensions", "mandatory_combinations")
 
 
 def _manifest(path: Path | None = None) -> dict:
@@ -453,12 +453,17 @@ def _manifest(path: Path | None = None) -> dict:
 
 
 def _all_cells(path: Path | None = None) -> set[str]:
+    # No `require` here: `_manifest` already refuses an empty `dimensions` and
+    # any dimension with no values, and those two together make this set
+    # non-empty. A guard with no reachable scenario reports coverage it does
+    # not have, and the one that was here was credited to a failure raised by
+    # a different call site.
     manifest = _manifest(path)
-    return strictyaml.require({
+    return {
         f"{name}.{value}"
         for name, dimension in manifest["dimensions"].items()
         for value in dimension["values"]
-    }, "the manifest's cells")
+    }
 
 
 def _covered(path: Path | None = None) -> set[str]:
@@ -526,9 +531,12 @@ def test_emptied_expectations_are_refused(tmp_path):
         _expected(path)
 
 
-def test_a_manifest_with_no_cells_is_refused(tmp_path):
-    # Reached when every dimension is present but contributes nothing; the
-    # coverage tests would then compare two empty sets and pass.
+def test_a_minimal_manifest_still_produces_cells(tmp_path):
+    # Named for what it checks. It was `..._with_no_cells_is_refused`, back
+    # when `_all_cells` carried its own emptiness guard -- but that guard had
+    # no reachable scenario, since `_manifest` already refuses an empty
+    # `dimensions` and any dimension with no values, and those two together
+    # make this set non-empty. The guard is gone; this pins the implication.
     manifest = strictyaml.load((ORACLE / "coverage.yaml").read_text())
     manifest["dimensions"] = {"d": {"applies_to": ["R"], "why": "x", "values": {"v": "y"}}}
     path = tmp_path / "coverage.yaml"
