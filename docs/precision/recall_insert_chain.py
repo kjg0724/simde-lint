@@ -1,4 +1,4 @@
-"""Ground truth for `M.scalar_insert_chain`, built without the tool.
+"""An independent enumeration of `M.scalar_insert_chain`, built without the tool.
 
 The rule's description: a same-target chain of `_mm_insert_epi16/epi32/epi64`
 or `_mm256_insert_epi16/epi32/epi64` at or above a threshold, default three.
@@ -116,7 +116,7 @@ def main():
         print("usage: recall_insert_chain.py <root>... [--threshold N]")
         return 1
     chains = enumerate_chains(argv, threshold)
-    print("same-target insert runs of %d or more: %d  <- ground truth"
+    print("same-target insert runs of %d or more: %d  <- enumerated population"
           % (threshold, len(chains)))
     for name, count in Counter(os.path.basename(p) for p, _ in chains).most_common():
         print("  %5d  %s" % (count, name))

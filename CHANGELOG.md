@@ -1,6 +1,65 @@
 # Changelog
 
-## Unreleased
+## 2.5.0 — 2026-09-11
+
+Rules W, P, M and F, plus the verification surface that found most of it.
+
+Two grade-A false positives removed: rules W and P reported across arms of an
+`if` that cannot both execute, which rule M carries `control_region` for and
+rule F was corrected for in `v2.4.0`. Rule F stopped asserting which machine
+instructions a portable fallback emits, and names a 256-bit suggestion "per
+128-bit half". `_mm256_insert_epi32` and `_mm256_insert_epi64` are registered,
+a family missing while `_mm256_insert_epi16` was present.
+
+`tests/oracle/` is new: expectations decided by hand from the rule
+descriptions, before the tool is run, covering all seven rules. It was written
+before the fixes above and failed on exactly the defects they close.
+
+Recall is measured for three more mechanisms than before, by enumerators that
+import no `simde_lint`. What those figures do and do not establish is set out
+in the document rather than left to the reader.
+
+`docs/verification.md` gained Section 0, which says what a finding
+establishes: these corpora's x86 paths are largely not what ARM compiles, so
+the counts are a census of call sites carrying each pattern and not the
+emulation cost these projects pay today.
+
+| corpus | v2.4.0 | v2.5.0 |
+|---|---:|---:|
+| SVT-AV1 `Source` | 3402 | 3404 |
+| VVenC `CommonLib/x86` | 614 | 614 |
+| VVdeC `CommonLib/x86` (holdout) | 597 | 597 |
+
+Gate 204 == 204. Census 4018 / 3986 / 100.00%.
+
+### What the recall figures claim, narrowed to what they show
+
+Review of the three enumerators added above. Their arithmetic stands; the
+words around it claimed more than the arithmetic does.
+
+The document said the independent check "is not the more reliable of the two",
+on the evidence of two disagreements it had lost. Three cases fix no ranking,
+and none is claimed now. What is recorded instead is what happened: **all
+three enumerators disagreed with the tool on their first run**, and
+adjudication found defects in two of them and a missing intrinsic family in
+the tool. The value of an independent check is that its errors do not
+correlate with the implementation's, not that it is more accurate.
+
+"Ground truth" is gone from the tables, the scripts and their output. These
+are regular expressions approximating comments, strings, preprocessor branches
+and declarations, not parsers; importing no `simde_lint` argues for
+independence and does not confer authority. The figures are agreement against
+the corrected enumerators over the population each one found, at the pinned
+revisions, and the document now lists what that does not establish —
+generalisation to another revision, coverage of every C++ spelling, recall
+over the taxonomy rather than over each rule's registered families, or
+anything about regions the parser could not read.
+
+F and P are stated as having no enumerator by design rather than by omission,
+with the reason: counting either independently means writing that rule a
+second time, which returns it to the first one's assumptions. The `QuantX86.h`
+hand enumeration is labelled an adjudicated slice of one file, not rule F's
+recall on a corpus.
 
 ### Recall for the insert chain, and the family it was missing
 
