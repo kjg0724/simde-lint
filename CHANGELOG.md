@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.3.5 — 2026-09-14
+
+Citation metadata only. `git diff v2.3.4 v2.3.5 -- src/simde_lint/rules
+src/simde_lint/knowledge src/simde_lint/extract.py` is empty: no rule, no cost
+table, no analysis. Every figure published at `v2.3.4` holds unchanged, and
+the finding sets are identical field for field on all three corpora.
+
+`CITATION.cff` at `v2.3.4` still read `version: 2.3.3` with a
+`date-released` of 2026-09-07 — the metadata of two releases earlier. Work
+citing `v2.3.4` therefore carried citation data for a different release. The
+version constants move with it, so `simde-lint --version` and the
+`simde_lint_version` field in JSON output agree with the tag they came from;
+leaving them at 2.3.4 inside a tag named 2.3.5 would be the same defect one
+step along.
+
+**Regenerating a JSON artifact produced at `v2.3.4` is therefore required** if
+its `simde_lint_version` field is quoted. The findings it contains do not
+change — only that string.
+
 ## 2.3.4 — 2026-09-11
 
 ### Rule F stops naming an instruction that cannot be dropped in
