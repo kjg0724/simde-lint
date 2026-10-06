@@ -3,8 +3,8 @@
 `simde-lint` reads C/C++ source that uses x86 SIMD intrinsics translated to
 ARM NEON through [SIMDe](https://github.com/simd-everywhere/simde), finds
 call sites matching seven named mechanisms drawn from a six-type
-inefficiency taxonomy, and reports them with file, line, rationale, and —
-where the cost is established — an instruction-count estimate, so a
+inefficiency taxonomy, and reports them with file, line, rationale, and --
+where the cost is established -- an instruction-count estimate, so a
 maintainer can decide where a native NEON implementation is worth writing.
 
 The taxonomy comes from J. Kim, "A Taxonomy of SIMDe Emulation Inefficiencies
@@ -21,7 +21,7 @@ VVenC carries hand-written NEON for all but two of the modules measured. Run
 `docs/precision/verify.py --native-neon` on any corpus to see the split
 before reading a total as an emulation cost.
 
-It is not a re-derivation of the paper's numbers — see
+It is not a re-derivation of the paper's numbers -- see
 [`docs/verification.md`](docs/verification.md) for exactly where the two
 agree, where they diverge, and why.
 
@@ -36,7 +36,7 @@ agree, where they diverge, and why.
 | **M** | Memory | Assembles a vector from scalars instead of a structured load | A lane load or set of loads |
 | **P** | Pipeline | Consumes a compare's result immediately, at use-to-use latency cost | Reorder independent work in between |
 
-Each rule implements one **named mechanism** of its type — not the whole
+Each rule implements one **named mechanism** of its type -- not the whole
 type. The taxonomy types are broader than what v1 detects; the coverage
 table below states exactly what each rule catches and what it deliberately
 does not.
@@ -44,7 +44,7 @@ does not.
 ### Detect, not prove
 
 The tool reports that SIMDe emits an inefficient sequence at a call site. It
-does **not** claim the sequence is removable — that usually depends on
+does **not** claim the sequence is removable -- that usually depends on
 operand values the tool cannot always resolve from source alone. This is
 reported separately as an **evidence grade**, so "found" and "confirmed
 removable" are never conflated into one signal.
@@ -53,12 +53,12 @@ removable" are never conflated into one signal.
 
 Every finding carries an evidence grade.
 
-- **`evidence`** — how far the rule's premise is confirmed from source.
-  - **A** — every operand the rule depends on resolves to a known value or a
+- **`evidence`** -- how far the rule's premise is confirmed from source.
+  - **A** -- every operand the rule depends on resolves to a known value or a
     direct identity link.
-  - **B** — derived from a literal or a link, but through an intermediate
+  - **B** -- derived from a literal or a link, but through an intermediate
     operation, so the final value isn't pinned.
-  - **C** — the rule cannot confirm the transform is safe from source alone.
+  - **C** -- the rule cannot confirm the transform is safe from source alone.
     A and B are decided by how far the operands resolved; C is also reached by
     what the tool will assert about the replacement, so a fully resolved
     def-use path can still grade C when the recorded instruction does not
@@ -67,31 +67,31 @@ Every finding carries an evidence grade.
     by a structured `reason` field (`unresolved`, `guard_required`,
     `transform_requires_context`, `transform_changes_result` or
     `transform_width_mismatch`, not free prose):
-    - **C-unresolved** — the rule could not see far enough to judge at all
+    - **C-unresolved** -- the rule could not see far enough to judge at all
       (a runtime-loaded value, a call result with unknown lanes, a symbol
       not defined in the scanned inputs). `reason: "unresolved"`.
-    - **C-guard-required** — the rule saw everything relevant and confirmed
+    - **C-guard-required** -- the rule saw everything relevant and confirmed
       the guard it's examining is load-bearing (rule S: a mask whose lanes
       are fully known but include one outside the safe range).
       `reason: "guard_required"`.
-    - **C-transform-requires-context** — a fused replacement exists, but
+    - **C-transform-requires-context** -- a fused replacement exists, but
       only under a condition the rule does not check (rule F:
       `_mm_madd_epi16`'s pairwise reduction reaches `vmlal_s16` /
       `vmlal_high_s16` only when the consumer is a horizontal reduction).
       This shares grade C not because nothing could be judged, but because
       the required context was not verified at this call site.
       `reason: "transform_requires_context"`.
-    - **C-transform-changes-result** — a fused replacement applies with no
+    - **C-transform-changes-result** -- a fused replacement applies with no
       condition attached, and it does not produce the same answer (rule F:
       `_mm_mul_ps` and `_mm_add_ps` reach `vfmaq_f32`, which rounds once
       where the separate multiply and add round twice). Every reason above
-      is conditionally exact — satisfy the condition and results are
+      is conditionally exact -- satisfy the condition and results are
       preserved. This one never is, so what has to be settled is whether a
       different answer is acceptable, which in a decoder can be a
       conformance question. The `suggestion` is kept: the instruction is
       real, and what is withdrawn is "use it freely", not "it exists".
       `reason: "transform_changes_result"`.
-    - **C-transform-width-mismatch** — a fused replacement is recorded, the
+    - **C-transform-width-mismatch** -- a fused replacement is recorded, the
       rule checked it, and it does not fit: the instruction accumulates at a
       different lane width than the accumulator at this call site (rule F:
       `vmlal_s32` writes 64-bit lanes, and a `_mm_mul_epi32` product
@@ -116,8 +116,8 @@ Every finding carries an evidence grade.
 
 Earlier releases carried an `impact` field valued `confirmed` or
 `diagnostic`, read from the paper's Table IV microbenchmarks. It was removed
-in v2.0.0. The value was a complete function of `type` — every S, W and F
-finding was `confirmed`, every R, M and P finding was `diagnostic` — so
+in v2.0.0. The value was a complete function of `type` -- every S, W and F
+finding was `confirmed`, every R, M and P finding was `diagnostic` -- so
 `--impact confirmed` returned exactly the same set as `--type S,W,F` and the
 column carried no information the type column did not. Worse, `confirmed`
 read as a claim that *this call site's* effect had been measured, which no
@@ -133,7 +133,7 @@ stamped onto each finding:
 | S | 1.59x |
 | W | 2.15x |
 | F | 1.94x |
-| R, M, P | 1.00x — `-O3` neutralizes the pattern in an isolated kernel |
+| R, M, P | 1.00x -- `-O3` neutralizes the pattern in an isolated kernel |
 
 The default sort still puts S, W and F first for the same reason; see
 `BENCHMARK_BACKED_TYPES` in `finding.py`.
@@ -163,12 +163,12 @@ simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P
 - `--min-evidence` is a floor, not an exact match: `B` keeps grades A and B.
 - `--sort` picks the display order; both `--format` values honor it, so text
   and JSON output never disagree on order for the same run.
-  - `benchmarked` (default) — S, W and F findings before the rest, then
+  - `benchmarked` (default) -- S, W and F findings before the rest, then
     grade A before B before C, then file and line. On a large codebase, the
     un-benchmarked rules (chiefly R) can outnumber everything else several
     times over; sorting them last means the findings worth acting on
     aren't buried under a scroll of ones `-O3` typically removes on its own.
-  - `file` — the plain `(file, line, type, rule)` walk through the source
+  - `file` -- the plain `(file, line, type, rule)` walk through the source
     tree, for a diff-friendly read.
 - `--exclude` is repeatable and matches both the literal path and the
   root-relative tail, so `--exclude 'tests/*'` works regardless of whether
@@ -178,29 +178,29 @@ simde-lint path/to/source.c path/to/dir [--format text|json] [--type R,S,W,F,M,P
   3, minimum 1). It is validated before any source is read: an unreadable
   file, malformed JSON, a non-object, an unknown key, or a value of the wrong
   type or out of range is a usage error and exits 2 without producing a
-  report. An unknown key is rejected rather than ignored — a version that
+  report. An unknown key is rejected rather than ignored -- a version that
   quietly accepted an option it does not implement would be claiming to have
   honoured it.
 - `--dump-symbols` prints the cross-file constant-array index the tool built
   and exits, for debugging why a mask did or didn't resolve.
-- Exit code is 0 unless the tool itself errors — this is a reporting tool,
+- Exit code is 0 unless the tool itself errors -- this is a reporting tool,
   not a CI gate (`--error-on-findings` is roadmap work, not v1). Findings
   never set it, however many there are. 1 means the run was incomplete: an
   input that could not be read, or an isolated extraction or rule failure. 2
-  means the invocation was wrong — an unknown `--type`, or a `--config` the
-  tool will not act on — and nothing was analysed.
+  means the invocation was wrong -- an unknown `--type`, or a `--config` the
+  tool will not act on -- and nothing was analysed.
 
   What counts as the tool erring: an input path that does not exist, a file
   it cannot open, an extraction or a rule that raised. Each of those means
   the report you are holding is missing something it should have contained,
-  so the exit code says so — including under `--dump-symbols`.
+  so the exit code says so -- including under `--dump-symbols`.
 
   What does not: a file that was read and did not fully parse. See below.
 
 ### When a file does not fully parse
 
 tree-sitter always returns a tree. When it cannot parse a construct it
-recovers, so the file still yields findings — just not necessarily all of
+recovers, so the file still yields findings -- just not necessarily all of
 them, and historically with nothing to say any were lost. Preprocessor-heavy
 C++ hits this often: 362 of SVT-AV1's 561 files contain an unparsed region
 at the revision this tool's figures were measured at.
@@ -213,14 +213,14 @@ findings there may be incomplete
 ```
 
 This does **not** set the exit code. It is not the tool failing, and on real
-C++ it is the normal case rather than the exceptional one — an exit code
+C++ it is the normal case rather than the exceptional one -- an exit code
 that counted it would be 1 on nearly every sweep and would tell you nothing.
 Callers using `analyze()` directly get the same information in its third
 return value, where `simde_lint.analyze.is_failure()` separates a genuine
 failure from an incomplete parse.
 
 Recovery is not always free. On a holdout sweep of VVdeC it cost eleven
-registered-intrinsic call sites — every one past the point where a
+registered-intrinsic call sites -- every one past the point where a
 3398-line header stopped parsing. On SVT-AV1 and VVenC it cost nothing
 measurable. There is no way to know which case you are in without checking,
 which is why the warning exists.
@@ -258,18 +258,18 @@ Summary: 8 findings
   evidence C: 2
 ```
 
-(Four of the eight findings — the other local-constant, derived, and
-table-indexed mask forms in the same fixture — are omitted above for length;
+(Four of the eight findings -- the other local-constant, derived, and
+table-indexed mask forms in the same fixture -- are omitted above for length;
 run the command yourself for all eight.) The mechanism annotation
 `(pshufb->tbl guard only)` is mandatory on every line, in both text and JSON
-output — a reader who saw only "Type S: 0" for a file with a different S
+output -- a reader who saw only "Type S: 0" for a file with a different S
 mechanism would wrongly conclude the tool fails to detect it, when only the
 implemented mechanism is absent there.
 
 The two grade-C lines above show why `reason` exists: line 18's mask is a
 call result the rule cannot see the lanes of at all (`C (unresolved)`), and
 line 25's mask is a fully-known inline literal with one lane the rule
-confirmed sits outside the safe range (`C (guard_required)`) — a
+confirmed sits outside the safe range (`C (guard_required)`) -- a
 categorically different kind of "cannot confirm safe" that plain `evidence=C`
 would flatten into one.
 
@@ -301,7 +301,7 @@ real finding from an SVT-AV1 scan (paths shortened for display):
 }
 ```
 
-`evidence` grade A never carries a `reason`, so it renders `null` here — see
+`evidence` grade A never carries a `reason`, so it renders `null` here -- see
 "Evidence grade" above for what `reason` holds on grade C.
 
 **`scope` says which kind of unit the call site sits in**, and `function` and
@@ -317,7 +317,7 @@ The `mask_source` field is present only for rule S findings graded through
 `SymbolIndex`; it is omitted entirely (not `null`) on every other finding.
 `raw_name` is likewise present only when a call's original spelling differs
 from the resolved `intrinsic` name (a macro-aliased call site, e.g. VVenC's
-`_my_cmpgt_epi64` resolving to `_mm_cmpgt_epi64`) — omitted, not `null`,
+`_my_cmpgt_epi64` resolving to `_mm_cmpgt_epi64`) -- omitted, not `null`,
 everywhere else.
 
 **One location may produce multiple findings.** A code region can exhibit
@@ -329,13 +329,13 @@ reduced to one "primary" type.
 
 | Rule id | Type | What it matches | Evidence grades | What it does not cover |
 |---|---|---|---|---|
-| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {C} always || Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered — this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
-| `S.pshufb_guard` | S | `_mm_shuffle_epi8` and `_mm256_shuffle_epi8`, graded on whether the shuffle mask's lanes are known to be safe | {A, B, C} || Transpose and blend sequences the paper also classes as Type S — an explicit v1 exclusion, not an oversight (VVenC's LoopFilter has zero `_mm_shuffle_epi8` sites and is exactly this case) |
-| `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit — one finding per consuming unpack, so a pair rebuilding all eight lanes is two | {A, B} || Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
+| `R.zero_init_partial_load` | R | Calls to the intrinsics registered in `knowledge/redundant.yaml` (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`, `_mm_loadl_epi64`, `_mm_loadu_si64`) | {C} always || Any other intrinsic whose SIMDe expansion begins with a redundant zero-init but isn't yet registered -- this is knowledge-table coverage, the cheapest gap to close (see CONTRIBUTING.md) |
+| `S.pshufb_guard` | S | `_mm_shuffle_epi8` and `_mm256_shuffle_epi8`, graded on whether the shuffle mask's lanes are known to be safe | {A, B, C} || Transpose and blend sequences the paper also classes as Type S -- an explicit v1 exclusion, not an oversight (VVenC's LoopFilter has zero `_mm_shuffle_epi8` sites and is exactly this case) |
+| `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit -- one finding per consuming unpack, so a pair rebuilding all eight lanes is two | {A, B} || Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
 | `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32`/`mul_ps` (128- and 256-bit) reaching an `add_epi16`/`add_epi32`/`add_epi64`/`add_ps` of matching element kind and lane width, directly, as its operand, or through one widening conversion hop | {A, B, C} || Widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
 | `M.scalar_insert_chain` | M | A same-target chain of `_mm_insert_epi16/epi32/epi64`/`_mm256_insert_epi16` at or above a configurable threshold (default 3) | {A, B} || The `_mm_cvtsi32_si128` + unpack variant of the same mechanism; stride-pointer loop forms |
 | `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (all-literal calls excluded as constant vectors, not scalar assembly) | {A, B} || The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
-| `P.cmp_immediate_use` | P | A `cmpgt_*`/`cmpeq_*` result (macro aliases included, e.g. VVenC's `_my_cmpgt_epi64`) consumed by the very next call in source order | {A} always || Anything beyond adjacency in source text — source order is an explicit, documented approximation of scheduling order, not a claim about compiler output |
+| `P.cmp_immediate_use` | P | A `cmpgt_*`/`cmpeq_*` result (macro aliases included, e.g. VVenC's `_my_cmpgt_epi64`) consumed by the very next call in source order | {A} always || Anything beyond adjacency in source text -- source order is an explicit, documented approximation of scheduling order, not a claim about compiler output |
 
 Type M is the one taxonomy type with two implemented mechanisms in v1.
 Report summaries group by rule id, not by bare type, so the two are never
@@ -348,9 +348,9 @@ Cross-cutting limits that apply to every rule, not just one:
   several places produces several findings where hand-reviewed `-O3`
   assembly might show fewer, folded or unrolled instructions. Rules are
   never tuned toward the paper's totals.
-- **Def-use linking is confined to a single unit** — one function body, or
+- **Def-use linking is confined to a single unit** -- one function body, or
   one `#define` body. No interprocedural analysis, and no flow between a
-  macro and the functions that expand it — that would need a build system,
+  macro and the functions that expand it -- that would need a build system,
   which is the exact dependency tree-sitter was chosen to avoid. Two units
   never share symbol state: a `tmp` in a macro and a `tmp` in a function are
   unrelated.
@@ -359,7 +359,7 @@ Cross-cutting limits that apply to every rule, not just one:
   finding in one reports the macro's name with `"scope": "macro"`. Four
   limits come with it:
   - **Expansion sites are not analysed.** One intrinsic call in a macro body
-    is one finding, however many times the macro is expanded — it is one
+    is one finding, however many times the macro is expanded -- it is one
     place a maintainer would edit. Counting expansions would mean modelling
     the preprocessor.
   - **A body that does not reparse is skipped**, not guessed at from its
@@ -372,7 +372,7 @@ Cross-cutting limits that apply to every rule, not just one:
   - **A macro name defined more than once in a file yields one unit per
     definition, except definitions registered as forwarding aliases.**
     All `#if` branches are read. Whether a name registers at all is decided
-    over the *whole set* of that name's definitions — every one of them
+    over the *whole set* of that name's definitions -- every one of them
     must be a forwarding alias, resolve (following through other registered
     names, if the immediate callee is itself a macro) to the same target
     intrinsic, and compose to the same parameter-to-argument mapping.
@@ -380,7 +380,7 @@ Cross-cutting limits that apply to every rule, not just one:
     *definition*, not per name: a genuinely different, multi-call `#if`
     branch sharing an alias-shaped sibling's name keeps its own unit, and so
     does every definition of a name whose branches disagree with each other
-    — conflicting definitions are never merged, and none of them is then
+    -- conflicting definitions are never merged, and none of them is then
     recognized as an intrinsic call at its use sites either. This comparison
     is over each definition's written token structure, not over macro
     expansion: two forwarding bodies that are textually identical are
@@ -389,23 +389,23 @@ Cross-cutting limits that apply to every rule, not just one:
     differently at compile time. The token-structure comparison is a
     conservative, fail-closed approximation of C/C++ preprocessing-token
     lexing, not a complete implementation of it: anything it cannot lex
-    costs a missed registration, never a wrong one — see
+    costs a missed registration, never a wrong one -- see
     `docs/verification.md`'s forwarding-alias section for what this
     currently covers and where the boundary sits.
 - **The knowledge tables are small by design, not by accident.** Every entry
   in `knowledge/*.yaml` is read from the SIMDe source and cites the file and
   line it came from; nothing is guessed. Extending coverage means adding
-  entries, not writing new matching logic — see CONTRIBUTING.md.
+  entries, not writing new matching logic -- see CONTRIBUTING.md.
 - **Counts are tied to SIMDe 0.8.4.** Every `simde_insns`/`native_insns`
   figure was read from that version's expansion; a newer SIMDe release could
   change the instruction count without changing whether the pattern exists.
 - **The tool has no ARM build awareness.** It reports x86 intrinsic call
-  sites in whatever files it's pointed at — it does not know whether a given
+  sites in whatever files it's pointed at -- it does not know whether a given
   file is actually compiled for the ARM/SIMDe path, an x86-native path, or
   dead code. Point it at the files you know are ARM-relevant.
 - **A finding's grade depends on what was scanned in the same run, not just
-  on the call site itself.** `SymbolIndex` — the table that lets rule S grade
-  a runtime-indexed mask A when every row is safe (Section 6) — only covers
+  on the call site itself.** `SymbolIndex` -- the table that lets rule S grade
+  a runtime-indexed mask A when every row is safe (Section 6) -- only covers
   the files given to that invocation. The same call site can grade A when the
   file defining its mask table is included in the scan and grade C (mask
   symbol not defined in the scanned inputs) when it's scanned alone. Scan a
@@ -414,9 +414,9 @@ Cross-cutting limits that apply to every rule, not just one:
 
 ## Verification
 
-The design's completion criteria — an exact match against SVT-AV1's 204
+The design's completion criteria -- an exact match against SVT-AV1's 204
 known `_mm_shuffle_epi8` call sites, and a per-module comparison against the
-CAL paper's Table III for five VVenC modules — are measured, re-run, and
+CAL paper's Table III for five VVenC modules -- are measured, re-run, and
 recorded with the exact commands used in
 [`docs/verification.md`](docs/verification.md). Divergences from the paper
 are reported rather than smoothed over, and most are traced to a specific
@@ -424,7 +424,7 @@ cause: a broader detection unit, a knowledge table that doesn't yet carry an
 intrinsic, a mechanism the rule doesn't implement, or a call site the two
 methods classify differently. Some are not yet accounted for, and that
 document says which. Absolute
-count agreement with the paper is explicitly not the bar — the exact
+count agreement with the paper is explicitly not the bar -- the exact
 `_mm_shuffle_epi8` count is.
 
 That document also records what v1.2's macro-body support changed, measured

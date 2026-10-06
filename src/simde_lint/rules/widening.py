@@ -184,7 +184,7 @@ class WideningRule:
         This only matches by variable name and position, the same as the
         other rules' first pass over their candidate consumer. It does not
         itself verify that `lo_var`/`hi_var` still hold the multiplies'
-        results at `consumer.line` — `match` does that afterward with
+        results at `consumer.line` -- `match` does that afterward with
         `redefined_between`, exactly where `F` and `P` place the equivalent
         check. Folding it in here would mix "which unpack is the candidate"
         with "does the candidate actually see this value", the same

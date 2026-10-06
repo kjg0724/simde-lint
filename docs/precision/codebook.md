@@ -1,7 +1,7 @@
 # Precision audit codebook
 
 Fixed before drawing the sample. A finding is judged on **whether the
-mechanism it names is actually present at that call site** — not on whether
+mechanism it names is actually present at that call site** -- not on whether
 the rewrite is safe, which is what the evidence grade already reports, and
 not on whether a rewrite is worth doing, which is the maintainer's call.
 
@@ -10,8 +10,8 @@ not on whether a rewrite is worth doing, which is the maintainer's call.
 | Code | Meaning |
 |---|---|
 | **TP** | The named mechanism is present. The intrinsic is the one the rule claims, it sits in the structural shape the rule claims (a chain, a reaching add, an adjacent consumer), and SIMDe's expansion for it is the one the knowledge table cites. |
-| **FP-shape** | The intrinsic is right but the structural claim is wrong — the "reaching add" does not consume the product, the insert chain is not same-target, the compare's consumer is not the next call, and so on. |
-| **FP-context** | The structure is right but the call site is not one the mechanism applies to — for example the file is an x86-native path that never reaches SIMDe, or the code is unreachable. |
+| **FP-shape** | The intrinsic is right but the structural claim is wrong -- the "reaching add" does not consume the product, the insert chain is not same-target, the compare's consumer is not the next call, and so on. |
+| **FP-context** | The structure is right but the call site is not one the mechanism applies to -- for example the file is an x86-native path that never reaches SIMDe, or the code is unreachable. |
 | **FP-knowledge** | The knowledge table's claim about SIMDe's expansion is wrong for this intrinsic. |
 | **UNJUDGED** | Cannot decide from the source in the scanned tree. Recorded, never silently dropped. |
 

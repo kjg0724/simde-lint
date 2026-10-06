@@ -12,7 +12,7 @@ void product_through_a_widening_hop(__m128i a, __m128i b, __m128i acc) {
 }
 
 // Every mask lane is a literal written at the call, so nothing is unresolved
-// — and lane 15 is 0x20, inside the [16,127] middle range where pshufb zeroes
+// -- and lane 15 is 0x20, inside the [16,127] middle range where pshufb zeroes
 // and tbl does not. The guard the rule reports is load-bearing, which is a
 // different answer from "the mask could not be read".
 //

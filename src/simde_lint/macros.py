@@ -31,24 +31,24 @@ def _is_intrinsic(name: str) -> bool:
 @dataclass(frozen=True)
 class ReparsedMacro:
     name: str
-    # Fixed (non-variadic) parameter names only — see `variadic` below for
+    # Fixed (non-variadic) parameter names only -- see `variadic` below for
     # the pack, which is deliberately not one of these even when it has its
     # own written name (a GNU named variadic).
     params: tuple[str, ...]
     # The name a variadic pack is referenced by *inside the body*, or None
     # if this macro takes no variadic parameter. `"__VA_ARGS__"` for the
     # standard `#define F(x, ...)` form; the macro's own given name for the
-    # GNU named form, `#define F(x, args...)` — that form lets the body
+    # GNU named form, `#define F(x, args...)` -- that form lets the body
     # refer to the pack as `args`, never as `__VA_ARGS__`. See
     # `_variadic_pack` for how this is read off the parameter list.
     variadic: str | None
     # Start of the whole `#define` construct (the `preproc_function_def`
-    # node itself) — a stable, always-present per-*definition* key, unlike
+    # node itself) -- a stable, always-present per-*definition* key, unlike
     # `body_start_byte` below, which only exists when the definition has a
     # body at all. `build_alias_map`'s `AliasMap.definitions` and
     # `extract.py`'s unit skip are both keyed on this field, not on
     # `body_start_byte`, precisely so an empty-bodied definition (which
-    # never reaches this dataclass — see `reparse_macros`, and
+    # never reaches this dataclass -- see `reparse_macros`, and
     # `macros._definition_positions` for the count that catches it anyway)
     # cannot be conflated with one that does.
     start_byte: int
@@ -74,19 +74,19 @@ def _body_range(source: bytes, value: Node) -> tuple[int, int]:
     r"""Source range of a macro body, following backslash continuations.
 
     tree-sitter's `preproc_arg` sometimes stops at the first physical line of
-    a continued macro — or even mid-line, inside a `do { ... } while` body's
-    scanner heuristics, a few characters into the *next* physical line — which
+    a continued macro -- or even mid-line, inside a `do { ... } while` body's
+    scanner heuristics, a few characters into the *next* physical line -- which
     would hand the parser a fragment (`do {` with no closing brace) and fail
     on input that is merely truncated, unless the fragment is grown to cover
     the whole continuation.
 
-    A continuation is followed only when the line actually pending — the one
-    starting wherever `end` currently sits, out to its own newline — ends in
+    A continuation is followed only when the line actually pending -- the one
+    starting wherever `end` currently sits, out to its own newline -- ends in
     `\\` once trailing spaces/tabs/`\r` are stripped. This deliberately does
     not look at anything before `end` on that line, so it is unaffected by
     `end` landing mid-line rather than at a line boundary; it also does not
     look past that line's own newline, which is what the previous
-    `rstrip().endswith(b"\\")` over the whole accumulated range got wrong — a
+    `rstrip().endswith(b"\\")` over the whole accumulated range got wrong -- a
     blank or whitespace-only continuation target does not itself end in `\`,
     so it correctly stops the body right there instead of reading through it
     into whatever source happens to follow (a stray trailing backslash on an
@@ -109,7 +109,7 @@ def _variadic_pack(parameters: Node | None, source: bytes) -> tuple[tuple[str, .
     """Fixed parameter names and the variadic pack's own reference name.
 
     Reads the *raw* `preproc_params` child sequence, not the flattened,
-    identifier-only view `reparse_macros` used to build `.params` from —
+    identifier-only view `reparse_macros` used to build `.params` from --
     that flattened view cannot tell a GNU named variadic's pack name apart
     from an ordinary fixed parameter, since both are plain `identifier`
     nodes; only the raw child sequence carries the trailing `...` that
@@ -118,18 +118,18 @@ def _variadic_pack(parameters: Node | None, source: bytes) -> tuple[tuple[str, .
     Two forms, both measured directly against this project's grammar:
 
     - Standard `#define F(x, ...)`: the parameter list has a literal `...`
-      child (node type `"..."`, unnamed). The pack has no name of its own —
+      child (node type `"..."`, unnamed). The pack has no name of its own --
       the body always refers to it as the reserved identifier
       `__VA_ARGS__`.
     - GNU named `#define F(x, args...)`: this grammar does not parse `...`
-      immediately after a parameter name as part of any clean node type —
+      immediately after a parameter name as part of any clean node type --
       it parses `args` as an ordinary `identifier` parameter and then hits
       an `ERROR` node for the trailing `...` (confirmed directly: the
       *file's* `root.has_error` is True for this form, though the
       individual macro's own body still reparses fine, since the error is
       confined to the parameter list). Detected here by finding the last
       `identifier` child and checking whether the very next non-`)` sibling
-      spells exactly `...` — whatever node type tree-sitter gave it. That
+      spells exactly `...` -- whatever node type tree-sitter gave it. That
       identifier is then the pack's own name, not a fixed parameter.
 
     A macro with no variadic parameter at all returns `(fixed_names, None)`,
@@ -159,9 +159,9 @@ def reparse_macros(root: Node, source: bytes) -> list[ReparsedMacro]:
     A body that does not parse is returned with `ok=False` and is not guessed
     at from its text; callers treat it as neither an alias nor a unit. A
     definition with **no** body at all (`#define LD(p)`, nothing after the
-    parameter list — tree-sitter's `value` field is `None`, not an empty
+    parameter list -- tree-sitter's `value` field is `None`, not an empty
     node) is skipped entirely, same as before: there is no body byte range to
-    reparse. It is not, however, invisible to `build_alias_map` — see
+    reparse. It is not, however, invisible to `build_alias_map` -- see
     `_definition_positions`, which enumerates `preproc_function_def` nodes
     directly rather than relying on this function's output, specifically to
     catch this case.
@@ -196,19 +196,19 @@ def _definition_positions(root: Node, source: bytes) -> dict[str, list[int]]:
     """Every function-like macro *definition*'s own start position, by name.
 
     Unlike `reparse_macros`, this counts every `preproc_function_def` node
-    regardless of whether it has a body. `#define LD(p)` — nothing after the
-    parameter list — has `value=None`, and `reparse_macros` skips it: there
+    regardless of whether it has a body. `#define LD(p)` -- nothing after the
+    parameter list -- has `value=None`, and `reparse_macros` skips it: there
     is no body to reparse. If `build_alias_map` only ever saw
     `reparse_macros`'s output, a name with an alias-shaped definition in one
     `#if` branch and this kind of empty definition in another would never
     learn the empty one exists, and would register the name as if every
-    definition agreed — vacuously, over a definition it never saw. This
+    definition agreed -- vacuously, over a definition it never saw. This
     function exists so `build_alias_map` can compare "how many definitions
     does this name really have" against "how many did `reparse_macros`
     reparse" and refuse to register when the two counts differ.
 
     Keyed by the *definition* node's own `start_byte` (see `ReparsedMacro`),
-    not any measure of its body — an empty definition still gets a stable,
+    not any measure of its body -- an empty definition still gets a stable,
     distinct position this way.
     """
     positions: dict[str, list[int]] = {}
@@ -237,20 +237,20 @@ def _identifiers(node: Node, source: bytes) -> set[str]:
     """Every name written as an identifier anywhere under `node`.
 
     Includes `type_identifier`, not only `identifier`: tree-sitter's C/C++
-    grammar resolves `(BASE) + (0 * (S))`-shaped expressions as a cast —
+    grammar resolves `(BASE) + (0 * (S))`-shaped expressions as a cast --
     `BASE` parsed as a `type_descriptor`'s `type_identifier`, not as a
-    parenthesized variable reference — whenever a parenthesized name is
+    parenthesized variable reference -- whenever a parenthesized name is
     immediately followed by something that could be a unary operand.
     SVT-AV1's `LOAD8_S`/`LOAD4W_S` write exactly this shape with `BASE`, a
     macro parameter that is never actually a type. Counting only
     `identifier` would read `BASE` as unused and reject a macro that
-    forwards every parameter faithfully — a false rejection from a grammar
+    forwards every parameter faithfully -- a false rejection from a grammar
     ambiguity, not a genuine dropped parameter.
 
     **This is a text-appearance search, not a value-flow analysis, and it is
     known-unsound for that reason:** `#define DROP_VALUE(a, b)
     _mm_add_epi32(((void)(a), (b)), (b))` has `a` appear right here, inside a
-    `(void)`-cast comma operand — a position whose value provably never
+    `(void)`-cast comma operand -- a position whose value provably never
     reaches the forwarded call, since a comma expression's value is its
     *last* operand and `(void)` explicitly discards one. `is_forwarding_alias`
     still confirms this as an alias on the strength of `a` merely appearing
@@ -296,8 +296,8 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     Only the written name is returned; resolving it through the knowledge
     tables and through other macros is `build_alias_map`'s job.
 
-    A body that drops a parameter — writes it in the macro's own parameter
-    list but never uses it in the forwarded call — is rejected here when the
+    A body that drops a parameter -- writes it in the macro's own parameter
+    list but never uses it in the forwarded call -- is rejected here when the
     parameter's name does not appear anywhere in the forwarded call's
     argument list at all. Reordering (`_mm256_set_m128i((hi), (lo))`),
     duplication (`f((b), (b))`), and inserting non-parameter operands (an
@@ -307,11 +307,11 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
 
     A declared variadic pack is held to the same standard as a fixed
     parameter: `macro.variadic`, when not None, must also appear (as its
-    own reference — `"__VA_ARGS__"` or a GNU named pack's own name) among
+    own reference -- `"__VA_ARGS__"` or a GNU named pack's own name) among
     the identifiers written in the forwarded call's argument list, or this
     macro is rejected the same way a dropped fixed parameter is. Without
-    this, `#define BAD(...) _mm_set_epi32(0, 0, 0, 0)` — a pack declared
-    and never written anywhere in the body — passed `set(macro.params) <=
+    this, `#define BAD(...) _mm_set_epi32(0, 0, 0, 0)` -- a pack declared
+    and never written anywhere in the body -- passed `set(macro.params) <=
     used` vacuously (`macro.params` is empty for a pack-only parameter
     list) and registered `BAD` as forwarding to `_mm_set_epi32`, even
     though the call it actually forwards to receives four constants and no
@@ -319,20 +319,20 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
     written in the body," not "expands to zero tokens": `#define
     V(...) _mm_setzero_si128(__VA_ARGS__)` writes `__VA_ARGS__` right here
     in its own body and must keep registering even though a call site with
-    no pack arguments makes it expand to nothing — see
+    no pack arguments makes it expand to nothing -- see
     `_VARIADIC_ZERO_EXTRA_ARGS_MATCHES_DIRECT` in the test suite. A fixed
     parameter still present alongside a dropped pack does not save the
     macro either: `#define V(x, ...) TGT(x)` is the same defect with `x`
     faithfully forwarded and `...` thrown away.
 
-    **This check is a heuristic, not a soundness guarantee — see
+    **This check is a heuristic, not a soundness guarantee -- see
     `_identifiers`'s docstring for `DROP_VALUE`, a confirmed alias whose
     body drops a parameter's value while the name still appears in the
     subtree.** `PipelineRule`/`FusionRule` do not rely on this predicate to
     keep their own membership judgment sound: they decline to read a
     *consumer* call's args at all when that call carries a `raw_name` (was
     itself resolved through a macro), regardless of what this function
-    decided about it — see `rules/pipeline.py`/`rules/fusion.py` and
+    decided about it -- see `rules/pipeline.py`/`rules/fusion.py` and
     `docs/verification.md`'s forwarding-alias section. This predicate still
     matters for the general correctness of a confirmed alias's recorded
     `call.args` beyond F and P, and for keeping this function's job honest:
@@ -357,19 +357,19 @@ def is_forwarding_alias(macro: ReparsedMacro) -> str | None:
 def _splice_lines(text: bytes) -> bytes:
     r"""Delete backslash-newline sequences, mirroring C's own phase-2 splicing.
 
-    A `\` immediately followed by an end-of-line — optionally with trailing
+    A `\` immediately followed by an end-of-line -- optionally with trailing
     spaces/tabs/`\r` between the `\` and the newline, matching this file's
-    own continuation tolerance in `_body_range` — is deleted along with the
+    own continuation tolerance in `_body_range` -- is deleted along with the
     newline, joining the two physical lines into one logical line. Without
     this, a call written with its argument list split across a
     backslash-continued macro body (the reparsed body still contains the raw
-    `\` and newline bytes verbatim — tree-sitter does not splice them) would
+    `\` and newline bytes verbatim -- tree-sitter does not splice them) would
     tokenize with a stray `\` token that the same call written on one
     physical line does not have, and the two would compare unequal for a
     reason that has nothing to do with what either macro forwards.
 
     A `\` that is not immediately (mod that trailing whitespace) followed by
-    a newline — including one that opens a string escape like `"\n"` — is
+    a newline -- including one that opens a string escape like `"\n"` -- is
     left untouched; this only ever fires on an actual line-continuation.
     """
     out = bytearray()
@@ -392,7 +392,7 @@ def _byteset(text: bytes) -> frozenset[bytes]:
 
     Not `frozenset(text)`: iterating a `bytes` object directly yields
     `int`s, not length-1 `bytes`, and every membership test in this
-    tokenizer compares against a `text[i : i + 1]` slice — a `bytes` object.
+    tokenizer compares against a `text[i : i + 1]` slice -- a `bytes` object.
     An `int`-keyed set would silently never match any of them.
     """
     return frozenset(text[i : i + 1] for i in range(len(text)))
@@ -415,7 +415,7 @@ def _literal_start(text: bytes, i: int) -> int | None:
     or None if `text[i]` does not begin a string or character literal.
 
     Deliberately does not recognize a raw string (`R"..."`, optionally
-    prefixed) — `_raw_string_start` below owns that, and must run first: a
+    prefixed) -- `_raw_string_start` below owns that, and must run first: a
     raw string's `R` would otherwise be lexed as a bare identifier, with
     the literal itself starting only at the quote that follows it.
     """
@@ -438,7 +438,7 @@ def _raw_string_start(text: bytes, i: int) -> int | None:
     Honors an optional encoding prefix (`u8R"`, `uR"`, `UR"`, `LR"`, or bare
     `R"`), tried longest-first so `u8R"..."` is not mistaken for prefix `u`
     followed by a stray `8R"...`. Returns None if no raw string starts at
-    `i` — including when `text[i]` is `R` immediately followed by anything
+    `i` -- including when `text[i]` is `R` immediately followed by anything
     other than `"` (an ordinary identifier that happens to start with `R`,
     which is by far the common case and must tokenize as a plain
     identifier, substitutable like any other).
@@ -456,20 +456,20 @@ def _scan_raw_string(text: bytes, delimiter_start: int) -> int | None:
     `delimiter_start` is the byte right after the opening `R"`. A raw
     string's delimiter is every byte from there up to (not including) the
     first `(`; its closing sequence is `)` + that same delimiter + `"`,
-    wherever it next occurs — not merely the first `)"`, since the
+    wherever it next occurs -- not merely the first `)"`, since the
     delimiter can be non-empty specifically so the raw content can contain
     `)"` sequences of its own without ending the literal early (real C++
     restricts which bytes may appear in a delimiter; this scanner does not
     enforce that, which only means it might accept something a compiler
-    would reject — never the reverse, and never a false *agreement* between
+    would reject -- never the reverse, and never a false *agreement* between
     two definitions, so it is not a soundness gap for this module's
-    purpose). No escape processing happens inside a raw string — that is
-    the entire point of "raw" — so a `\` here is only ever a literal
+    purpose). No escape processing happens inside a raw string -- that is
+    the entire point of "raw" -- so a `\` here is only ever a literal
     backslash, never an escape.
 
     Returns None when no `(` is found at all (not a raw string's delimiter
     section, malformed) or when the matching closing sequence never
-    occurs (unterminated) — both fail closed, same as every other literal
+    occurs (unterminated) -- both fail closed, same as every other literal
     kind this lexer handles.
     """
     paren = text.find(b"(", delimiter_start)
@@ -485,8 +485,8 @@ def _scan_literal(text: bytes, quote_at: int) -> int | None:
     r"""End offset (exclusive) of the literal opening at `quote_at`, or None.
 
     `quote_at` is the position of the opening quote itself. A `\` inside the
-    literal always escapes the next byte, whatever it is — including a
-    second `\` or a matching quote — so an escaped quote never terminates
+    literal always escapes the next byte, whatever it is -- including a
+    second `\` or a matching quote -- so an escaped quote never terminates
     the literal early. None means the literal runs off the end of `text`
     without a closing quote: malformed, unlexable input, which callers must
     treat as a hard failure rather than guess at.
@@ -513,7 +513,7 @@ def _scan_block_comment_end(text: bytes, start: int) -> int | None:
 
 # Every multi-character punctuator this lexer must not split into individual
 # bytes, drawn from the C (C17 6.4.6) and C++ (C++23 [lex.operators]) grammars
-# together — this project accepts both, and a body written in either must
+# together -- this project accepts both, and a body written in either must
 # tokenize its operators correctly. Sorted longest-first below by
 # `_scan_punctuator`, so a longer spelling is always tried before any shorter
 # spelling that is one of its own prefixes: `<<=` before `<<` before `<`,
@@ -613,14 +613,14 @@ def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
     byte, so a multi-character operator like `&&`, `<<=`, or `->*` is always
     kept as one token, the same as a real preprocessing-token lexer would
     keep it, and not split into its individual characters. Whitespace and
-    comments are dropped entirely — neither carries meaning for comparing
+    comments are dropped entirely -- neither carries meaning for comparing
     two forwarded call shapes.
 
     This is a plain byte-level lexer, deliberately independent of
     tree-sitter's own CST node classification: `(BASE) + (0 * (S))` parses
     as a cast in this project's grammar, with `BASE` read as a
     `type_identifier` rather than a parenthesized variable reference (see
-    `_identifiers`'s docstring) — a distinction that would matter if
+    `_identifiers`'s docstring) -- a distinction that would matter if
     substitution keyed off node type, but does not here, because `BASE`'s
     *lexical spelling* is the same identifier either way.
 
@@ -632,14 +632,14 @@ def _tokenize(text: bytes) -> list[tuple[str, bytes]] | None:
     parameter names. An escaped quote (`"\""`) does not end the literal
     early, so `"\""` is one token, not a truncated one. A raw string
     (`R"..."`, optionally prefixed the same way) is handled the same way,
-    through `_raw_string_start`/`_scan_raw_string` — checked *before* a
+    through `_raw_string_start`/`_scan_raw_string` -- checked *before* a
     plain identifier could claim its leading `R`, or `R"(x)"` would lex as
     an identifier `R` (substituted whenever some macro's own parameter
     happens to be named `R`) immediately followed by an unrelated literal
     `"(x)"`, corrupting the raw string's own spelling.
 
     Returns None when a string literal, character literal, raw string, or
-    block comment is left unterminated at the end of `text` — malformed
+    block comment is left unterminated at the end of `text` -- malformed
     input fails closed: it can never make two definitions compare as
     agreeing.
     """
@@ -733,7 +733,7 @@ def _marker(index: int) -> bytes:
 
 _MARKER = re.compile(rb"\x00([0-9]+)\x00")
 
-# The variadic pack's own marker — deliberately not `_marker(index)`-shaped
+# The variadic pack's own marker -- deliberately not `_marker(index)`-shaped
 # (no digits), so `_marker_index` never confuses it with a fixed-parameter
 # position and `_substitute_shape` can tell "substitute one argument" apart
 # from "substitute the whole, possibly-empty, comma-joined remainder."
@@ -752,10 +752,10 @@ def _normalized_tokens(
 
     Splices backslash-newlines, lexes the result, and rewrites every
     `"ident"` token that exactly spells one of `params` into `_marker(index)`
-    — a byte sequence (`\x00<index>\x00`) that cannot appear in C source, so
+    -- a byte sequence (`\x00<index>\x00`) that cannot appear in C source, so
     it cannot collide with a real identifier or with an adjacent marker. An
     `"ident"` token spelling `variadic` (the macro's own variadic pack
-    reference — `"__VA_ARGS__"` or a GNU named pack's own name; see
+    reference -- `"__VA_ARGS__"` or a GNU named pack's own name; see
     `ReparsedMacro.variadic`) is rewritten to `_VARIADIC_MARKER` instead,
     never to a positional marker: the pack is not one parameter at one
     position, it is "whatever arguments an outer call supplies beyond the
@@ -764,7 +764,7 @@ def _normalized_tokens(
     keeps both markers distinct occurrences rather than being conflated with
     `f(b)`. Non-parameter identifiers, literals, numbers and punctuators
     pass through unchanged. Returns None when `text` fails to lex (see
-    `_tokenize`) — malformed input fails closed.
+    `_tokenize`) -- malformed input fails closed.
     """
     tokens = _tokenize(_splice_lines(text))
     if tokens is None:
@@ -789,7 +789,7 @@ class _EmptyArgs:
 
     A single instance (`_EMPTY_ARGS`, below) is the only value of this type
     ever created; callers compare against it with `is`, never `==`, so it
-    can never be mistaken for a real (possibly also empty) shape tuple —
+    can never be mistaken for a real (possibly also empty) shape tuple --
     unlike a sentinel built from an ordinary tuple or string, which risks
     exactly that confusion if a caller ever slips and uses `==`.
     """
@@ -798,7 +798,7 @@ class _EmptyArgs:
 
 
 # Sentinel result of `_call_shape` for a call whose argument list is
-# syntactically empty (`f()`) — distinct from `()` (also "no arguments," but
+# syntactically empty (`f()`) -- distinct from `()` (also "no arguments," but
 # only once the ambiguity is resolved). C gives `f()` no fixed meaning: it is
 # how many argument slots the *callee's own* declared parameter list makes
 # it into, not something the call site's own text can decide alone. A
@@ -806,7 +806,7 @@ class _EmptyArgs:
 # reads it as exactly one argument whose own spelling is empty. This is a
 # real function call's own syntax that resolves it (unambiguously zero
 # arguments) only for a callee that is a recognized intrinsic, never for a
-# callee that is itself a macro — see `_resolve_alias`, the only place this
+# callee that is itself a macro -- see `_resolve_alias`, the only place this
 # sentinel is interpreted.
 _EMPTY_ARGS = _EmptyArgs()
 
@@ -818,7 +818,7 @@ def _call_shape(
 
     One token tuple per positional argument (`arguments.named_children`),
     each produced by `_normalized_tokens` against `macro.params`/
-    `macro.variadic` — so a marker in position `k` of argument `i` means
+    `macro.variadic` -- so a marker in position `k` of argument `i` means
     "wherever this macro's parameter `k` is used inside its `i`th argument
     to the call it forwards to," and `_VARIADIC_MARKER` means "wherever its
     variadic pack is used there." Comparing two calls' shapes for equality
@@ -828,9 +828,9 @@ def _call_shape(
 
     Returns the `_EMPTY_ARGS` sentinel (see its own docstring) when the
     argument list is syntactically empty (`arguments.named_children` is
-    empty) — this is ambiguous without knowing the callee's own arity, which
+    empty) -- this is ambiguous without knowing the callee's own arity, which
     only the caller (`_resolve_alias`) has. Returns None if any argument
-    fails to lex (see `_normalized_tokens`) — malformed input fails closed,
+    fails to lex (see `_normalized_tokens`) -- malformed input fails closed,
     same as everywhere else in this module.
     """
     if arguments is None:
@@ -856,7 +856,7 @@ def _substitute_shape(
     `shape` is one macro's own forwarded-call shape, its markers referring
     to *that macro's* parameter positions (and, possibly, its variadic
     pack). `replacements` is one token tuple per argument the outer,
-    composing call actually passes — the first `variadic_start` of them
+    composing call actually passes -- the first `variadic_start` of them
     (all of them, if `variadic_start` is None) line up with `shape`'s
     positional markers; the rest, if any, are what flows into the pack.
     Every positional marker token in `shape` is replaced, in place, by the
@@ -864,20 +864,20 @@ def _substitute_shape(
     intermediate that inserts extra tokens around a parameter
     (`X(p, q) -> TGT(p + 1, q)`) keeps the `+ 1` in the composed result
     rather than losing it to a plain position-for-position swap.
-    An argument slot written as *only* the pack — its token tuple is
-    exactly `(_VARIADIC_MARKER,)`, nothing else alongside it — expands to
+    An argument slot written as *only* the pack -- its token tuple is
+    exactly `(_VARIADIC_MARKER,)`, nothing else alongside it -- expands to
     however many top-level argument slots `replacements[variadic_start:]`
     (the outer call's excess arguments) actually has: zero slots (the
-    argument vanishes entirely — not kept as one empty-token argument),
+    argument vanishes entirely -- not kept as one empty-token argument),
     one slot (that single excess argument's own tokens, verbatim), or
-    several slots, each its own separate entry in the composed result —
+    several slots, each its own separate entry in the composed result --
     never joined into one slot with a literal comma token stitched inside
     it, because that would not match how `_call_shape` itself represents a
     direct call's own top-level arguments (one tuple per argument, split
     at the syntactic top level, not by scanning for comma bytes inside a
     single argument's text). This is what makes
     `#define V(...) f(__VA_ARGS__)` called as `V()` compose to the same
-    shape as `f()` written directly (zero arguments either way — see
+    shape as `f()` written directly (zero arguments either way -- see
     `_EMPTY_ARGS`'s resolution in `_resolve_alias`), and
     `#define B(x, ...) f(x, __VA_ARGS__)` called as `B(x, y, z)` compose to
     the same shape as `f(x, y, z)` written directly (three separate
@@ -885,8 +885,8 @@ def _substitute_shape(
 
     A pack that shares its slot with other written tokens is different: a
     single-token comma-joined expansion *inside* that slot's own text is
-    the correct behavior there — `target((__VA_ARGS__))`'s one argument
-    stays one argument, whatever the pack expands to — since splitting a
+    the correct behavior there -- `target((__VA_ARGS__))`'s one argument
+    stays one argument, whatever the pack expands to -- since splitting a
     slot that also has its own surrounding tokens into several top-level
     arguments would not correspond to anything a direct call could have
     written.
@@ -895,7 +895,7 @@ def _substitute_shape(
     has no entry for (an arity mismatch the chain cannot resolve), or when
     it uses `_VARIADIC_MARKER` but `variadic_start` is None (this macro's
     own forwarded call has no variadic pack for the marker to mean anything
-    against) — neither is treated as agreement either way.
+    against) -- neither is treated as agreement either way.
     """
     composed: list[tuple[bytes, ...]] = []
     for arg_tokens in shape:
@@ -950,12 +950,12 @@ class AliasMap:
     """Registered forwarding aliases, from one file's macros.
 
     `targets` is name -> resolved intrinsic, the map callers look up a call
-    site's `raw_name` against — the same shape `build_alias_map` returned
+    site's `raw_name` against -- the same shape `build_alias_map` returned
     before this type existed. `definitions` is the `start_byte` (see
     `ReparsedMacro`) of every specific macro *definition* that fed a
     registered name; `extract.py`'s unit skip needs this rather than the
-    name alone, because one name can have several definitions in a file —
-    different `#if` branches — and only the definitions that actually agreed
+    name alone, because one name can have several definitions in a file --
+    different `#if` branches -- and only the definitions that actually agreed
     with each other and got registered may have their unit skipped. A
     same-named definition that disagreed is not in here even though its name
     is a key in `targets`, and keeps its own unit.
@@ -963,22 +963,22 @@ class AliasMap:
     The two fields answer different questions at different granularity, and
     it is worth being precise about which is which: *whether a name
     registers at all* is decided over the whole set of that name's
-    definitions (every one of them has to agree — see `build_alias_map`),
+    definitions (every one of them has to agree -- see `build_alias_map`),
     but *which specific definitions are exempt from getting their own unit*
     is then recorded per definition. A definition's membership in
     `definitions` therefore always implies its name is a key in `targets`,
     never the reverse in isolation.
 
     Both fields are produced by the same registration pass in
-    `build_alias_map` and are read-only from here — so the claim that they
+    `build_alias_map` and are read-only from here -- so the claim that they
     cannot drift apart is enforced, not merely documented. That enforcement
     lives in `__post_init__`, not only in what `build_alias_map` happens to
     pass in: any caller can construct an `AliasMap` directly with a plain,
     mutable dict, so the defensive copy has to be this class's own
     invariant, not a courtesy `build_alias_map` extends to itself. Passing
     an already-immutable `MappingProxyType`/`frozenset` (as `build_alias_map`
-    does) still goes through the same copy — a `dict(mapping_proxy)` before
-    re-wrapping — which costs a little and buys not having two code paths
+    does) still goes through the same copy -- a `dict(mapping_proxy)` before
+    re-wrapping -- which costs a little and buys not having two code paths
     to keep in sync.
     """
 
@@ -995,7 +995,7 @@ def _callee_arity(callee_defs: list[ReparsedMacro]) -> tuple[int, int | None] | 
 
     `variadic_start` is `None` when the name takes no variadic pack, or
     equal to the fixed count when it does (the pack begins right after the
-    last fixed parameter) — passed straight through to `_substitute_shape`.
+    last fixed parameter) -- passed straight through to `_substitute_shape`.
 
     Returns None when `callee_defs` (every `ReparsedMacro` for one name)
     does not unanimously agree on both the fixed parameter count and
@@ -1026,7 +1026,7 @@ def _resolve_alias(
 ) -> tuple[str, tuple[tuple[bytes, ...], ...]] | None:
     """Resolve `name` to `(final intrinsic, composed shape)`, or None.
 
-    `seen` is the set of names on the *active* recursion path — used only
+    `seen` is the set of names on the *active* recursion path -- used only
     for cycle detection, and never written to `cache` while a name is in it,
     because being "in `seen`" is true only for as long as this particular
     call stack is inside it; caching that would wrongly answer an unrelated,
@@ -1043,31 +1043,31 @@ def _resolve_alias(
     - its own forwarded-call shape lexes cleanly (`_call_shape`), and
     - its callee is already a recognized intrinsic once put through
       `knowledge.normalize` (chain ends here, this definition's own shape
-      *is* its composed shape) — or its callee is itself a name that
+      *is* its composed shape) -- or its callee is itself a name that
       resolves (recursively, through this same function, with `name` added
       to `seen`), in which case this definition's composed shape is that
       inner result's shape with each of *its* markers substituted by this
-      definition's own per-argument shape (`_substitute_shape`) — i.e. what
+      definition's own per-argument shape (`_substitute_shape`) -- i.e. what
       this definition actually supplies for each of the inner macro's
       parameters, still expressed in this definition's *own* parameter
       markers, so it stays comparable against this same name's other
       definitions.
 
     `definition_counts[name]` must equal the number of `ReparsedMacro`
-    entries `macros_by_name` has for `name` — built from
+    entries `macros_by_name` has for `name` -- built from
     `_definition_positions`, which counts every `preproc_function_def` node
     regardless of whether it has a body, so a name with an empty-bodied
     definition among its `#if` branches never resolves: that definition
     never becomes a `ReparsedMacro` at all (see `reparse_macros`), and
     without this count check its absence from `macros_by_name[name]` would
-    go unnoticed, registering the name as if every definition had agreed —
+    go unnoticed, registering the name as if every definition had agreed --
     vacuously, over a definition never seen.
 
     A cycle (a name that, through some chain, forwards back to itself), an
     unresolved intermediate (a callee that is neither a recognized intrinsic
     nor a name this function knows how to resolve), and an arity mismatch
     during composition (`_substitute_shape` returning None) all resolve to
-    None — the alias is not registered, full stop; none of these is
+    None -- the alias is not registered, full stop; none of these is
     distinguished from a plain disagreement between definitions.
     """
     if name in cache:
@@ -1113,7 +1113,7 @@ def _resolve_alias(
             # `callee()`: how many arguments this represents depends on
             # `callee`'s own declared parameter count, per C's macro
             # invocation syntax (measured directly against this project's
-            # parser — see `_EmptyArgs`'s docstring). Handled for exactly
+            # parser -- see `_EmptyArgs`'s docstring). Handled for exactly
             # the two unambiguous shapes: no parameters at all (zero
             # arguments), or exactly one, no variadic pack (one argument,
             # itself empty). Anything else -- two or more fixed parameters,
@@ -1169,14 +1169,14 @@ def _resolve_alias(
 def build_alias_map(root: Node, source: bytes, macros: list[ReparsedMacro], knowledge: Knowledge) -> AliasMap:
     """Resolve forwarding aliases to the intrinsic at the end of their chain.
 
-    A macro name can have more than one definition in a file — different
+    A macro name can have more than one definition in a file -- different
     `#if` branches, all read regardless of which one a real build would take
     (see `reparse_macros`). Every name that has at least one `ReparsedMacro`
     entry is attempted through `_resolve_alias`, which is where the actual
     per-name agreement decision and chain composition live; see its
     docstring. Every name that resolves is registered under its resolved
     intrinsic, and *all* of its own definitions' `start_byte`s are recorded
-    in `definitions` — including a name reached only as an intermediate step
+    in `definitions` -- including a name reached only as an intermediate step
     of some other name's chain (VVenC's `INNER`/`OUTER` shape: both register
     independently, `OUTER` by composing through `INNER`), since that name's
     own direct use sites and its own macro unit are governed by its own
@@ -1187,7 +1187,7 @@ def build_alias_map(root: Node, source: bytes, macros: list[ReparsedMacro], know
     expansion. Two intermediates whose bodies are textually identical will
     always compare equal here even if one of them contains a further,
     separately-`#if`-redefined object-like macro that would make the two
-    expand differently at compile time — this module has no model of the
+    expand differently at compile time -- this module has no model of the
     preprocessor beyond the one function-like macro layer it reparses.
     """
     macros_by_name: dict[str, list[ReparsedMacro]] = {}

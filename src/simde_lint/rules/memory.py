@@ -86,7 +86,7 @@ class MemoryRule:
     ) -> Iterator[list[IntrinsicCall]]:
         """Split same-variable inserts into runs unbroken by an intervening write.
 
-        Source reuses a vector variable name across unrelated blocks — a reset
+        Source reuses a vector variable name across unrelated blocks -- a reset
         and rebuild later in the same function, for instance. Grouping by
         result_var alone would merge those into one oversized chain spanning
         code that has nothing to do with the first. A write to `target`

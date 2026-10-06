@@ -188,7 +188,7 @@ def _is_compound_assignment(node: Node, source: bytes) -> bool:
     `assignment_expression`; only the `operator` field's text tells them
     apart. A compound assignment's new value depends on the old value of the
     target as well as on the right-hand side, so a call on that right-hand
-    side must never be treated as directly bound to the target — see
+    side must never be treated as directly bound to the target -- see
     `_enclosing_result_var`.
     """
     operator = node.child_by_field_name("operator")
@@ -217,14 +217,14 @@ def _enclosing_binding(call: Node) -> Node | None:
 
     A call nested in another call's argument list binds nothing of its own:
     its value flows into the enclosing call, not into that statement's
-    target. A call nested in any other value-transforming construct —
+    target. A call nested in any other value-transforming construct --
     `binary_expression`, `unary_expression`, `conditional_expression`,
     `comma_expression`, `initializer_list`, and every node type not
-    anticipated here — binds nothing either: the enclosing write's value is
+    anticipated here -- binds nothing either: the enclosing write's value is
     no longer this call's value alone. Only `parenthesized_expression` and
     `cast_expression` preserve that identity, so only those are crossed;
-    everything else — including a nested `call_expression` and
-    `function_definition` — terminates the walk and yields None, exactly as
+    everything else -- including a nested `call_expression` and
+    `function_definition` -- terminates the walk and yields None, exactly as
     it always has for those two.
     """
     parent = call.parent
@@ -349,7 +349,7 @@ def _enclosing_result_var(call: Node, source: bytes) -> str | None:
     A compound assignment (`x += call(...)`) is not a direct binding either:
     `x`'s new value depends on its old value as well as on the call's result,
     so this returns None there just as it does for a nested call. The write
-    itself is not lost — `_record_plain_assignments` records it as an
+    itself is not lost -- `_record_plain_assignments` records it as an
     `UNKNOWN` definition, since a compound assignment's right-hand side never
     reaches this function's caller as a recognized-call binding.
     """
@@ -569,12 +569,12 @@ def extract_units_and_diagnostics(
             # inside the macro body.
             #
             # Keyed by this specific definition's `start_byte` (the
-            # `#define` construct's own position — see `ReparsedMacro`), not
+            # `#define` construct's own position -- see `ReparsedMacro`), not
             # by `macro.name` and not by `macro.body_start_byte`: a name can
             # have several definitions in this file (different `#if`
             # branches), and only the ones that actually agreed with each
             # other and were registered by `build_alias_map` belong to
-            # `aliases.definitions` — a same-named sibling that disagreed
+            # `aliases.definitions` -- a same-named sibling that disagreed
             # still needs its own unit built below. `start_byte` identifies
             # a definition uniquely within one file (unlike
             # `body_start_byte`, which an empty-bodied sibling definition
@@ -599,7 +599,7 @@ def _extract_macro_unit(
     """Build a `MacroUnit` from one reparsed macro body.
 
     Walks the macro's synthetic parse tree through `Coordinates.of_macro`,
-    which maps every resulting position back to the original file — nothing
+    which maps every resulting position back to the original file -- nothing
     here is read from the synthetic wrapper's own coordinates, so a finding
     never points into text that does not exist in the file. Returns None
     when no call in the body normalizes to a recognized intrinsic; a unit
@@ -634,7 +634,7 @@ def _record_plain_assignments(
     `_extract_calls` already recorded it there, with its actual kind
     (literal vector or call result) rather than UNKNOWN. Recording it again
     here would double-count the definition. A call to something that is not
-    a recognized intrinsic — `helper_load(c)`, cast-wrapped or not — falls
+    a recognized intrinsic -- `helper_load(c)`, cast-wrapped or not -- falls
     through and is recorded as UNKNOWN, because today's only alternative is
     to not record it at all, which is the bug this function exists to avoid
     for non-call right-hand sides.
@@ -643,11 +643,11 @@ def _record_plain_assignments(
     when its right-hand side is a recognized intrinsic call:
     `_enclosing_result_var` returns None for it, so `_extract_calls` records
     no definition for the write at all. Falling through to UNKNOWN here is
-    what keeps `redefined_between` seeing the reassignment — dropping it
+    what keeps `redefined_between` seeing the reassignment -- dropping it
     would trade a wrong direct-result link for a missing definition, which is
     exactly the failure mode this function exists to avoid.
 
-    Shared by both extraction paths through `coords` — see `Coordinates`.
+    Shared by both extraction paths through `coords` -- see `Coordinates`.
     """
     for node in iter_nodes(scope, "assignment_expression"):
         right = node.child_by_field_name("right")

@@ -20,12 +20,12 @@ def location_fields(unit: AnalysisUnit) -> dict[str, str | None]:
     """The three `Finding` fields every rule must copy from its unit, together.
 
     `CONTRIBUTING.md`'s enumeration of what a rule reads from `AnalysisUnit`
-    once omitted `function_name`/`macro_name` — the two members every rule
+    once omitted `function_name`/`macro_name` -- the two members every rule
     actually needs, because every `Finding` construction site hand-writes
     `function=unit.function_name, scope=unit.scope, macro=unit.macro_name`.
     A rule that instead reached for `unit.name` (following the shorter list
     literally) silently produced `scope='function', function=<macro name>,
-    macro=None` on a macro unit — indistinguishable from a real function
+    macro=None` on a macro unit -- indistinguishable from a real function
     finding in the text report, and `Finding.__post_init__` does not catch
     it (it enforces internal consistency between `scope`/`function`/`macro`,
     not correspondence with the unit that produced them).
@@ -83,7 +83,7 @@ def own_availability(unit: AnalysisUnit, call: IntrinsicCall) -> int:
     """Byte offset after which `call`'s own bound result becomes available.
 
     A rule asking `redefined_between(call.result_var, call.start_byte, ...)`
-    means "did something else overwrite this after `call` produced it" — but
+    means "did something else overwrite this after `call` produced it" -- but
     `call.start_byte` is where the call begins, not where its result becomes
     available, and the binding `Definition` it creates always has a later
     `available_after_byte`. Anchoring at `call.start_byte` therefore makes

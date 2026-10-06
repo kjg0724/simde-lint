@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 // Rule W: the pair rebuilds all eight lanes, four per unpack. Each unpack is
-// replaced by its own widening multiply — vmull_s16 low, vmull_high_s16 high.
+// replaced by its own widening multiply -- vmull_s16 low, vmull_high_s16 high.
 void one_pair_feeding_both_unpacks(__m128i a, __m128i b) {
     __m128i lo = _mm_mullo_epi16(a, b);
     __m128i hi = _mm_mulhi_epi16(a, b);

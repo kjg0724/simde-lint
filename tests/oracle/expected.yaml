@@ -1,4 +1,4 @@
-# Hand-decided expectations. Never generated from tool output — see README.md.
+# Hand-decided expectations. Never generated from tool output -- see README.md.
 #
 # Each case names the file, why the expectation is what it is, and the exact
 # findings expected. An empty list is a claim that the file contains no
@@ -7,7 +7,7 @@
 # Fields checked when present: line, type, rule, rule_mechanism, evidence,
 # reason, intrinsic, suggestion, simde_insns, native_insns, scope, macro,
 # raw_name, rationale_includes, rationale_excludes. Anything not named is not
-# asserted, so a case pins what it reasoned about and no more — but a key
+# asserted, so a case pins what it reasoned about and no more -- but a key
 # outside that list is a mistake, not a silent no-op, and a test says so.
 #
 # Present-and-null is an assertion too: `suggestion:` with no value requires
@@ -31,7 +31,7 @@ exclusive_arms.c:
     round-trip: rule W's mechanism is one multiply pair feeding one unpack,
     and here only one of the pair ever runs. In `compare_and_consumer_...`
     the compare and the `and` are in opposite arms, so the compare is never
-    followed by that consumer at all — rule P's mechanism is a compare whose
+    followed by that consumer at all -- rule P's mechanism is a compare whose
     result the next call consumes, and no execution has both. Adjacency in
     source text is not adjacency in any run. Rule M was corrected for this
     same reason and rule F after it; the mechanism definitions are what
@@ -89,7 +89,7 @@ portable_fallback.c:
     produces. The knowledge entry concedes this by recording both instruction
     counts as unknown; the rationale has to concede it too. `vmlaq_s16` is
     still the right fused form to name, and for a 256-bit value it applies to
-    each 128-bit half — which the `suggestion` field says as well as the
+    each 128-bit half -- which the `suggestion` field says as well as the
     rationale, so a JSON consumer and a text reader get one claim.
 
     The second function is the same intrinsic against a 32-lane accumulator,
@@ -137,15 +137,15 @@ redundant_zero_init.c:
     The rule names what the zero-init costs and proposes nothing in its
     place, so `native_insns` has to be absent: a count of instructions for a
     replacement nobody named is a number about nothing. The pinned pair is
-    the asymmetric one — a cost with no transform beside it, which is neither
+    the asymmetric one -- a cost with no transform beside it, which is neither
     "counts reported" nor "counts withheld" and has to be distinguishable from
     both. `report/text.py` renders it as its own line for the same reason.
 
     That the expansion cost exists at all is read off the source, not off the
     tool: `simde/x86/sse2.h:5750` gives `simde_mm_loadu_si32` an
     `SIMDE_ARM_NEON_A32V7_NATIVE` branch whose two operations are
-    `vdupq_n_s32(0)` and `vsetq_lane_s32` — the `vdup` being the zero-init
-    this rule is about — and `simde/x86/sse2.h:4156` gives
+    `vdupq_n_s32(0)` and `vsetq_lane_s32` -- the `vdup` being the zero-init
+    this rule is about -- and `simde/x86/sse2.h:4156` gives
     `simde_mm_loadl_epi64` one built from `vdup_n_s64(0)` and
     `vcombine_s64(vld1_s64(...), ...)`. Both compile to NEON, so a count
     exists; that no replacement count joins it follows from the rule offering
@@ -179,7 +179,7 @@ scalar_assembly.c:
     - output.costs_withheld
   why: >-
     Type M's two mechanisms. Three inserts on one target meet the default
-    threshold of three and are one finding, not three — the mechanism is the
+    threshold of three and are one finding, not three -- the mechanism is the
     chain. Two inserts are below it and are nothing. A `_mm_set_epi32` over
     runtime scalars is the second mechanism; the same call over literals is a
     constant vector and is excluded by the rule's own description. The line a
@@ -187,7 +187,7 @@ scalar_assembly.c:
     is deliberately not asserted here.
 
     `simde/x86/sse4.1.h:1582` and `simde/x86/sse2.h:5720` both carry an
-    `SIMDE_ARM_NEON_A32V7_NATIVE` branch — `vsetq_lane_s32` and `vld1q_s32` —
+    `SIMDE_ARM_NEON_A32V7_NATIVE` branch -- `vsetq_lane_s32` and `vld1q_s32` --
     so the two 128-bit findings have an expansion to count.
 
     The 256-bit chain is the same mechanism and still a finding, but
@@ -196,7 +196,7 @@ scalar_assembly.c:
     and
     what would replace it are both outside what the source says. The finding
     reports the shape and withholds the numbers, which is the same
-    concession `portable_fallback.c` pins for rule F — one contract, not a
+    concession `portable_fallback.c` pins for rule F -- one contract, not a
     per-rule habit.
   findings:
     - type: M
@@ -231,9 +231,9 @@ shuffle_guard.c:
     Rule S matches every `_mm_shuffle_epi8` and grades on whether the mask's
     lanes are known to be safe, so both calls are findings and the grades
     differ. The first mask is sixteen literal indices, all inside 0..15,
-    where pshufb and tbl agree — nothing is unknown and nothing needs a
-    guard, so grade A. `simde/x86/ssse3.h:346` is one line —
-    `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))` — three NEON instructions,
+    where pshufb and tbl agree -- nothing is unknown and nothing needs a
+    guard, so grade A. `simde/x86/ssse3.h:346` is one line --
+    `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))` -- three NEON instructions,
     of which the `vdup` and the `vand` exist only to make lanes above 15
     zero the way pshufb does. A mask whose lanes are all inside 0..15 never
     reaches them, so the replacement is the `vqtbl1q` alone: 3 to 1. Counted
@@ -279,14 +279,14 @@ fusion_shapes.c:
     - claims.grade_c_changes_result
   why: >-
     Rule F's mechanism is a multiply whose product an add consumes instead of
-    fusing, and whether the author named the product is a spelling choice —
+    fusing, and whether the author named the product is a spelling choice --
     both spellings are the same instance and both are findings. `mullo_epi32`
     produces 32-bit lanes accumulated by a 32-bit add, which `vmlaq_s32`
     matches, so nothing is withheld and the grade is A. One add is one fusion
     opportunity, so the pair of products at line 18 is one finding, not two.
     A multiply with no add is no instance at all. The float pair is the
     mechanism too, but `vfmaq_f32` rounds once where the separate multiply and
-    add round twice, so it is never an exact substitution — grade C, and the
+    add round twice, so it is never an exact substitution -- grade C, and the
     instruction is still named because it exists and has a cost, not because
     it can be applied freely.
   findings:
@@ -368,9 +368,9 @@ shared_producers.c:
     - claims.grade_a
   why: >-
     `docs/mechanisms.md` makes the consumer the counting unit for both
-    mechanisms. Rule W's unit is one consuming unpack — four lanes replaced by
+    mechanisms. Rule W's unit is one consuming unpack -- four lanes replaced by
     one widening multiply, which is why its cost is 5 to 1 per finding and why
-    the suggestion depends on which unpack matched — so a pair rebuilding all
+    the suggestion depends on which unpack matched -- so a pair rebuilding all
     eight lanes is two findings, both anchored at the low multiply. Rule F's
     unit is one add, so a product accumulated into two of them is two
     findings, both anchored at the multiply, the mirror of two products into
@@ -415,13 +415,13 @@ hop_and_guard.c:
   why: >-
     Two cells nothing else reached. A product arriving through one widening
     conversion is grade B: the path is resolved, one step less directly than a
-    product handed straight to the add — the only grade between "fully
+    product handed straight to the add -- the only grade between "fully
     resolved" and the caps, and until this case no oracle entry pinned it.
 
     The shuffle mask is written inline at the call and every lane is a
     literal, so nothing is unresolved; lane 15 is 0x20, inside the [16,127]
-    range where pshufb zeroes and tbl does not. That is `guard_required` —
-    the rule saw everything and the guard is load-bearing — and it is a
+    range where pshufb zeroes and tbl does not. That is `guard_required` --
+    the rule saw everything and the guard is load-bearing -- and it is a
     different claim from `unresolved`, which is what a mask the rule cannot
     read produces. Writing this case caught two of my own errors: a mask bound
     to a variable is not traced, and 0x80 is safe rather than unsafe, because
@@ -453,7 +453,7 @@ consumer_choice.c:
     sit in one arm; the unpack in the other cannot be theirs, since no
     execution has both, and it comes first in source order. The unpack after
     the `if` is on a common path with them and is an unambiguous round-trip,
-    so one finding — naming that unpack, not the arm's.
+    so one finding -- naming that unpack, not the arm's.
 
     Rejecting the chosen candidate rather than choosing past it ends the
     search at the arm's unpack and reports nothing. That shipped, and no

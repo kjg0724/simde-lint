@@ -72,7 +72,7 @@ def test_a_call_inside_a_macro_body_is_attributed_to_the_macro_not_a_function(ru
     # I2: nothing else drives a MacroUnit through a rule end to end. Every
     # other test in this file uses a fixture that is a plain function, so a
     # rule that regressed to `function=unit.name,` (the pre-Task-5 shape,
-    # dropping `scope=`/`macro=`) would still pass every one of them — the
+    # dropping `scope=`/`macro=`) would still pass every one of them -- the
     # macro-body call site is the only place the defect is observable.
     findings = run_rule(RedundantRule(), "redundant_macro.c")
     assert findings, "expected at least one finding from the macro body"

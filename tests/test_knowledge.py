@@ -126,7 +126,7 @@ def test_every_intrinsic_a_rule_can_match_has_a_cost_entry_citing_that_intrinsic
     R.zero_init_partial_load is not listed below: RedundantRule looks up
     `ctx.knowledge.redundant[call.name]` directly with no separate constant,
     so its matched set is redundant.yaml's own keys by construction and
-    cannot drift from it — covered by the redundant.yaml tests above.
+    cannot drift from it -- covered by the redundant.yaml tests above.
     """
     knowledge = load_knowledge()
     matched_by_rule = {
@@ -146,7 +146,7 @@ def test_every_intrinsic_a_rule_can_match_has_a_cost_entry_citing_that_intrinsic
 def test_consumed_operands_carry_no_cost_entry():
     """fusion._ADDS, fusion._WIDENING and widening._UNPACK are operands a
     match consumes on the way to a finding, not the intrinsic the finding is
-    reported against — F's and W's findings are anchored at the multiply, not
+    reported against -- F's and W's findings are anchored at the multiply, not
     the add/widen/unpack. Requiring a cost entry for them would be requiring
     data nothing ever reads. Explicit here so the exclusion is a documented
     decision rather than a gap this test happens not to notice.

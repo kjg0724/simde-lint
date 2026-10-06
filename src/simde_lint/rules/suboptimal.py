@@ -27,7 +27,7 @@ def _lane_is_safe(lane: int) -> bool:
     zero: pshufb by its MSB rule, tbl because the index exceeds the table.
     Lanes in [16,127] are the unsafe middle: pshufb has one table operand
     and, with bit 7 clear, masks the index down to its low 4 bits before
-    indexing it — an index like 20 behaves as index 4, not as an
+    indexing it -- an index like 20 behaves as index 4, not as an
     out-of-range access. Plain tbl applies no such masking and zeroes any
     index >= 16. SIMDe's guard reproduces pshufb's low-4-bit masking before
     the tbl runs (`vandq_u8(b, vdupq_n_u8(0x8F))` in x86/ssse3.h), which is
@@ -60,7 +60,7 @@ class SuboptimalRule:
             )
             # Only grade A confirms every mask lane lies in a range tbl and
             # pshufb agree on. B leaves the lane values unpinned and C is
-            # either unresolvable or a confirmed unsafe lane — neither
+            # either unresolvable or a confirmed unsafe lane -- neither
             # supports claiming the guard is dead work, so the suggestion and
             # the instruction counts are withheld rather than printed next to
             # a rationale that says the opposite.
@@ -88,8 +88,8 @@ class SuboptimalRule:
     ) -> str | None:
         """Name of the operation a value reaches a byte literal through.
 
-        VVenC builds its shuffle masks in several steps — an add against a
-        literal, then a blend — so a single hop back finds only the last
+        VVenC builds its shuffle masks in several steps -- an add against a
+        literal, then a blend -- so a single hop back finds only the last
         operation and misses the literal behind it. Walking the definitions
         and call operands within the function finds it. Returns None when no
         literal is reachable.

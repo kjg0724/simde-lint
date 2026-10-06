@@ -1,15 +1,15 @@
 """I1: every rule's `Finding`s must match their producing unit's location.
 
 `Finding.__post_init__` only enforces internal consistency between `scope`,
-`function` and `macro` — it does not, and cannot, check that those three
+`function` and `macro` -- it does not, and cannot, check that those three
 fields actually came from the unit a rule was matching against. A rule that
 reached for `unit.name` instead of `location_fields(unit)` (see
 `rules/base.py`) would silently mislabel a macro finding as a function one,
 or vice versa, and nothing downstream would catch it.
 
-This sweeps every rule over every fixture in `tests/fixtures/rules/` — both
+This sweeps every rule over every fixture in `tests/fixtures/rules/` -- both
 `FunctionUnit`s and the one `MacroUnit`-producing fixture
-(`redundant_macro.c`) — so the contract is checked on both kinds of unit, not
+(`redundant_macro.c`) -- so the contract is checked on both kinds of unit, not
 only the macro side: a regression in a function-scoped rule would pass a
 macro-only check just as easily as a macro-scoped regression would pass a
 function-only one.

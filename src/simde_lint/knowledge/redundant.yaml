@@ -40,4 +40,4 @@ intrinsics:
     simde_insns: 2
     native_insns: unknown
     source: x86/sse2.h:5844
-    note: returns simde_mm_cvtsi64_si128(val) (x86/sse2.h:5844), which itself expands to vsetq_lane_s64(a, vdupq_n_s64(0), 0) (x86/sse2.h:3652) — the zero-init and the cost are inherited from that call, not introduced at this line
+    note: returns simde_mm_cvtsi64_si128(val) (x86/sse2.h:5844), which itself expands to vsetq_lane_s64(a, vdupq_n_s64(0), 0) (x86/sse2.h:3652) -- the zero-init and the cost are inherited from that call, not introduced at this line

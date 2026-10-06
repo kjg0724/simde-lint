@@ -60,9 +60,9 @@ def test_an_unparseable_body_is_marked_not_ok():
     assert macros == [] or all(not m.ok for m in macros)
 
 
-# `preproc_arg` stops at the first backslash-newline boundary of this shape —
+# `preproc_arg` stops at the first backslash-newline boundary of this shape --
 # a `do {` opened on the `#define` line, followed by a comment on its own
-# continuation line — and hands back a 43-byte fragment with no closing brace.
+# continuation line -- and hands back a 43-byte fragment with no closing brace.
 # This reproduces the real defect: `FILTER_SRC` in SVT-AV1's
 # variance_avx512.c truncates the same way, for the same reason (verified
 # directly against that macro while diagnosing this bug).
@@ -375,7 +375,7 @@ def test_agreeing_duplicate_aliases_are_registered_and_produce_no_units():
 
     Both `#if` branches here are the *same* shape, so this fixture cannot
     distinguish real per-definition agreement-checking from a naive
-    "whichever definition is processed last wins" implementation — both
+    "whichever definition is processed last wins" implementation -- both
     reach the same visible outcome (zero macro units, the call resolves).
     `test_agreeing_duplicate_alias_registers_both_definitions_not_only_the_last`,
     below, is this test's mutation-sensitive companion: it checks the one
@@ -392,7 +392,7 @@ def test_agreeing_duplicate_aliases_are_registered_and_produce_no_units():
 def test_agreeing_duplicate_alias_registers_both_definitions_not_only_the_last():
     """Mutation-sensitive companion to the test above.
 
-    `AliasMap.definitions` — what `extract.py`'s unit skip is keyed on — must
+    `AliasMap.definitions` -- what `extract.py`'s unit skip is keyed on -- must
     contain *every* one of `LD`'s two definitions once the name registers,
     not only whichever one a last-wins implementation happened to keep.
     """
@@ -472,7 +472,7 @@ _DUP_ALIAS_SAME_TARGET_DIFFERENT_SPELLING = (
 
 
 def test_duplicate_aliases_agreeing_only_after_simde_spelling_normalization_are_registered():
-    """Success-path regression guard — see the note on the test above; this
+    """Success-path regression guard -- see the note on the test above; this
     fixture is likewise unable to distinguish real agreement-checking from
     last-wins on its own, since both branches ultimately name the same
     intrinsic. `test_spelling_normalized_duplicate_alias_registers_both_definitions_not_only_the_last`,
@@ -507,10 +507,10 @@ def test_a_single_definition_alias_is_still_registered_and_keyed_by_its_own_defi
 
 def test_alias_map_targets_cannot_be_mutated_by_a_caller():
     """`AliasMap` claims its two fields cannot drift apart; this is the part
-    of that claim that must be enforced, not merely documented — `targets`
+    of that claim that must be enforced, not merely documented -- `targets`
     is a `MappingProxyType` view, not a plain dict a caller could edit out
     from under `definitions`. Checked every way a caller could try: item
-    assignment, item deletion, and every mutating dict method — `clear`,
+    assignment, item deletion, and every mutating dict method -- `clear`,
     `update`, `pop`, `popitem`, `setdefault` are not merely blocked, they do
     not exist on the proxy at all, which is a stronger guarantee than one
     that raises on the attempt.
@@ -1102,7 +1102,7 @@ _EMPTY_CALL_TO_TWO_PARAMETER_INTERMEDIATE = b"#define B(x, y) _mm_add_epi32(x, y
 def test_an_empty_call_to_a_two_parameter_intermediate_fails_closed():
     """Two or more fixed parameters against an empty call list has no single
     agreed-on meaning in real C either (a straightforward too-few-arguments
-    error at preprocessing time) — this project does not try to guess at
+    error at preprocessing time) -- this project does not try to guess at
     one, unlike the clean one-parameter and zero-parameter cases above.
     """
     knowledge = load_knowledge()
@@ -1117,7 +1117,7 @@ _EMPTY_CALL_DIRECTLY_TO_AN_INTRINSIC = b"#define Z() _mm_setzero_si128()\n"
 
 def test_an_empty_call_directly_to_an_intrinsic_is_always_zero_arguments():
     """Unlike a macro callee, a real function call's own syntax settles
-    `f()` unambiguously as zero arguments — there is no declared parameter
+    `f()` unambiguously as zero arguments -- there is no declared parameter
     list on this side for this project to read `()` against, regardless of
     what `Z` itself declares.
     """
@@ -1132,13 +1132,13 @@ _MIDDLE_EMPTY_ARGUMENT = b"#define B(x, y, z) _mm_add_epi32(x, y)\n#define A(x, 
 
 
 def test_a_middle_empty_argument_is_unrepresentable_and_fails_closed():
-    """`B(x,,z)` — a genuinely empty *middle* argument — does not parse at
+    """`B(x,,z)` -- a genuinely empty *middle* argument -- does not parse at
     all in this project's grammar (confirmed directly: it produces an
     `ERROR` node inside the argument list, not two empty `argument_list`
     children), so `A`'s own body fails to reparse cleanly
     (`ReparsedMacro.ok` is False) and `A` is rejected well before arity
     ever enters into it. There is no attempt made to give this shape a
-    successful registration through some other, more permissive route —
+    successful registration through some other, more permissive route --
     the boundary is that it fails closed, and that is what is pinned here,
     not any particular internal mechanism.
     """
@@ -1158,8 +1158,8 @@ _NESTED_PARENS_ARGUMENT = b"#define B(a, b) _mm_add_epi32(a, b)\n#define A(p, q,
 def test_a_comma_inside_nested_parentheses_is_not_an_argument_separator():
     """Pinning what was already correct before this round, so the new
     empty-argument/variadic handling above and below cannot silently break
-    it: `B(p, (q, r))` is two arguments to `B` — `p`, and the whole
-    parenthesized `(q, r)` — not three, because a comma nested inside
+    it: `B(p, (q, r))` is two arguments to `B` -- `p`, and the whole
+    parenthesized `(q, r)` -- not three, because a comma nested inside
     parentheses is not itself an argument separator.
     """
     knowledge = load_knowledge()
@@ -1173,13 +1173,13 @@ def test_a_comma_inside_nested_parentheses_is_not_an_argument_separator():
 # Each of the three shapes below is a `#if`-duplicate pair: one branch
 # reaches the target *through* the variadic intermediate, the other writes
 # the equivalent call *directly*. Registration itself is the shape-equality
-# proof — two branches whose composed shapes differ are rejected — so
+# proof -- two branches whose composed shapes differ are rejected -- so
 # "the pair registers" pins the actual claim ("this composition produces
 # the same shape as the equivalent hand-written call"), not merely "some
 # composition happened without erroring." A bare
 # `alias_map.targets["A"] == target` check (what this section originally
 # had) cannot tell a correct composed shape apart from a differently-wrong
-# one when there is no sibling definition to disagree with it — exactly
+# one when there is no sibling definition to disagree with it -- exactly
 # the gap that made the zero-argument case below inert until this round:
 # it passed even under the pre-round-4 implementation, where `__VA_ARGS__`
 # was an ordinary, unsubstituted literal token that never expanded to
@@ -1200,7 +1200,7 @@ def test_composing_through_a_variadic_intermediate_with_zero_extra_arguments_mat
     """Also the exact reproduction of the review's own repro: before this
     round's fix, an argument slot written as *only* the pack
     (`_mm_setzero_si128(__VA_ARGS__)`) composed to one argument with empty
-    tokens when the pack was empty, rather than to zero arguments — so
+    tokens when the pack was empty, rather than to zero arguments -- so
     `V()`'s composed shape (one empty-token argument) disagreed with
     `_mm_setzero_si128()` written directly (zero arguments, per
     `_EMPTY_ARGS`'s own resolution), and this pair did not register.
@@ -1243,8 +1243,8 @@ def test_composing_through_a_variadic_intermediate_with_several_extra_arguments_
     pack argument, not into a single slot holding them all: a call shape is
     one token tuple per positional argument, so `B(x, y, z)` composes to
     three top-level entries and equals `_mm_add_epi32(x, y, z)` written
-    directly. Joining `y` and `z` into one entry — by a comma token or by
-    plain concatenation — would leave the composed shape two entries long
+    directly. Joining `y` and `z` into one entry -- by a comma token or by
+    plain concatenation -- would leave the composed shape two entries long
     and it would not match the direct call.
     """
     knowledge = load_knowledge()
@@ -1268,7 +1268,7 @@ def test_composing_through_two_variadic_hops_with_an_empty_pack_matches_the_dire
     """The empty-pack slot collapse must hold at every hop, not only a
     single one: `A` reaches the target through *two* variadic
     intermediates (`V2` forwards its own empty pack to `V`, which forwards
-    its own — now composed — empty pack to the target), and each hop's own
+    its own -- now composed -- empty pack to the target), and each hop's own
     composition must independently collapse the vanished slot for the next
     hop to see a clean, already-empty pack rather than a leftover
     empty-token argument.
@@ -1317,7 +1317,7 @@ _DUP_VARIADIC_STANDARD_AND_GNU_NAMED_AGREE = (
 
 def test_duplicate_definitions_chaining_through_a_standard_and_a_gnu_named_variadic_that_agree_register():
     """`TARGET1` (standard `...`) and `TARGET2` (GNU named `rest...`) both
-    forward their pack to `_mm_add_epi32`'s second position, faithfully —
+    forward their pack to `_mm_add_epi32`'s second position, faithfully --
     different variadic *forms*, same real correspondence. `CHAINED`'s two
     `#if` branches, one routing through each, must still be recognized as
     agreeing.
@@ -1343,9 +1343,9 @@ _DUP_VARIADIC_PACK_POSITION_CONFLICTS = (
 def test_duplicate_definitions_chaining_through_variadic_intermediates_whose_pack_position_conflicts_are_rejected():
     """`TARGET1` puts the pack second; `TARGET3` puts it first. Composed
     through `CHAINED2`'s two branches this is a genuine operand-order
-    disagreement — the same "two sides read differently" case as a
+    disagreement -- the same "two sides read differently" case as a
     fixed-parameter reversal, just with a pack instead of a single
-    parameter — and must be rejected, not registered.
+    parameter -- and must be rejected, not registered.
     """
     knowledge = load_knowledge()
     alias_map = _alias_map(_DUP_VARIADIC_PACK_POSITION_CONFLICTS, knowledge)
@@ -1521,7 +1521,7 @@ def test_a_pack_that_is_written_in_the_body_still_registers_even_when_it_expands
 )
 def test_multi_character_punctuators_lex_as_a_single_token(punctuator):
     """Before this fix, `_tokenize`'s only punctuator handling was its
-    final catch-all — one byte, unconditionally — so every multi-character
+    final catch-all -- one byte, unconditionally -- so every multi-character
     operator here split into that many single-character tokens instead of
     lexing as the one real preprocessing token it actually is.
     """
@@ -1532,7 +1532,7 @@ def test_logical_and_and_bitwise_and_address_of_lex_to_different_token_sequences
     """The review's own minimal repro, at the tokenizer level: `a && b`
     (logical-and) and `a & &b` (bitwise-and applied to the address of `b`)
     are different C, and must produce different token sequences. Before
-    this fix both lexed to the identical four tokens `a`, `&`, `&`, `b` —
+    this fix both lexed to the identical four tokens `a`, `&`, `&`, `b` --
     whitespace alone decided which real operator two macro bodies compared
     as agreeing on.
     """
@@ -1557,8 +1557,8 @@ _LOGICAL_AND_VS_BITWISE_AND_ADDRESS_OF = (
 
 def test_duplicate_definitions_disagreeing_only_by_logical_versus_bitwise_and_are_not_registered():
     """The review's own repro, end to end. Before this fix, `X`'s two
-    branches — one written `a && b` (logical-and), the other `a & &b`
-    (bitwise-and of `a` with the address of `b`) — both normalized to the
+    branches -- one written `a && b` (logical-and), the other `a & &b`
+    (bitwise-and of `a` with the address of `b`) -- both normalized to the
     same four tokens `a`, `&`, `&`, `b`, so `build_alias_map` judged them
     to agree and registered `X` as forwarding to `_mm_set_epi32`, even
     though the two branches are genuinely different C. This is the wrong

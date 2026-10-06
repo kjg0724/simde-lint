@@ -2,7 +2,7 @@ from simde_lint.ir import Definition, FunctionUnit, ValueKind, ValueRef
 
 
 def _unit() -> FunctionUnit:
-    # `available_after_byte` — not `line` — is what the ordering methods
+    # `available_after_byte` -- not `line` -- is what the ordering methods
     # compare on, so the two definitions are placed at distinct byte offsets
     # (35 and 95) even though `line` is kept only as an identifying label.
     unit = FunctionUnit(name="f", file="a.c", start_line=1, end_line=20)
@@ -56,7 +56,7 @@ def test_redefined_between_excludes_definitions_on_either_boundary():
 
 
 def test_definition_is_not_available_to_its_own_right_hand_side():
-    # `res = f(res, ...)` — the `res` inside the call is the previous value,
+    # `res = f(res, ...)` -- the `res` inside the call is the previous value,
     # so the new definition must not be visible at the call's own position.
     unit = FunctionUnit(name="f", file="a.c", start_line=1, end_line=9)
     unit.add_definition(

@@ -90,13 +90,13 @@ class IntrinsicCall:
     selection_arms: tuple[tuple[int, int], ...] = ()
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
-    # `macros.build_alias_map`) — a macro whose *body* extraction never sees,
+    # `macros.build_alias_map`) -- a macro whose *body* extraction never sees,
     # so the call's recorded `args` are the call site's own, not necessarily
     # what the macro's body actually forwards (see `rules/pipeline.py`/
     # `rules/fusion.py`'s consumer-side abstention). False for a direct call
     # and for a call whose spelling changed only through
     # `knowledge/aliases.yaml` normalization (`simde_mm_shuffle_epi8` ->
-    # `_mm_shuffle_epi8`, for instance) — that correspondence is exact by
+    # `_mm_shuffle_epi8`, for instance) -- that correspondence is exact by
     # SIMDe's own naming convention, not an opaque macro body, so `raw_name
     # != name` alone must not be read as "came through a macro" (P1's P2
     # finding: it conflates the two).
@@ -227,7 +227,7 @@ class MacroUnit(_UnitBase):
     `macro_name` is a property mirroring `name`, not a separate field: a
     macro unit's name and its "macro name" are the same string by
     construction (extraction never has a second name to offer), so keeping
-    `macro_name` independently settable would let it diverge from `name` —
+    `macro_name` independently settable would let it diverge from `name` --
     including staying at its old default when a caller forgot to pass it,
     which would surface as a blank macro name in a rendered report. A single
     source of truth removes that failure mode outright.

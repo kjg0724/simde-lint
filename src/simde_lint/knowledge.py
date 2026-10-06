@@ -23,19 +23,19 @@ class TransformStatus(str, Enum):
     Rule F grades on this and never on `suggestion`. The two answer different
     questions: `suggestion` is what the report shows a reader, this is what
     the tool is willing to assert. They moved together by accident until
-    v2.1 — filling in an informative suggestion silently promoted a finding
+    v2.1 -- filling in an informative suggestion silently promoted a finding
     from C to A.
 
-    - **ESTABLISHED** — a fused form applies generally to this intrinsic.
-    - **CONDITIONAL** — one applies, but under a condition rule F does not
+    - **ESTABLISHED** -- a fused form applies generally to this intrinsic.
+    - **CONDITIONAL** -- one applies, but under a condition rule F does not
       check (a consumer shape, for instance). Caps at C, with its own reason,
       because the rule has not verified the condition holds here.
-    - **CHANGES_RESULT** — one applies unconditionally and does not produce
+    - **CHANGES_RESULT** -- one applies unconditionally and does not produce
       the same answer. Caps at C for a different reason from CONDITIONAL:
       there is no condition under which the substitution is exact, so what a
       reader has to settle is not whether a condition holds but whether a
       different answer is acceptable.
-    - **UNKNOWN** — not established. Caps at C.
+    - **UNKNOWN** -- not established. Caps at C.
     """
 
     ESTABLISHED = "established"
@@ -50,7 +50,7 @@ class CostInfo:
 
     Every number and suggestion the report prints comes from one of these.
     `simde_insns`, `native_insns` and `suggestion` are `None` when the cost or
-    the transform could not be established from the SIMDe source — this is an
+    the transform could not be established from the SIMDe source -- this is an
     honest answer, not a placeholder to fill in later, and the report layer
     must render it as such rather than guessing.
     """

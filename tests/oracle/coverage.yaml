@@ -11,7 +11,7 @@
 # a failure, and a listed cell that IS covered as a stale entry to remove.
 #
 # Adding a dimension value here without a case makes the suite fail. That is
-# intended — it is how a shape gets written down before it is forgotten.
+# intended -- it is how a shape gets written down before it is forgotten.
 
 dimensions:
   control:
@@ -26,7 +26,7 @@ dimensions:
       consumer_nested: consumer inside a block the producer encloses
       producer_nested: producer inside a block the consumer follows
       sequential_siblings: two sibling blocks, one after the other
-      exclusive_arms: different arms of one `if` — the only non-runnable pair
+      exclusive_arms: different arms of one `if` -- the only non-runnable pair
       independent_conditionals: two separate `if`s, which can both be taken
       loop_boundary: producer in a loop, consumer after it
       early_exit: a `return` between producer and consumer
@@ -51,7 +51,7 @@ dimensions:
       `docs/mechanisms.md` settled them.
     values:
       one_to_one: one producer, one consumer
-      two_producers_one_consumer: one finding — the consumer is the unit
+      two_producers_one_consumer: one finding -- the consumer is the unit
       one_producer_two_consumers: two findings, one per consumer
       invalid_candidate_first: a rejected candidate before a valid one
       invalid_candidate_first_for_fusion: the same, for rule F's add search
