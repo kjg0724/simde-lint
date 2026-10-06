@@ -11,12 +11,12 @@ A subset of tests (`tests/test_verification.py`) additionally checks
 detection against two external reference checkouts: SVT-AV1 and VVenC. Their
 locations are supplied through these environment variables; when one is
 unset, the tests that need it skip. There is deliberately no fallback to a
-default path — this repository is public, and a hardcoded location would
+default path -- this repository is public, and a hardcoded location would
 publish one machine's directory layout for no verification benefit.
 
-- `SIMDE_LINT_SVT_AV1` — path to an SVT-AV1 checkout root (the tests look
+- `SIMDE_LINT_SVT_AV1` -- path to an SVT-AV1 checkout root (the tests look
   for `<root>/Source`)
-- `SIMDE_LINT_VVENC` — path to a VVenC checkout root (the tests look for
+- `SIMDE_LINT_VVENC` -- path to a VVenC checkout root (the tests look for
   `<root>/source/Lib/CommonLib/x86`)
 
 ```bash
@@ -24,7 +24,7 @@ SIMDE_LINT_SVT_AV1=/path/to/svt-av1 SIMDE_LINT_VVENC=/path/to/vvenc \
   uv run pytest tests/test_verification.py -v
 ```
 
-Those tests skip cleanly — not fail — when the checkout isn't present, so
+Those tests skip cleanly -- not fail -- when the checkout isn't present, so
 the rest of the suite stays runnable without either clone. The environment
 variable is the only way to point them at one: there is deliberately no
 fallback to a default path, because a default would publish the author's own
@@ -34,15 +34,15 @@ Set `SIMDE_LINT_REQUIRE_CORPUS=1` to withdraw that skip. It is for a caller
 who believes they supplied the corpora and wants to be told if they did not:
 a missing or drifted checkout then fails instead of skipping. CI sets it,
 because a job that clones both trees and goes green on eleven skips has
-verified nothing — which is what every CI run did until the corpus job
+verified nothing -- which is what every CI run did until the corpus job
 existed.
 
 **Point them at a checkout pinned to the measured revision.** The figures
 those tests assert were measured against specific commits, recorded in
 `_PINNED` in `tests/test_verification.py`. For a git checkout, a resolvable
 `HEAD` that differs from `_PINNED` makes the aggregate test skip with both
-revisions named. That is the guard working — a different tree gives
-different counts, and a silent pass would be the failure — but it means a
+revisions named. That is the guard working -- a different tree gives
+different counts, and a silent pass would be the failure -- but it means a
 working tree you are also developing in stops exercising those tests the
 moment it moves.
 
@@ -73,7 +73,7 @@ uv run pytest tests/test_rule_suboptimal.py -v
 ## Adding an intrinsic to the knowledge tables
 
 `src/simde_lint/knowledge/*.yaml` is pure data. No rule hardcodes an
-instruction count, a NEON suggestion, or an alias spelling — rule R reads
+instruction count, a NEON suggestion, or an alias spelling -- rule R reads
 `ctx.knowledge.redundant[...]`, and the other five read
 `ctx.knowledge.cost(self.rule_id)`. Extending what a rule can see is
 therefore a data change, not a code change, for any intrinsic that already
@@ -81,16 +81,16 @@ fits an implemented mechanism.
 
 **Every entry must cite the SIMDe source line it was read from**, in the
 form `x86/<header>.h:<line>` (e.g. `x86/sse2.h:5760`). Do not guess a value
-or copy one from documentation — open the actual SIMDe header at the pinned
+or copy one from documentation -- open the actual SIMDe header at the pinned
 version and read the expansion. `test_every_cost_entry_cites_a_simde_source_line`
 in `tests/test_knowledge.py` enforces the format, but not that you actually
-looked — that part is on you.
+looked -- that part is on you.
 
 **Every knowledge file that carries costs or names (`redundant.yaml`,
 `patterns.yaml`, `aliases.yaml`) must declare the same top-level
 `simde_version` string**, currently `"0.8.4"`. `load_knowledge()` raises
-`ValueError` if they disagree — see
-`test_disagreeing_simde_versions_fail_loudly` — because a mismatched set
+`ValueError` if they disagree -- see
+`test_disagreeing_simde_versions_fail_loudly` -- because a mismatched set
 would report one version's instruction counts against another version's
 source citations, silently. `wrapper_macros.yaml` is the one exception: its
 entries describe a consumer project's own declaration macros (e.g. SVT-AV1's
@@ -110,14 +110,14 @@ _mm_your_intrinsic:
 
 Then add it to the expected key set in
 `test_every_rule_that_reports_costs_has_a_pattern_entry` if it's a pattern
-(rules S/W/F/M/P) rather than a redundant-load intrinsic (rule R) — the two
+(rules S/W/F/M/P) rather than a redundant-load intrinsic (rule R) -- the two
 tables are checked separately since only rule R indexes by intrinsic name.
 
 If the intrinsic is exposed under a `simde_` prefix or a local project macro
 that should normalize onto a canonical x86 name your rules already look for,
 add it to `knowledge/aliases.yaml` instead (or as well). Local, file-scoped
 `#define` wrappers around an already-known intrinsic (VVenC's
-`_my_cmpgt_epi64`, for instance) don't need an aliases.yaml entry at all —
+`_my_cmpgt_epi64`, for instance) don't need an aliases.yaml entry at all --
 `macros.py`'s `build_alias_map` resolves those automatically: a macro whose
 body reduces to exactly one call (after stripping parentheses and casts) is
 registered as an alias for its callee, following chains of such macros
@@ -126,11 +126,11 @@ through to a recognized intrinsic and refusing to loop on a cycle;
 `simde_mm_*` prefix.
 
 A knowledge-table entry with no test asserting a rule actually reports it is
-a row nobody checks — the schema tests above only enforce that the entry is
+a row nobody checks -- the schema tests above only enforce that the entry is
 *shaped* correctly (a citation, a version), not that any rule fires on it.
 Add a call site for the new intrinsic to the matching rule's positive
 fixture (`tests/fixtures/rules/<rule>_positive.c`) and a test in
-`tests/test_rule_<rule>.py` that asserts it's among the findings — follow
+`tests/test_rule_<rule>.py` that asserts it's among the findings -- follow
 the pattern of the existing per-intrinsic tests in that file. If the new
 entry changes a pinned count in `tests/test_verification.py` or
 `docs/verification.md` (adding an intrinsic that occurs in one of the
@@ -138,7 +138,7 @@ reference checkouts will), update those too rather than leaving them stale.
 
 ## Adding a rule module
 
-A rule covers one **named mechanism** of a taxonomy type — not the whole
+A rule covers one **named mechanism** of a taxonomy type -- not the whole
 type. This is a deliberate scoping decision (see the design spec, Section
 9), not a placeholder for "implement the rest later" in every case; some
 mechanisms are explicitly out of scope for v1 (LoopFilter's transpose/blend
@@ -158,12 +158,12 @@ Type S, for example).
 
    `rule_id` follows the `<TYPE>.<mechanism>` convention (e.g.
    `S.pshufb_guard`, `M.scalar_set_build`). `mechanism` is the human-readable
-   phrase that appears next to the bare type letter in every report line —
+   phrase that appears next to the bare type letter in every report line --
    see "Report output requirements" below.
 
 2. A rule sees only the `AnalysisUnit` IR and the `Context` (`ctx.symbols`,
    `ctx.knowledge`, `ctx.config`). Rules never import each other and never
-   inspect tree-sitter nodes directly — `parser.py` and `extract.py` are the
+   inspect tree-sitter nodes directly -- `parser.py` and `extract.py` are the
    only modules that touch the tree-sitter API. If your mechanism needs
    something the IR doesn't currently expose (a new `ValueKind`, a new field
    on `IntrinsicCall`), that's an IR change to propose, not a reason to reach
@@ -186,52 +186,52 @@ Type S, for example).
    `tests/test_evidence_conformance.py` enforces this table: it runs every
    rule over every fixture in `tests/fixtures/rules/` and asserts each
    rule's emitted grade set is a subset of the row above. If your rule
-   grows a grade beyond its declared set, that test fails — update the
+   grows a grade beyond its declared set, that test fails -- update the
    table (and the rule's own docstring) deliberately, don't just let the
    rule drift.
 
    **Grade C carries a structured `reason`, not free prose.** Any rule that
    can emit C must set `Finding.reason` to one of five `Reason` values:
-   - `Reason.UNRESOLVED` — the rule could not see far enough to judge at
+   - `Reason.UNRESOLVED` -- the rule could not see far enough to judge at
      all (a runtime-loaded value, a call result with unknown lanes, a
      symbol not defined in the scanned inputs).
-   - `Reason.GUARD_REQUIRED` — the rule saw everything relevant and
+   - `Reason.GUARD_REQUIRED` -- the rule saw everything relevant and
      confirmed the guard it's examining is load-bearing (rule S: a mask
      whose lanes are fully known but include one outside the safe range).
-   - `Reason.TRANSFORM_REQUIRES_CONTEXT` — the rule saw everything
+   - `Reason.TRANSFORM_REQUIRES_CONTEXT` -- the rule saw everything
      relevant and a replacement exists, but only under a condition this
      rule does not check (rule F: `vmlal_s16` needs a horizontal-reduction
      consumer; rule R: the zero-init is dead only for a consumer the rule
      cannot see).
-   - `Reason.TRANSFORM_CHANGES_RESULT` — a replacement applies with no
+   - `Reason.TRANSFORM_CHANGES_RESULT` -- a replacement applies with no
      condition attached and does not produce the same answer (rule F:
      `vfmaq_f32` rounds once where the separate multiply and add round
      twice). Every reason above it is conditionally exact; this one never
      is, so the question for a reader is numerical, not structural. The
-     `suggestion` is kept — the instruction is real.
-   - `Reason.TRANSFORM_WIDTH_MISMATCH` — a replacement is recorded, the rule
+     `suggestion` is kept -- the instruction is real.
+   - `Reason.TRANSFORM_WIDTH_MISMATCH` -- a replacement is recorded, the rule
      checked it, and it does not fit: the instruction accumulates at a
      different lane width than the accumulator at this call site. A finding
-     with this reason carries no `suggestion` — the observation stands, the
+     with this reason carries no `suggestion` -- the observation stands, the
      named replacement does not.
 
    All five share grade C because v1 acts on them identically: do not
    transform without human confirmation. `reason` is `None` for grades A
-   and B — see `Reason`'s docstring in `finding.py` for the full rationale,
+   and B -- see `Reason`'s docstring in `finding.py` for the full rationale,
    including why a fourth grade isn't warranted today. Rules S, R and F all
    emit C; `SuboptimalRule._grade` and `FusionRule.cap_for` are the two
    patterns to follow, the first deciding per call site and the second
    capping from the intrinsic's recorded transform status.
 
    A rule with no source of uncertainty (structural or purely syntactic
-   matching) should emit only A — don't invent a B or C case to look more
+   matching) should emit only A -- don't invent a B or C case to look more
    nuanced than the mechanism actually is. A rule whose premise depends on
    an operand value it may not be able to resolve needs at least a B/C split
    so `--min-evidence` means something for it.
 
 4. Register the rule in `src/simde_lint/rules/__init__.py`'s `ALL_RULES`
    list. The registry runs every rule independently over every *analysis
-   unit* and never merges, deduplicates, or reduces their output — see the
+   unit* and never merges, deduplicates, or reduces their output -- see the
    next section.
 
    **A unit is a function body or a `#define` body**, and a rule cannot tell
@@ -239,11 +239,11 @@ Type S, for example).
    rule reads: `name`, `file`, `scope`, `function_name`, `macro_name`,
    `calls`, `definitions`, `definition_before`, `redefined_between`,
    `call_by_id`. `FunctionUnit` and `MacroUnit` both satisfy it and share one
-   def-use implementation, so a new rule needs no macro special-case — take
+   def-use implementation, so a new rule needs no macro special-case -- take
    `AnalysisUnit` in `match()`, and macro bodies come for free.
 
    **Every `Finding` a rule constructs must copy `function_name`, `scope` and
-   `macro_name` from the unit** — every rule module does this, because a
+   `macro_name` from the unit** -- every rule module does this, because a
    `Finding`'s `function`/`scope`/`macro` fields are how a reader tells a
    function-scoped finding from a macro-scoped one, and nothing else sets
    them. Use `location_fields(unit)` from `rules/base.py` and splat it:
@@ -259,7 +259,7 @@ Type S, for example).
    )
    ```
 
-   Reaching for `unit.name` instead — the more obvious-looking member — has
+   Reaching for `unit.name` instead -- the more obvious-looking member -- has
    the exact wrong effect on a `MacroUnit`: it silently produces
    `scope="function", function=<the macro's name>, macro=None`, which reads
    as a real function finding in every reporter, and `Finding.__post_init__`
@@ -273,7 +273,7 @@ Type S, for example).
    the body bytes into a synthetic function wrapper, parses that, and maps
    every position back to the original file by one constant offset. A
    `MacroUnit`'s calls and definitions therefore carry the byte, line and
-   column of the original source, not of the synthetic text — so a finding a
+   column of the original source, not of the synthetic text -- so a finding a
    rule opens on one points at the real `#define`, and no rule needs to know
    the reparse happened.
 
@@ -286,13 +286,13 @@ Type S, for example).
      so line-based comparison cannot order them at all.
    - **A macro parameter has no definition.** It is an external input, so
      `definition_before` returns `None` for it and the rule's existing
-     unknown-value path applies — grade down, withhold the counts. Do not
+     unknown-value path applies -- grade down, withhold the counts. Do not
      invent a definition for it.
 
 5. Add fixture tests: `tests/fixtures/rules/<name>_positive.c` (at least one
    call site the rule should catch, ideally covering more than one evidence
    grade) and `tests/fixtures/rules/<name>_negative.c` (a call site that
-   looks similar but should not match — a different intrinsic, a shape just
+   looks similar but should not match -- a different intrinsic, a shape just
    outside the mechanism). Use the `run_rule` fixture from
    `tests/conftest.py`, following the pattern in any existing
    `tests/test_rule_*.py` file.
@@ -301,18 +301,18 @@ Type S, for example).
 
 **One location may legitimately produce more than one finding, and this
 must never be collapsed.** The taxonomy paper states directly that a code
-region can exhibit several inefficiency types at once — VVenC's DepQuant
+region can exhibit several inefficiency types at once -- VVenC's DepQuant
 reports R, S, and P findings on overlapping code, for instance. No rule, no
 part of `analyze()`, and no reporter may deduplicate findings by location,
 merge two rules' output into one, or pick a "primary" type for a site that
 matched more than one rule. If you find yourself writing logic that groups
-findings by `(file, line)` and keeps only one, stop — that is very likely
+findings by `(file, line)` and keeps only one, stop -- that is very likely
 this prohibition, not a legitimate cleanup.
 
 The one place findings *are* grouped for display is the report summary,
 which groups by `rule` id (not by bare type) precisely so two mechanisms of
-the same type — currently `M.scalar_insert_chain` and `M.scalar_set_build`
-— are never collapsed into a single count. See `report/text.py` and
+the same type -- currently `M.scalar_insert_chain` and `M.scalar_set_build`
+-- are never collapsed into a single count. See `report/text.py` and
 `report/json.py`.
 
 ## Report output requirements
@@ -325,7 +325,74 @@ reading is that the one implemented S mechanism is absent from that
 particular file while a different, unimplemented S mechanism might be
 present.
 
+## Cutting a release
+
+**A normal release's number and its date both go up.** Never give the main
+line a version lower than one already tagged. Semantic version numbers are how
+readers infer which behaviour a tag has, and the inference is only safe while
+the ordering holds.
+
+It did not hold here. `v2.4.0` was tagged on 2026-09-08 with a rule F fix;
+`v2.3.3` was tagged on 2026-09-09 off `v2.3.2`, a documentation-only release
+that does **not** contain that fix. A manuscript pinned `v2.3.3`, and its
+authors reasonably assumed the later tag was the later behaviour. Five
+findings were published at the wrong evidence grade because of it. Fixing it
+needed a second side tag, `v2.3.4`.
+
+Side tags off an older line are legitimate -- external work pins a revision and
+sometimes needs one change backported to it. What is not legitimate is leaving
+the relationship implicit:
+
+- A side tag's CHANGELOG entry states what it branched from, what it adds, and
+  what it does **not** contain from higher-numbered tags.
+- The next main-line release repeats that lineage in a table, so a reader who
+  opens only the newest entry still sees it.
+- Never write a closing keyword before an issue number in a PR body unless the
+  merge should close it. GitHub's parser has no notion of negation, and "Does
+  not close #48" closed #48.
+
+`test_every_file_carrying_a_version_string_agrees_with_the_package` enforces
+the version strings, but it was only added in the `v2.5.0` cycle. Every tag
+before it shipped whatever `CITATION.cff` happened to contain, and three of
+them were wrong:
+
+| tag | `CITATION.cff` said | the tag was |
+| --- | --- | --- |
+| `v2.3.2` | 2.3.1 | 2.3.2 |
+| `v2.3.4` | 2.3.3 | 2.3.4 |
+| `v2.4.0` | 2.3.1 | 2.4.0 |
+
+A reviewer found the `v2.3.4` one before a submission that cited it. The guard
+covers the main line from `v2.5.0` on; a side tag branched from anything older
+does not inherit it, so check by hand when cutting one.
+
+Before tagging, check the chronology reads as intended:
+
+```
+git for-each-ref --sort=creatordate --format='%(creatordate:short) %(refname:short)' refs/tags
+```
+
 ## Style
+
+**Plain hyphens and straight quotes.** No em dashes, no curly quotes. Where a
+dash is the right break, write ` -- `, which is what `src/` already uses;
+release headings in the changelog take a plain hyphen. The repository
+accumulated 868 em dashes after `v1.0.0`, which had none, and punctuation of
+that kind is the first thing a reviewer reads as machine-written.
+
+`docs/consults/` is exempt. Those files are verbatim records of an outside
+reviewer's words and the prompt sent to them; editing their punctuation would
+be altering a transcript.
+
+**Commit messages are prose.** Say why the code looks the way it does. Do not
+answer review comments one by one as a checklist -- the review thread already
+records that, and the shape itself reads as a task list written for someone
+else to execute.
+
+**No hardware-specific performance claims in source comments.** Code changes
+and comments do not, so `+22% on <some core>` becomes false without anyone
+touching it. Measurements belong in the commit message, with the machine
+named.
 
 - Code, comments, commit messages, and all documentation are English.
 - No tool-generated traces of any kind in code, comments, commits, issues,

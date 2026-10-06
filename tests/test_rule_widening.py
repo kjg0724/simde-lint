@@ -40,7 +40,7 @@ def test_picks_the_consumer_that_runs_after_the_multiplies_on_a_shared_line(run_
     # consuming unpack on one physical line. The decoy names the same `lo`/
     # `hi` variables but runs before either multiply, so it cannot be their
     # consumer. Line-only comparison cannot tell the decoy and the real
-    # unpack apart — both share `.line` with the multiplies — and a boundary
+    # unpack apart -- both share `.line` with the multiplies -- and a boundary
     # check of `unpack.line < after_line` never excludes the decoy, since it
     # sits on the same line rather than strictly before it. Byte offsets
     # distinguish them: the decoy's `start_byte` precedes the multiplies',

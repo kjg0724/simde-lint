@@ -47,7 +47,7 @@ def test_records_a_variable_argument_and_its_definition():
     assert call.args[1].kind == ValueKind.VARIABLE
     assert call.args[1].text == "shuf"
     # `shuf` is assigned a byte literal constructor, so the definition carries
-    # the lanes AND still names the call that produced them — rules F, W and M
+    # the lanes AND still names the call that produced them -- rules F, W and M
     # reach a producing call through `call_id`.
     definition = unit.definition_before("shuf", call.start_byte)
     assert definition.value.kind == ValueKind.LITERAL_VECTOR

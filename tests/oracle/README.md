@@ -2,7 +2,7 @@
 
 Expected findings decided by reading the rule descriptions and the source,
 before and independently of what the tool reports. `expected.yaml` is written
-by hand. Nothing in this directory may be generated from tool output — that
+by hand. Nothing in this directory may be generated from tool output -- that
 would reproduce the failure it exists to catch.
 
 The rest of the suite compares the tool against a second reading built from
@@ -23,7 +23,7 @@ answer the code did. Independence of *derivation* is not independence of
 
 1. Write the C file. Keep it small enough to reason about completely.
    Then read the line numbers off the file rather than counting them in
-   your head — three of the first six expectations written here had the
+   your head -- three of the first six expectations written here had the
    line wrong and nothing else, which is noise the oracle should not be
    spending its failures on.
 2. Decide the expected findings from the codebook and the rule's stated
@@ -57,14 +57,14 @@ satisfied `evidence` and four deliberate falsifications left the corpus green.
   faults in `tests/faults.yaml` about withheld costs are in that gap.
 - **Matched, not zipped.** Expectations pair with findings that satisfy them,
   by maximum-cardinality matching. Sorting both sides needed a key both could
-  compute, which `line` is not — it is optional, and where a mechanism anchors
+  compute, which `line` is not -- it is optional, and where a mechanism anchors
   is not always something the contract fixes. First-fit is not enough either:
   a broad expectation would claim a finding a narrower one needed, and the
   narrow one would be reported as unmet.
 - **Every field load-bearing.** Each asserted field is falsified one at a time
   and the comparison must notice. Six assertions have shipped here that could
   not fail; a passing test and a vacuous one look identical.
-- **The count too.** Dropping any expectation, or inventing one, must fail —
+- **The count too.** Dropping any expectation, or inventing one, must fail --
   a rule that starts reporting one extra finding per call site is the failure
   mode this corpus was built for.
 - **Attribution.** Every finding names the file that was scanned. True by
@@ -75,13 +75,13 @@ satisfied `evidence` and four deliberate falsifications left the corpus green.
 
 **Most of the instruction counts.** One case pins numbers: `shuffle_guard.c`
 asserts 3 → 1, because `simde_mm_shuffle_epi8`'s AArch64 branch is a single
-line — `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))` — whose two guard
+line -- `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))` -- whose two guard
 operations a safe mask does not need. Nothing else does, because deciding a
 number by hand otherwise means reading the tool's own knowledge table, and
 reading a table is not independent validation of that table.
 
 What an expectation *can* decide without the table is whether the counts
-exist at all — `costs: reported`, `withheld`, or `partial` — because that
+exist at all -- `costs: reported`, `withheld`, or `partial` -- because that
 follows from whether SIMDe compiles the intrinsic to NEON or falls through to
 portable code, which is a question the source answers directly. Four of the
 eleven cases declare it, covering nine of the twenty-seven expected findings;
@@ -92,8 +92,8 @@ the rest assert nothing about costs. Against SIMDe 0.8.4:
 | `_mm_shuffle_epi8` | `x86/ssse3.h:336` | `A64V8` → `vqtbl1q_s8` | reported |
 | `_mm_insert_epi32` | `x86/sse4.1.h:1582` | `A32V7` → `vsetq_lane_s32` | reported |
 | `_mm_set_epi32` | `x86/sse2.h:5720` | `A32V7` → `vld1q_s32` | reported |
-| `_mm256_mullo_epi16` | `x86/avx2.h:4050` | none — portable loop | withheld |
-| `_mm256_insert_epi64` | `x86/avx.h:4086` | none — scalar store | withheld |
+| `_mm256_mullo_epi16` | `x86/avx2.h:4050` | none -- portable loop | withheld |
+| `_mm256_insert_epi64` | `x86/avx.h:4086` | none -- scalar store | withheld |
 | `_mm_loadu_si32` | `x86/sse2.h:5750` | `A32V7` → `vdupq_n_s32` + `vsetq_lane_s32` | partial |
 | `_mm_loadl_epi64` | `x86/sse2.h:4156` | `A32V7` → `vdup_n_s64` + `vcombine_s64` | partial |
 

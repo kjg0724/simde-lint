@@ -20,7 +20,7 @@ _EVIDENCE_ORDER = {Evidence.A: 0, Evidence.B: 1, Evidence.C: 2}
 
 # A file can carry many unparsed spans; a warning naming all of them would
 # bury the file name it is about. The count is always reported, so nothing
-# is hidden by the cap — only shortened.
+# is hidden by the cap -- only shortened.
 _MAX_REPORTED_SPANS = 3
 
 
@@ -32,12 +32,12 @@ class Diagnostic(str):
     FAILURE is the tool breaking on input it should have handled: a file it
     could not read, an extraction that raised, a rule that raised. An
     UNPARSED is tree-sitter declining to parse a construct, recovering, and
-    returning a tree anyway — the tool worked, and the findings it produced
+    returning a tree anyway -- the tool worked, and the findings it produced
     are real; what is missing is the assurance that they are all of them.
 
     Only a FAILURE may set the exit code. Preprocessor-heavy C++ makes
-    UNPARSED the normal case rather than the exceptional one — 362 of
-    SVT-AV1's 561 files at the pinned revision — so an exit code that
+    UNPARSED the normal case rather than the exceptional one -- 362 of
+    SVT-AV1's 561 files at the pinned revision -- so an exit code that
     counted them would be 1 on nearly every real sweep and would say
     nothing.
 
@@ -110,12 +110,12 @@ def _unit_location(unit: AnalysisUnit) -> str:
     a warning without a position would be two identical, unattributable
     lines.
 
-    `FunctionUnit.start_line` is the real thing — the function_definition
-    node's own line — read here via `getattr` since it is not part of the
+    `FunctionUnit.start_line` is the real thing -- the function_definition
+    node's own line -- read here via `getattr` since it is not part of the
     `AnalysisUnit` protocol every rule sees (rules have no need for a
     unit's own position, only its calls' and definitions'). `MacroUnit`
-    carries no position of its own — extraction never stored the `#define`
-    line, only its calls' — so the first call's line is the closest honest
+    carries no position of its own -- extraction never stored the `#define`
+    line, only its calls' -- so the first call's line is the closest honest
     anchor available, labelled as such rather than presented as the
     macro's own start.
     """
@@ -138,8 +138,8 @@ def _run_rule(
     `rule.match` is a generator: an exception can surface partway through
     iteration rather than at call time, so materializing it with `list(...)`
     has to be inside the guard too, not just the call that creates it. A
-    malformed `Finding` from one rule on one unit — `Finding.__post_init__`
-    raising is the new way this can happen, since v1.2 added it — must cost
+    malformed `Finding` from one rule on one unit -- `Finding.__post_init__`
+    raising is the new way this can happen, since v1.2 added it -- must cost
     only that rule's results for that unit, never the other rules, the other
     units in the same file, or the other files in the sweep.
     """
@@ -167,7 +167,7 @@ def analyze(
 
     The third return value is the list of warnings produced by an isolated
     extraction or rule failure, or by a file tree-sitter could not fully
-    parse (empty on a clean run) — callers that need to know whether the
+    parse (empty on a clean run) -- callers that need to know whether the
     analysis was complete, rather than merely non-crashing, check this
     rather than inferring it from stderr output.
 

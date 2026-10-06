@@ -4,8 +4,8 @@ Before this test existed, `extract_units` was guarded against a bad file but
 `rule.match` was not: `Finding.__post_init__` (added alongside `scope`/
 `macro` in v1.2) gave a rule a new way to raise partway through producing its
 findings, and nothing caught it. A single malformed `Finding` from one rule
-on one unit would have killed the entire sweep — every other rule, every
-other unit, every other file — with no signal beyond an uncaught traceback.
+on one unit would have killed the entire sweep -- every other rule, every
+other unit, every other file -- with no signal beyond an uncaught traceback.
 
 These tests inject a rule that always raises this way and confirm three
 things: the rest of the sweep still runs to completion, `analyze()`'s third

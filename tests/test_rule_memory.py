@@ -57,8 +57,8 @@ def test_ignores_a_set_whose_arguments_are_all_literals(run_rule):
 
 
 def test_grades_b_when_not_every_argument_is_a_direct_variable(run_rule):
-    # A literal mixed among variables is still a scalar assembly — something
-    # is spilled — but the call is not fully resolved to variable references,
+    # A literal mixed among variables is still a scalar assembly -- something
+    # is spilled -- but the call is not fully resolved to variable references,
     # so the grade drops. This is the rule's only path to B.
     findings = [
         f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")

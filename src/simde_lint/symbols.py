@@ -41,7 +41,7 @@ class SymbolIndex:
         file's table would be the same false-confidence failure as recording a
         partially-known one, so a collision with different contents marks the
         name ambiguous and `lookup` stops resolving it. Identical repeat
-        definitions are not a collision — the answer is the same either way.
+        definitions are not a collision -- the answer is the same either way.
         """
         existing = self._arrays.get(array.name)
         if existing is None:

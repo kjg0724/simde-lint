@@ -9,7 +9,7 @@ For each finding: **is the mechanism the rule names actually present at that
 call site?**
 
 That is the whole question. Whether the rewrite is safe, whether it is worth
-doing, whether the instruction count is right — none of those. The evidence
+doing, whether the instruction count is right -- none of those. The evidence
 grade already reports what the tool can and cannot establish about the
 transform, and re-litigating it here would be judging the same thing twice
 under a different name.

@@ -78,7 +78,7 @@ The bundle carries the annotated tag and, pointing at the same commit, a
 branch of the same name. That branch is checkout scaffolding and nothing
 else: it exists so a plain `git clone` of the bundle lands on the right tree
 instead of refusing to check anything out. The tag is what carries the
-provenance, which is why both are checked above — `HEAD` says the checkout
+provenance, which is why both are checked above -- `HEAD` says the checkout
 landed where it should, and the tag says the provenance ref points at the
 same commit.
 
@@ -96,7 +96,7 @@ different things:
 | asset | the SHA-256 values above | the bytes you downloaded |
 
 The snapshot attests the tree only. It cannot show the tree came from that
-commit — the bundle is what does that.
+commit -- the bundle is what does that.
 
 The figures are not re-measured against a newer revision. They describe these
 trees, the paper reports them, and replacing them with numbers from different
@@ -106,8 +106,8 @@ separate baseline rather than in place of them.
 
 The measurement commands in this document were last run on `main`, after a
 code review of `v2.5.0` corrected the control-region relation; `v2.5.0` is the
-release this document last shipped with, and its VVenC figure was 614. `v2.3.1` — and `v2.3.2`, which
-is documentation-only on top of it and is what the paper cites — is the
+release this document last shipped with, and its VVenC figure was 614. `v2.3.1` -- and `v2.3.2`, which
+is documentation-only on top of it and is what the paper cites -- is the
 previous baseline. Both sets of figures appear below, each labelled by the
 release it belongs to and never by a branch name: a branch name read from a
 tag points at something ahead of the tag, which is how `v2.3.1` came to need a
@@ -136,8 +136,8 @@ omission in this document.
 
 A finding says: this source contains an x86 intrinsic call site whose SIMDe
 translation to NEON carries the named inefficiency. It does **not** say that
-the site is reached when the project is built for ARM. That second question —
-the codebook calls it FP-context — was asked of the holdout in Section 6 and
+the site is reached when the project is built for ARM. That second question --
+the codebook calls it FP-context -- was asked of the holdout in Section 6 and
 never asked of the two evaluation corpora. Asking it changes what the headline
 figures mean.
 
@@ -164,8 +164,8 @@ SampleAdaptiveOffset and Trafo, initialised on ARM by `InitARM.cpp`. Matching
 each finding's file against that set leaves **20 of 614** in modules with no
 NEON counterpart: 17 in `QuantX86.h` and 3 in `FixMissingIntrin.h`.
 
-So the counts in this document measure what they always measured — call sites
-whose SIMDe translation would be inefficient — and that is a different
+So the counts in this document measure what they always measured -- call sites
+whose SIMDe translation would be inefficient -- and that is a different
 quantity from the emulation cost these projects actually pay on ARM today.
 Read as a census of x86 intrinsic call sites carrying each pattern, the
 figures stand and reproduce. Read as a measurement of SIMDe's cost in
@@ -182,7 +182,7 @@ so the question is asked by a command rather than remembered.
 **Two counting units appear below and are never mixed.** Sections 1 and 2
 count call sites inside function bodies, which is what every measurement
 before v1.2 counted and what the per-module comparison against the paper
-rests on. Section 5 counts call sites inside macro bodies — a unit that did
+rests on. Section 5 counts call sites inside macro bodies -- a unit that did
 not exist in any earlier release. Macro findings are reported separately
 everywhere in this document; they are not added to a paper figure, not
 subtracted from one, and not lined up against one.
@@ -191,7 +191,7 @@ subtracted from one, and not lined up against one.
 
 Rule S must report exactly as many `_mm_shuffle_epi8` call sites as a plain
 `grep` count. Both sides count source call sites, so exact equality is the
-bar — not "close", equal.
+bar -- not "close", equal.
 
 ```
 $ grep -r -o _mm_shuffle_epi8 "$SIMDE_LINT_SVT_AV1/Source" | wc -l
@@ -248,7 +248,7 @@ Of the 204 `_mm_shuffle_epi8` findings: **A 22, C 182**, no B. (The combined
 contributes A 13 / C 124 on top.)
 
 The 182 grade-C findings are masks the symbol index and literal tracer could
-not resolve — mostly runtime-loaded or call-produced vectors, which is the
+not resolve -- mostly runtime-loaded or call-produced vectors, which is the
 honest outcome for indices the tool cannot see the values of.
 
 ### The symbol index lifts three findings to grade A
@@ -274,7 +274,7 @@ EOF
 ```
 
 All three resolve `even_odd_mask_x`, defined at
-`Source/Lib/Codec/intra_prediction.c:108`, `resolution: all_rows` — the table
+`Source/Lib/Codec/intra_prediction.c:108`, `resolution: all_rows` -- the table
 is indexed at runtime (`even_odd_mask_x[base_shift]`) but every one of its 8
 rows has lanes in `[0,15]`, so the finding grades A regardless of which row
 the runtime index selects. Verified by
@@ -295,12 +295,12 @@ $ echo $?
 a file tree-sitter could not fully parse; 362 of the 561 files contain an
 `ERROR` node. Recovery is why they still produce findings, and §6 measures
 what recovery can cost. A reader running the command above should see those
-362 lines — their absence would be the surprise, not their presence. No
+362 lines -- their absence would be the surprise, not their presence. No
 warning here is a failure: the exit code stays 0 because a parse error is
 not the tool erring.
 3264 total findings: `F 1019, R 1816, S 341, M 56, P 31, W 1`, evidence
-`A 2661, B 52, C 551` — **as `v2.2.0` emitted it**. `v2.3.1` — and `v2.3.2`,
-which is documentation-only on top of it and is what the paper cites — gives
+`A 2661, B 52, C 551` -- **as `v2.2.0` emitted it**. `v2.3.1` -- and `v2.3.2`,
+which is documentation-only on top of it and is what the paper cites -- gives
 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
 evidence `A 845, B 60, C 2367`. `main` gives 3409 findings,
 `F 1153, R 1816, S 341, M 66, P 31, W 2`, evidence `A 911, B 60, C 2438`.
@@ -309,18 +309,18 @@ Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an
 unverified consumer-dependent condition as established, and no finding
 appeared or disappeared. Rule M then rose from 56 to 64, because a chain is
-now confined to one syntactic control region — thirteen findings were
+now confined to one syntactic control region -- thirteen findings were
 repartitioned into twenty-one region-local ones, all in `pickrst_avx2.c`,
 `pickrst_avx512.c` and `pickrst_sse4.c`. No new call site is reported. For
 the `if`/`else` shape the old finding described a chain no path executes; for
 a loop boundary it is narrower than that, since the outer run and the first
-iteration do run consecutively — what the rule declines to do is report one
+iteration do run consecutively -- what the rule declines to do is report one
 chain whose cost holds for a single iteration count.
 
 The third is the only one of the three that reports call sites the tool had
 never reported. Rule F required the product to be bound to a name before the
-add took it, so `acc = _mm_add_epi32(acc, _mm_madd_epi16(a, b))` — the
-multiply written straight into the add — was invisible. 93 SVT-AV1 findings
+add took it, so `acc = _mm_add_epi32(acc, _mm_madd_epi16(a, b))` -- the
+multiply written straight into the add -- was invisible. 93 SVT-AV1 findings
 were missing for that reason, all of them rule F, splitting 28 to A and 65 to
 C on the cap the intrinsic's transform status imposes. B does not move: a
 nested multiply reaching its add through a widening conversion is supported
@@ -390,7 +390,7 @@ The 3264 figures above are left as `v2.2.0`'s output so this document
 continues to reproduce that release too.
 
 > The evidence split moved three times. For the first two the type split did
-> not move and the call sites never changed — only what the tool was willing
+> not move and the call sites never changed -- only what the tool was willing
 > to claim about them. The third, rule M's control-region split, is different
 > in kind: it changed how many findings one run of inserts is, so the type
 > split moved with it. The call sites still did not change.
@@ -408,26 +408,26 @@ continues to reproduce that release too.
 > but `mullo_epi32` does not widen and the established 128-bit `vmlaq_s32`
 > transform applies twice across its eight lanes. Its 275 findings returned
 > to grading on the def-use link, with both counts absent, leaving
-> `A 2661, B 49, C 551` and rule F's grade-C set at 245 — every one of them
+> `A 2661, B 49, C 551` and rule F's grade-C set at 245 -- every one of them
 > a `madd_epi16` call, whose pairwise reduction has no direct AArch64
 > equivalent and so remains capped. By scope: **3233 in function bodies, 28 in macro
-bodies** — the 3233 is the same figure v1.1.0 reported, unchanged
+bodies** -- the 3233 is the same figure v1.1.0 reported, unchanged
 finding-for-finding (Section 5).
 >
 > A later change split *why* those 245 stay capped, without moving the
-> grade. Rule F now declares a `transform_status` per intrinsic —
-> `established`, `conditional`, or `unknown` — instead of inferring the cap
+> grade. Rule F now declares a `transform_status` per intrinsic --
+> `established`, `conditional`, or `unknown` -- instead of inferring the cap
 > from whether a `suggestion` happened to be filled in. `_mm_madd_epi16` and
 > `_mm256_madd_epi16` are `conditional`, not `unknown`: `vmlal_s16` (SIMDe's
-> own pair for the low four lanes, with `vmlal_high_s16` for the high four —
+> own pair for the low four lanes, with `vmlal_high_s16` for the high four --
 > see `x86/xop.h:2859-2860`) applies when the consumer is a horizontal
 > reduction, a shape rule F does not check, so a transform exists here under
-> a condition the rule never verified — a different claim from "the tool
+> a condition the rule never verified -- a different claim from "the tool
 > could not judge at all". Both statuses still cap at C, so no finding,
 > count, or grade moves; what changes is that the 245 SVT-AV1 findings' (117
 > more in VVenC, 362 total) `reason` field now reads
 > `transform_requires_context` instead of `unresolved`, and their
-> `suggestion` field now names `vmlal_s16 / vmlal_high_s16` — presented in
+> `suggestion` field now names `vmlal_s16 / vmlal_high_s16` -- presented in
 > the rationale, and in the CLI's suggestion line, as conditional ("applies
 > only when the consumer is a horizontal reduction, which this rule does not
 > check"; the text reporter labels the line itself `conditional suggestion:`
@@ -456,7 +456,7 @@ finding-for-finding (Section 5).
 > `cdef_filter_block_sse4_1.c:68-69,476-477`; they sit outside any function
 > and so were outside v1.1's `FunctionUnit`-scoped extraction. v1.2 reports
 > all twelve, at exactly those lines, as macro-scoped findings in
-> `LOAD4_NAT`, `LOAD4_ORD`, `LOAD2_S` and `BND_LOAD8` — the four macros this
+> `LOAD4_NAT`, `LOAD4_ORD`, `LOAD2_S` and `BND_LOAD8` -- the four macros this
 > footnote named before the tool could see into them. The
 > commented-out calls are in `compute_mean_intrin_sse2.c`, where earlier
 > variants of live lines were left in place. In the other direction,
@@ -482,8 +482,8 @@ finding-for-finding (Section 5).
 > 561
 > ```
 >
-> Wall clock is the one figure that does vary — 14.9s and 18.6s total for the
-> two runs — because it tracks machine load. It is not a pinned number.
+> Wall clock is the one figure that does vary -- 14.9s and 18.6s total for the
+> two runs -- because it tracks machine load. It is not a pinned number.
 >
 > A v1-era note recorded here previously is worth keeping for what it warns
 > about rather than for its figures: an earlier pair of runs disagreed on the
@@ -508,7 +508,7 @@ impact discussion quotes (S 1.59x, W 2.15x, F 1.94x; R/M/P 1.00x). All match.
 Two notes from that check: the paper labels the fourth module TrQuant where
 this table uses the header the tool scans (`TrafoX86.h`), and the paper
 footnotes LoopFilter because its native implementation there was scalar C
-rather than NEON — its taxonomy counts come from the same SIMDe-translated
+rather than NEON -- its taxonomy counts come from the same SIMDe-translated
 x86 source as the other four modules.
 
 | Module | Type | Paper (Table III) | Tool |
@@ -554,11 +554,11 @@ them in the `+40` here.)
 
 A full recursive sweep of the whole `x86/` directory (47 files: the five
 SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
-`avx2/` and `sse41/` subdirectories) totals 449 findings — `R 106, S 164,
-F 135, W 17, M 23, P 4` — evidence `A 207, B 87, C 155` **as `v2.2.0`
+`avx2/` and `sse41/` subdirectories) totals 449 findings -- `R 106, S 164,
+F 135, W 17, M 23, P 4` -- evidence `A 207, B 87, C 155` **as `v2.2.0`
 emitted it**; `v2.3.1` gives the same 449 with evidence `A 101, B 87, C 261`,
 the 106 rule R findings having moved from A to C (see Section 1). On `main`
-`v2.4.0` totals 614 — `R 106, S 164, F 306, W 31, M 23, P 4` — evidence
+`v2.4.0` totals 614 -- `R 106, S 164, F 306, W 31, M 23, P 4` -- evidence
 `A 131, B 87, C 416`. Rule F more than doubles here, 135 to 306, and the
 reason is one idiom: VVenC's adaptive loop filter writes its accumulator as
 `accumA = _mm_add_epi32(accumA, _mm_madd_epi16(val01A, coeff01A))` throughout,
@@ -577,7 +577,7 @@ it returns a list: no crash, no hang.
 
 Five cells exceed the paper's count, and all five are the expected
 consequence of counting source call sites rather than assembly instances
-(spec Section 3) — a call inside a loop body, an unrolled block, or a helper
+(spec Section 3) -- a call inside a loop body, an unrolled block, or a helper
 invoked from more than one place produces several source-level findings that
 `-O3` folds or unrolls into a different number of instructions:
 
@@ -590,7 +590,7 @@ invoked from more than one place produces several source-level findings that
 | TrafoX86.h | F | 7 | 10 | 1.4x |
 | LoopFilterX86.h | M | 5 | 14 | 2.8x |
 
-No rule was tuned toward any of these ratios — spec Section 3 states plainly
+No rule was tuned toward any of these ratios -- spec Section 3 states plainly
 that the tool does not target the paper's 84-instance total, and every rule
 module (see `src/simde_lint/rules/`) matches on the mechanism its docstring
 describes, not on a count.
@@ -615,19 +615,19 @@ alias step in `extract.py`. Without that resolution the rule would see an
 unregistered call name and report 0.
 
 This reaches P through a confirmed forwarding alias whose target,
-`_mm_cmpgt_epi64`, sits inside `pipeline._COMPARES` — §5's "The
+`_mm_cmpgt_epi64`, sits inside `pipeline._COMPARES` -- §5's "The
 forwarding-alias argument list" explains why that is sound rather than a gap
 in the safety argument there. `_my_cmpgt_epi64` is the *producer* here, and P
 decides by operand membership, not position or arity, so it cannot be misled
 by however that particular alias forwards its own operands. That is the
-whole of why this specific finding is sound — it says nothing about a
+whole of why this specific finding is sound -- it says nothing about a
 *consuming* call resolved through a file-local wrapper macro immediately
 following a compare, which is a separate case P protects against a
 different way: `PipelineRule.match` declines to read such a consumer's args
 at all once `IntrinsicCall.is_macro_alias` is set on it, regardless of what
 the registration predicate decided about it. It does *not* decline for a
 consumer whose only change is a `knowledge/aliases.yaml` spelling
-normalization (`simde_mm_shuffle_epi8` → `_mm_shuffle_epi8`, for instance) —
+normalization (`simde_mm_shuffle_epi8` → `_mm_shuffle_epi8`, for instance) --
 that case is not covered by `is_macro_alias` and does not need to be, since
 no macro body sits between the call site and the resolved name. See §5 for
 what the guard does and does not cover.
@@ -638,8 +638,8 @@ Every zero-count cell above traces to a concrete property of the source,
 verified individually rather than assumed:
 
 - **DepQuant W/F/M = 0.** `DepQuantX86.h` contains no x86 multiply intrinsic
-  at all — `_mm_mullo_epi16`, `_mm_mullo_epi32`, `_mm_madd_epi16`,
-  `_mm_mul_epi32`, `_mm_mul_epu32` are all absent — and no insert chain. The
+  at all -- `_mm_mullo_epi16`, `_mm_mullo_epi32`, `_mm_madd_epi16`,
+  `_mm_mul_epi32`, `_mm_mul_epu32` are all absent -- and no insert chain. The
   paper's F instances there come from widening-accumulate chains
   (`_mm_cvtepi32_epi64` → `_mm_add_epi64`, lines 466–469) whose product is
   computed by a NEON-side multiply that has no corresponding x86 multiply
@@ -660,9 +660,9 @@ verified individually rather than assumed:
   or FGA: none of the five intrinsics now registered
   (`_mm_loadu_si32`, `_mm_cvtsi32_si128`, `_mm_cvtsi64_si128`,
   `_mm_loadl_epi64`, `_mm_loadu_si64`) appears in any of those three files at
-  all — confirmed by grep, not just by the tool's silence.
+  all -- confirmed by grep, not just by the tool's silence.
   - **LoopFilter** and **Trafo** do contain `_mm_cvtsi128_si64` and
-    `_mm_cvtsi128_si32` respectively — the *extract* direction (vector lane
+    `_mm_cvtsi128_si32` respectively -- the *extract* direction (vector lane
     to scalar), the mirror image of the intrinsics rule R covers (scalar or
     partial memory to zero-padded vector). That is a distinct, currently
     unimplemented mechanism, not an unregistered intrinsic of the mechanism
@@ -670,7 +670,7 @@ verified individually rather than assumed:
     the current rule would be citing the wrong SIMDe expansion for what the
     rule actually matches. LoopFilter's `_mm_set_epi64x` occurrences are
     already covered, but by `M.scalar_set_build`, not R.
-  - **FGA** contains no candidate at all under either direction — every load
+  - **FGA** contains no candidate at all under either direction -- every load
     in it (`_mm_loadu_si128`, `_mm256_loadu_si256`) is full-width, and it has
     no `_mm_cvtsi128_*`/`_mm_cvtsi*_si128` call of any kind. Which SIMDe
     construct produces the paper's 2 FGA instances is not established by
@@ -681,11 +681,11 @@ verified individually rather than assumed:
 
 Two cells report a nonzero count against the paper's 0: **LoopFilter F 5**
 and **TrafoX86 S 4**. These are not presented as the tool outperforming the
-paper's assembly review — a source-level reading and a hand assembly review
+paper's assembly review -- a source-level reading and a hand assembly review
 are different methods that can each see call sites the other's method
 doesn't surface under a given type, and that is what these two cells record.
 They are call sites the paper's assembly review did not classify under F or
-S respectively — a finding about the two methods' coverage, not a score
+S respectively -- a finding about the two methods' coverage, not a score
 against either.
 
 ## 3. Robustness
@@ -713,18 +713,18 @@ finding.
 | | v1.1.0 | v1.2 | delta |
 |---|---:|---:|---:|
 | SVT-AV1 `Source`, total | 3233 | 3264 | +31 |
-| — in function bodies | 3233 | 3233 | 0 |
-| — in macro bodies | — | 28 | +28 |
+| -- in function bodies | 3233 | 3233 | 0 |
+| -- in macro bodies | -- | 28 | +28 |
 | VVenC `CommonLib/x86`, total | 445 | 449 | +4 |
-| — in function bodies | 445 | 445 | 0 |
-| — in macro bodies | — | 4 | +4 |
+| -- in function bodies | 445 | 445 | 0 |
+| -- in macro bodies | -- | 4 | +4 |
 | rule S on `_mm_shuffle_epi8` in SVT-AV1 | 204 | 204 | 0 |
 
 The function-body rows are not merely equal in count. Comparing the two JSON
-sweeps as multisets over **every** field a finding carries — type, rule,
+sweeps as multisets over **every** field a finding carries -- type, rule,
 evidence, reason, impact, file, line, function, intrinsic, rationale,
 `simde_insns`, `native_insns`, suggestion, and the optional `mask_source`
-and `raw_name` — the v1.1.0 output and the function-scoped part of the v1.2
+and `raw_name` -- the v1.1.0 output and the function-scoped part of the v1.2
 output are identical, on both codebases. The whole of the difference is the
 new macro-body unit, plus the two new schema fields (`scope`, `macro`) that
 every finding now carries.
@@ -769,7 +769,7 @@ direction.** They are call sites inside macro bodies that earlier versions of
 this tool could not see, found by the same seven rules that were already
 running against function bodies. The paper counted assembly instances; a
 macro-body call site is neither one of those nor a substitute for one, and no
-row of the Table III comparison in Section 2 is affected by them — that
+row of the Table III comparison in Section 2 is affected by them -- that
 comparison's basis has not changed. Twelve of the 32 were, however, predicted
 in this document before the tool could reach them: the v1.1 footnote under
 Section 1 named `cdef_filter_block_avx2.c:93-96,102-105` and
@@ -783,7 +783,7 @@ sweeps re-run:
 
 | task | change | SVT-AV1 total | VVenC total | gate |
 |---|---|---:|---:|---:|
-| — | `v1.1.0` baseline | 3233 | 445 | 204 |
+| -- | `v1.1.0` baseline | 3233 | 445 | 204 |
 | 1 | def-use ordered by byte offset | 3233 | 445 | 204 |
 | 2 | macro bodies reparsed | 3233 | 445 | 204 |
 | 3 | strict forwarding-alias predicate | 3233 | 445 | 204 |
@@ -811,14 +811,14 @@ why, because "no delta" is not the same as "no effect":
   way with a target that normalizes to a recognized intrinsic; 15 of those
   bodies contain more than one call, so the registration named an intrinsic
   the body merely mentions first. The strict predicate keeps 22 definition
-  sites — exactly the 37 less those 15 — none with a multi-call body, which
+  sites -- exactly the 37 less those 15 -- none with a multi-call body, which
   resolve to 16 distinct per-file alias entries (11 in SVT-AV1 `Source`, 5 in
   VVenC `CommonLib/x86`). Those are the v1.2 figures. Requiring every
   definition of a name to agree before it registers reduced them to 15
   entries (10 and 5): `MM256_BROADCASTSI128_SI256` has six definitions across
   compiler-version `#if` branches split between two targets, and no longer
   registers. **Which macros register as aliases changed; which
-  findings fire did not** — the 15 removed misregistrations all pointed at names no
+  findings fire did not** -- the 15 removed misregistrations all pointed at names no
   rule anchors on (`_mm256_inserti128_si256`, `_mm256_castsi128_si256`,
   `_mm_unpacklo_epi64`, `_mm256_insertf128_si256`, `_mm_cvtsi128_si32`), so
   they produced no finding to remove. That is luck, not design, and
@@ -847,7 +847,7 @@ Measured over the same two directories:
 | files scanned | 561 | 47 |
 | function-like macro definitions | 685 | 11 |
 | bodies that failed to reparse (skipped) | 181 | 0 |
-| — of those, containing an `_mm*` call | 7 | 0 |
+| -- of those, containing an `_mm*` call | 7 | 0 |
 | confirmed forwarding-alias entries (name → intrinsic; these become no unit) | 11 | 5 |
 | macro units built | 68 | 5 |
 | macro units producing a finding | 13 | 2 |
@@ -867,7 +867,7 @@ gaps to be closed later:
   neither an alias entry nor a unit. Token pasting (`##`), stringification
   (`#`) and GNU statement expressions are the usual causes. 181 of SVT-AV1's
   685 bodies fail this way, but only 7 of the 181 contain an `_mm*` call at
-  all — the rest are ordinary non-SIMD macros whose omission costs nothing.
+  all -- the rest are ordinary non-SIMD macros whose omission costs nothing.
 - **Macro parameters are unresolved external inputs.** A parameter reference
   stays a `VARIABLE` with no in-unit definition, which the existing evidence
   rules already resolve conservatively: the grade drops and the instruction
@@ -880,15 +880,15 @@ gaps to be closed later:
 - **A macro name defined more than once in a file yields one unit per
   definition, except definitions registered as forwarding aliases.**
   VVenC's `RdCostX86.h` defines `UNPACKX` twice, in two separate `#ifdef
-  USE_AVX2` blocks; both are read, as all `#if` branches are, and — since
-  neither body is a forwarding alias — both become units of three calls
+  USE_AVX2` blocks; both are read, as all `#if` branches are, and -- since
+  neither body is a forwarding alias -- both become units of three calls
   each. Neither produces a finding today.
 
   Whether a name registers at all is a decision made over the *whole set*
   of that name's definitions, not per definition: every one of them must be
-  a forwarding alias, must resolve — following through other already-
+  a forwarding alias, must resolve -- following through other already-
   registered names, when the immediate callee is itself a macro rather than
-  a recognized intrinsic directly — to the same final target intrinsic, and
+  a recognized intrinsic directly -- to the same final target intrinsic, and
   must compose to the same parameter-to-argument mapping (each definition's
   own forwarded-call shape, with any intermediate macro's own forwarding
   substituted in). A different immediate callee name between two of a
@@ -900,35 +900,35 @@ gaps to be closed later:
   same-named sibling that shares no relationship to a *different*,
   disagreeing name is unaffected.
 
-  A name whose definitions disagree — a genuinely different multi-call
+  A name whose definitions disagree -- a genuinely different multi-call
   `#if` branch sharing an alias-shaped sibling's name, or alias-shaped
   branches that resolve to different intrinsics or compose to different
-  mappings — registers nothing: none of its definitions are skipped, and
+  mappings -- registers nothing: none of its definitions are skipped, and
   none of its call sites are recognized as the intrinsic either. SVT-AV1's
   `MM256_BROADCASTSI128_SI256` in `aom_subpixel_8t_intrin_avx2.c` is exactly
   this: six definitions across nested `#if`/`#elif` branches, forwarding to
   either `_mm_broadcastsi128_si256` or `_mm256_broadcastsi128_si256`
-  depending on the branch — a genuine disagreement, previously collapsed
+  depending on the branch -- a genuine disagreement, previously collapsed
   into a single, arbitrary "last definition wins" registration before this
   fix (see the release notes' "Alias registration and the unit skip are now
   keyed per definition" for the underlying defect). Neither of that name's
   two possible targets is anchored by a rule, so this changes which macros
-  register as aliases without moving any finding — the same shape as Task
+  register as aliases without moving any finding -- the same shape as Task
   3 below.
 
   **One honesty boundary, stated rather than implied:** this comparison is
-  over each definition's *written token structure* — string/character
+  over each definition's *written token structure* -- string/character
   literal contents are opaque and never inspected, punctuators are lexed by
   longest match (`&&` is one token, never mistaken for two adjacent `&`
   tokens, and likewise for every other multi-character C/C++ punctuator,
   including C99 digraphs and C++-only forms such as `->*`, `::`, `<=>`),
   C++'s own `<::` exception is honored (`f<::N>` lexes as `f`, `<`, `::`,
-  `N`, `>` — a qualified name — not as the `<:` digraph swallowing the
+  `N`, `>` -- a qualified name -- not as the `<:` digraph swallowing the
   first colon of `::`), a C++14 digit separator inside a numeric literal is
   read as part of the same pp-number token (`1'000`, `0x1'ff`) rather than
   mistaken for the start of a character literal, and every other token is
   compared byte-for-byte once whitespace, comments and backslash-newline
-  continuations are normalized away — never over macro *expansion*. Two
+  continuations are normalized away -- never over macro *expansion*. Two
   forwarding bodies whose written text is identical are treated as agreeing
   even if one of them contains a further, separately `#if`-redefined
   object-like macro that would make the two expand to different values at
@@ -942,7 +942,7 @@ gaps to be closed later:
   reason, the same as a body that drops a fixed parameter. A pack that *is*
   written in the body but composes to zero tokens at a particular call site
   (`#define V(...) _mm_setzero_si128(__VA_ARGS__)` called as `V()`) is not
-  this case — the pack is used, it just expands to nothing there.
+  this case -- the pack is used, it just expands to nothing there.
 
   **This lexer is a conservative approximation of C/C++ preprocessing-token
   lexing, not a complete one, and that is a deliberate boundary, not an
@@ -950,12 +950,12 @@ gaps to be closed later:
   argument text, independent of tree-sitter's own grammar, and it does not
   implement the full preprocessing-token grammar down to every corner case.
   What matters for this module's own soundness is which direction a gap
-  fails in: every case this lexer cannot classify — an input `_tokenize`
-  cannot get through cleanly — returns `None` and propagates as a hard
+  fails in: every case this lexer cannot classify -- an input `_tokenize`
+  cannot get through cleanly -- returns `None` and propagates as a hard
   failure (`_normalized_tokens`, `_call_shape`), which can only ever *cost*
   a registration, never grant one to definitions that do not actually
   agree. A gap here means a legitimate forwarding alias is missed and kept
-  as its own ordinary unit — a coverage loss — not a misregistration. Wrong
+  as its own ordinary unit -- a coverage loss -- not a misregistration. Wrong
   output (two genuinely different definitions judged to agree, as the `&&`
   vs `& &` and `<::` defects both were before their respective fixes)
   remains a blocking defect regardless of how obscure its trigger is; a
@@ -970,32 +970,32 @@ A confirmed forwarding alias's call site presents the **alias macro's own**
 argument list, not the forwarded intrinsic's. Nothing in the alias predicate
 requires a body to pass its parameters through faithfully, and real macros do
 not: of the **16 forwarding-alias definition sites** that register across the
-two sweep directories — which resolve to 15 distinct per-file alias entries
-(10 in SVT-AV1 `Source`, 5 in VVenC `CommonLib/x86`) — **10 forward
+two sweep directories -- which resolve to 15 distinct per-file alias entries
+(10 in SVT-AV1 `Source`, 5 in VVenC `CommonLib/x86`) -- **10 forward
 unfaithfully**. Two measured examples:
 
 - SVT-AV1's `_mm256_setr_m128i(lo, hi)` forwards to
-  `_mm256_set_m128i((hi), (lo))` — the two operands are reversed.
+  `_mm256_set_m128i((hi), (lo))` -- the two operands are reversed.
 - SVT-AV1's `LOAD8_S(BASE, OFF, S)` forwards to an eight-argument
   `_mm256_setr_epi32`, so its call sites record arity 3.
 
 No wrong output follows from this today, checked rather than assumed, for two
-separately-checked reasons — one per group of rules, not one blanket claim:
+separately-checked reasons -- one per group of rules, not one blanket claim:
 
 - **S, M and W** read a call's own operand *position* (`call.args[1]`) or
   *arity* (`len(call.args)`), so they genuinely could be misled by an
-  unfaithful forward — and none of the 22 confirmed alias targets is one of
+  unfaithful forward -- and none of the 22 confirmed alias targets is one of
   their anchors (`suboptimal._TARGETS | memory._SCALAR_SETS |
   memory._INSERTS | widening._UNPACK | {_mm_mullo_epi16, _mm_mulhi_epi16}`).
   `test_no_confirmed_alias_target_over_both_checkouts_reaches_an_operand_sensitive_anchor`
   in `tests/test_verification.py` checks this against both reference
   checkouts directly, over the real `reparse_macros`/`build_alias_map`
-  machinery — not a hand-picked fixture — and fails if the intersection ever
+  machinery -- not a hand-picked fixture -- and fails if the intersection ever
   becomes non-empty.
   `tests/test_extract.py::test_confirmed_alias_targets_do_not_reach_an_operand_sensitive_rule_anchor`
   is the fast, fixture-based companion to that corpus test, over the same
   narrowed anchor union.
-- **F and P never read a call's own args at all — as the producer.** Both
+- **F and P never read a call's own args at all -- as the producer.** Both
   decide by operand *membership* (`arg.text == result_var`): P checks
   whether a compare's result is a member of the *following* call's args, F
   checks whether a multiply's result is a member of a *following* add's
@@ -1012,7 +1012,7 @@ separately-checked reasons — one per group of rules, not one blanket claim:
 
   **That was an incomplete argument on its own (P1).** Membership is read
   from the *following* call's args, and if that following call is itself a
-  forwarding alias, its args are the call site's own — built from the
+  forwarding alias, its args are the call site's own -- built from the
   macro's parameter positions, with no mapping back to which of the body's
   operands each parameter actually reached. A macro that *drops* a
   parameter's value (writes it in its own parameter list but never lets its
@@ -1026,8 +1026,8 @@ separately-checked reasons — one per group of rules, not one blanket claim:
     x)` never receives it.
   - `#define DROP_VALUE(a, b) _mm_add_epi32(((void)(a), (b)), (b))` called
     the same way produces the identical false positive by a subtler route:
-    `a` (bound to `cmp`) *appears* in the argument subtree — inside a
-    `(void)`-cast comma operand — so a text-appearance registration check
+    `a` (bound to `cmp`) *appears* in the argument subtree -- inside a
+    `(void)`-cast comma operand -- so a text-appearance registration check
     still confirms the alias, even though a comma expression's value is its
     *last* operand and `(void)` explicitly discards the other. `(a) ^ (a)`
     is accepted by the same kind of check for the same reason: no syntactic
@@ -1035,15 +1035,15 @@ separately-checked reasons — one per group of rules, not one blanket claim:
     used."
 
   An attempt to close this by tightening the registration predicate itself
-  — rejecting an alias whose body never uses one of its parameters,
-  measured against both checkouts — caught `DROP_FIRST` but not
+  -- rejecting an alias whose body never uses one of its parameters,
+  measured against both checkouts -- caught `DROP_FIRST` but not
   `DROP_VALUE`, because "appears in the subtree" is a text search, not a
   value-flow analysis. A value-flow-aware version of that predicate (skip a
   comma expression's non-final operand, a `(void)`-cast's operand, and
   either branch of a `conditional_expression`) closed `DROP_VALUE` but not
   `(a) ^ (a)`, which has no syntactic marker at all distinguishing it from
   a genuine use. Both attempts were approximations with a residual gap by
-  construction, not a decreasing one — so the fix that shipped is not a
+  construction, not a decreasing one -- so the fix that shipped is not a
   registration change at all:
 
   **`PipelineRule.match` and `FusionRule._path` decline to read a consumer
@@ -1051,7 +1051,7 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   `#define` wrapper macro**, unconditionally and regardless of what the
   registration predicate decided about that macro. This is sound for any
   corpus, not only these two, because it is enforced in the rule's own
-  control flow rather than approximated from the alias's syntax — F and P
+  control flow rather than approximated from the alias's syntax -- F and P
   make no operand claim about such a call rather than approximate one.
   `tests/test_rule_pipeline.py`/`tests/test_rule_fusion.py` reproduce both
   `DROP_VALUE` and `(a) ^ (a)` in both F and P shapes and confirm zero
@@ -1063,33 +1063,33 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   two distinct reasons that a name comparison alone cannot tell apart: a
   file-local wrapper macro (the risk above), and a direct call under its
   `simde_`-prefixed spelling, normalized through `knowledge/aliases.yaml`.
-  The second carries none of the first's risk — SIMDe exposes every
+  The second carries none of the first's risk -- SIMDe exposes every
   intrinsic under a `simde_` prefix with the identical signature to its
   native spelling by its own naming convention (`ssse3.h:388` is `#define
   _mm_shuffle_epi8(a, b) simde_mm_shuffle_epi8(a, b)`; `ssse3.h:336` is
-  `simde_mm_shuffle_epi8(simde__m128i a, simde__m128i b)` — same arity,
-  same order) — so there is no macro body for a parameter's value to be
+  `simde_mm_shuffle_epi8(simde__m128i a, simde__m128i b)` -- same arity,
+  same order) -- so there is no macro body for a parameter's value to be
   dropped, duplicated, or discarded in. Reproduced live: `_mm_cmpgt_epi64`
   followed directly by `simde_mm_shuffle_epi8(cmp, mask)` produced no P
   finding under the `raw_name != name` guard, while the identical code
   calling `_mm_shuffle_epi8` directly did.
 
   The fix moved the distinction to where the two resolutions are actually
-  told apart — extraction, not the guard. `IntrinsicCall.is_macro_alias`
+  told apart -- extraction, not the guard. `IntrinsicCall.is_macro_alias`
   (`ir.py`) is set at both `extract_units` call-construction sites
   (`extract.py`) from whether the call's `raw_name` is a key in the
   file-local `aliases` map `macros.build_alias_map` returns for that file;
   a `knowledge/aliases.yaml` normalization with no matching file-local
-  macro leaves it `False`. All three consumption checks — `pipeline.py`'s
+  macro leaves it `False`. All three consumption checks -- `pipeline.py`'s
   direct consumer, and *both* of `fusion.py`'s paths, the direct add at
   `fusion.py:103` and the widening hop at `fusion.py:125` (easy to miss,
-  since it guards the intermediate call rather than the add itself) — read
+  since it guards the intermediate call rather than the add itself) -- read
   this flag and nothing else.
 
   **This is a user-visible behaviour change, not a free fix.** A codebase
   whose F/P consumer call is itself resolved through a file-local wrapper
   macro will get fewer F/P findings under this tool than a version without
-  the abstention would have produced — the tool declines the claim rather
+  the abstention would have produced -- the tool declines the claim rather
   than approximating it. It does **not** lose a finding merely because the
   consumer is spelled with a `simde_` prefix; that case is recovered by
   this round's fix and confirmed by
@@ -1097,7 +1097,7 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   `simde_spelled_consumer`/`widening_simde_intermediate` tests, which
   assert the finding IS produced. Over both reference checkouts, the
   narrower guard costs nothing measurable and the P2 fix recovers nothing
-  measurable either — not because the fix has no effect, but because
+  measurable either -- not because the fix has no effect, but because
   neither shape occurs in either corpus: every P "compare consumed"
   candidate and F "multiply reaches an add" candidate actually realized in
   SVT-AV1 `Source` and VVenC `CommonLib/x86` has a consumer call that is
@@ -1108,7 +1108,7 @@ separately-checked reasons — one per group of rules, not one blanket claim:
   finding-set diff over both full sweeps, before this round's fix and
   after, is empty: 0 lost, 0 gained, in either corpus.
   **That is a fact about these two corpora, not a bound on the general
-  case** — a codebase where a compare's or a multiply's result flows
+  case** -- a codebase where a compare's or a multiply's result flows
   through a wrapper macro before reaching its consumer would lose real
   findings here, and this tool has no way to recover them without reading
   through the wrapper, which is exactly the re-projection deferred below.
@@ -1133,7 +1133,7 @@ answer recall at all. This section uses a third codebase that took no part in
 the derivation.
 
 **Corpus.** Fraunhofer VVdeC at `e493ce51f13a2dea72cd58354652ed4e0f509a0e`,
-`source/Lib/CommonLib/x86` — 59 files. It vendors SIMDe and includes it
+`source/Lib/CommonLib/x86` -- 59 files. It vendors SIMDe and includes it
 directly (`#include <simde/x86/sse4.1.h>`), so its x86 intrinsic paths are
 what actually compiles on ARM, which is the precondition for a finding to
 mean anything.
@@ -1158,7 +1158,7 @@ look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
 all three corpora on `main`: SVT-AV1 3409 findings / 362 warnings, VVenC
-634 / 11, VVdeC 609 / 10 — every one exit 0. The warning counts do not move
+634 / 11, VVdeC 609 / 10 -- every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -1172,11 +1172,11 @@ revisions. They are not proof of recall outside that population.
 Specifically, a figure here does **not** establish:
 
 - that the enumerator's regular expressions cover every C++ spelling of the
-  mechanism — they approximate comments, strings, preprocessor branches and
+  mechanism -- they approximate comments, strings, preprocessor branches and
   complex declarations rather than parsing them;
 - that the result generalises to another revision or another codebase;
 - recall over the taxonomy, as opposed to over the intrinsic families each
-  rule registers — the insert-chain enumerator found two the tool did not
+  rule registers -- the insert-chain enumerator found two the tool did not
   register, and a family neither of them knows about would be invisible to
   both;
 - anything about regions the parser could not read (Section 5's `ERROR` nodes).
@@ -1189,7 +1189,7 @@ call the result ground truth. The word is avoided below for that reason.
 Rules R and S match registered intrinsic names, so `grep` gives a ground
 truth that needs no judgement: every occurrence of a registered name that is
 not a definition is a call site the tool should report. Definitions are
-excluded by the same rule in both directions — a `static inline` signature
+excluded by the same rule in both directions -- a `static inline` signature
 or the left side of a `#define` is not a call.
 
 | Intrinsic | Enumerated | Reported | Missed | Agreement |
@@ -1206,8 +1206,8 @@ This is recall for the two name-matched mechanisms. F, P and rule M's insert
 chain turn on structure, so their ground truth is not claimed here.
 
 **`M.scalar_set_build` is not one of them**, and saying it was overstated the
-gap. Its description — `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
-assembling a vector from runtime scalars, all-literal calls excluded — is
+gap. Its description -- `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
+assembling a vector from runtime scalars, all-literal calls excluded -- is
 decidable from the text of the call. `docs/precision/recall_set_build.py`
 enumerates it without importing the tool:
 
@@ -1220,8 +1220,8 @@ enumerates it without importing the tool:
 Both agree site for site, not only in total.
 
 **`W.mul16_widen_roundtrip` is decidable too.** Its description names three
-calls and one relation between them — `_mm_mullo_epi16` and `_mm_mulhi_epi16`
-over the same operands, consumed by an unpack — and operands compared as
+calls and one relation between them -- `_mm_mullo_epi16` and `_mm_mulhi_epi16`
+over the same operands, consumed by an unpack -- and operands compared as
 written settle it. `docs/precision/recall_widening.py` enumerates it:
 
 | Corpus | Enumerated | Reported | Missed | Agreement |
@@ -1239,11 +1239,11 @@ groups inserts by the lvalue as written, within one brace block:
 | Corpus | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
 | SVT-AV1 `Source` | 37 | 37 | 0 | 100% |
-| VVenC `CommonLib/x86` | 0 | 0 | 0 | — |
-| VVdeC `CommonLib/x86` | 0 | 0 | 0 | — |
+| VVenC `CommonLib/x86` | 0 | 0 | 0 | -- |
+| VVdeC `CommonLib/x86` | 0 | 0 | 0 | -- |
 
 That enumeration disagreed twice before agreeing, and the second disagreement
-was the tool's. Written strictly — a chain broken by any intervening call — it
+was the tool's. Written strictly -- a chain broken by any intervening call -- it
 found nothing at all where the tool found 35. Relaxed to the description, it
 found 37 against 35, and the two extra were real chains of
 `_mm256_insert_epi64`, an intrinsic the rule had never registered while
@@ -1276,7 +1276,7 @@ against the corrected enumerators.
 The first version of that enumeration disagreed on five SVT-AV1 sites, and
 **the enumeration was wrong on all five**. It tested the argument list against
 a character class of "things a number is spelled with", which accepts `e0` and
-`e1` as hex — `_mm_set_epi32(0, e1, 0, e0)` in `synonyms.h` is exactly that —
+`e1` as hex -- `_mm_set_epi32(0, e1, 0, e0)` in `synonyms.h` is exactly that --
 and it read one line, so three `cdef` calls that open their parenthesis at the
 end of a line were classified on a fragment. The disagreement is recorded
 because it is the useful part: an independent check is worth having precisely
@@ -1287,12 +1287,12 @@ independently would mean deciding, without the tool, direct and indirect
 def-use, redefinition, nested operands, the widening hop, exclusive control
 regions, how many findings one add shared by two multiplies is, and element
 kind against accumulator width. P would need the order of *recognized* calls,
-variable binding, redefinition and control region — not textual adjacency.
+variable binding, redefinition and control region -- not textual adjacency.
 Either is rule F or rule P written a second time, which puts the second
 implementation back inside the first one's assumptions, or it is a clang AST
 and a compile database, which is a different project. What stands in for it:
 the hand-decided cases in `tests/oracle/`, the adjudicated slice below, and
-the metamorphic pairs those cases are built as — named product against nested
+the metamorphic pairs those cases are built as -- named product against nested
 product, one region against exclusive arms, direct path against widening hop,
 one multiply against two sharing an add, a reassignment present against
 absent.
@@ -1316,7 +1316,7 @@ The tool's findings in that file stop at line 3034 and resume nowhere; the
 file is 3398 lines long.
 
 tree-sitter returns a single `ERROR` node spanning the whole file. It always
-returns a tree — when it cannot parse a construct it recovers — so the file
+returns a tree -- when it cannot parse a construct it recovers -- so the file
 still produced 123 findings, and nothing in the output said the rest were
 missing.
 
@@ -1329,8 +1329,8 @@ That is not specific to the holdout:
 | VVdeC `x86/` | 59 | 10 (16.9%) |
 
 Every figure in Sections 1 and 2 was computed over trees like these.
-Recovery cost nothing measurable there — Section 1's rule-S gate still
-matches `grep` exactly, 204 to 204 — but that is an observation about two
+Recovery cost nothing measurable there -- Section 1's rule-S gate still
+matches `grep` exactly, 204 to 204 -- but that is an observation about two
 codebases, not a guarantee, and VVdeC is the counterexample that shows the
 guarantee does not exist.
 
@@ -1465,7 +1465,7 @@ EOF
 The v1.1.0 comparison in Section 5 was made by checking that tag out in a
 separate worktree (`git worktree add <dir> v1.1.0`), running the same two
 commands there, and diffing the two JSON outputs as multisets of findings
-with `scope` and `macro` excluded from the comparison key — those two fields
+with `scope` and `macro` excluded from the comparison key -- those two fields
 do not exist in v1.1.0's output.
 
 Both reference checkouts are external to this repository and are not

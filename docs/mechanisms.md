@@ -33,13 +33,13 @@ see Section 0 of `docs/verification.md`. Nothing in this contract changes that.
 |---|---|
 | `type` | the taxonomy type, one of R S W F M P |
 | `rule` | which mechanism matched; type M has two |
-| `line`, `file`, `function`/`macro` | where the rule anchors the finding — the anchor is named per mechanism below and is not always the first call in the sequence |
+| `line`, `file`, `function`/`macro` | where the rule anchors the finding -- the anchor is named per mechanism below and is not always the first call in the sequence |
 | `evidence` | how far the rule resolved its own premise, **and** what it will assert about the replacement. A fully resolved def-use path still grades C when the recorded instruction does not apply |
 | `reason` | present exactly when `evidence` is C; absent otherwise |
 | `intrinsic` | the anchoring call's normalized name; `raw_name` when it differed before alias resolution |
 | `suggestion` | a NEON instruction the tool is willing to name, in the form that applies at this call site's register width. `null` means the tool will not name one, never that none exists |
 | `simde_insns` | instructions SIMDe's expansion emits for the matched sequence. `null` when the expansion has no NEON branch, or leaves the count to the compiler |
-| `native_insns` | instructions the named replacement emits. `null` whenever `suggestion` is `null` — the count belongs to the instruction |
+| `native_insns` | instructions the named replacement emits. `null` whenever `suggestion` is `null` -- the count belongs to the instruction |
 
 **Costs are per finding and are not additive across findings that share a
 matched call.** Two rule W findings over one multiply pair each report the cost
@@ -55,7 +55,7 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
   `_mm_loadl_epi64`, `_mm_loadu_si64`.
 - **Boundary:** the rule never inspects the consumer, so it cannot tell a live
   zero-init from a dead one.
-- **Grade:** C always, `reason: transform_requires_context` — the zero-init is
+- **Grade:** C always, `reason: transform_requires_context` -- the zero-init is
   dead only for a consumer the rule does not look at.
 
 ## S.pshufb_guard
@@ -72,8 +72,8 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
 
 - **Unit: one consuming unpack.** A `mullo`/`mulhi` pair feeding both
   `_mm_unpacklo_epi16` and `_mm_unpackhi_epi16` is **two** findings. The unit
-  is what the unpack reconstructs — four lanes, replaced by one widening
-  multiply — which is why `suggestion` depends on which unpack matched
+  is what the unpack reconstructs -- four lanes, replaced by one widening
+  multiply -- which is why `suggestion` depends on which unpack matched
   (`vmull_s16` low, `vmull_high_s16` high) and why the cost is 5 -> 1 per
   finding rather than for the whole idiom.
 - **Anchor:** the low multiply.
@@ -88,7 +88,7 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
 
 - **Unit: one add.** An add is one fusion opportunity, so two products
   reaching one add is one finding, and one product reaching two adds is one
-  finding per add — each add is its own opportunity.
+  finding per add -- each add is its own opportunity.
 - **Anchor:** the multiply.
 - **Families:** `mullo_epi16/epi32`, `madd_epi16`, `mul_epi32`, `mul_ps` at 128
   and 256 bits, reaching an `add_epi16/epi32/epi64/ps` of matching element kind
@@ -101,7 +101,7 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
   `changes_result` -> `transform_changes_result`, `unknown` -> `unresolved`.
   Capped to C with `transform_width_mismatch` when the recorded instruction's
   accumulator does not match the add's element kind and lane width.
-- **Suggestion:** withdrawn — with `native_insns` — on a width mismatch. Named
+- **Suggestion:** withdrawn -- with `native_insns` -- on a width mismatch. Named
   but qualified when it is not an exact substitution.
 
 ## M.scalar_insert_chain
@@ -145,7 +145,7 @@ and independent conditionals can all run together. Rules F, W and P require
 this of a producer and its consumer.
 
 Rule M requires something stronger and different: every link of a chain in
-**one** region, compared by equality. The two must not be conflated — doing so
+**one** region, compared by equality. The two must not be conflated -- doing so
 cost six real findings.
 
 **A macro-resolved consumer is abstained from.** Where a consumer's spelling
@@ -156,9 +156,9 @@ them are not supported. A `simde_`-prefixed name resolved through
 
 ## Open against this contract
 
-Nothing. The two divergences this file was written with — rule W reporting one
+Nothing. The two divergences this file was written with -- rule W reporting one
 finding where the unit is the consuming unpack (#66), and rule F reporting one
-for a product reaching two adds (#68) — are closed.
+for a product reaching two adds (#68) -- are closed.
 
 `docs/precision/recall_widening.py` was brought to the same unit in the same
 change. It had taken one consumer per pair, matching the implementation rather

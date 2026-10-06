@@ -109,8 +109,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     # having to notice a warning line among the findings.
     #
     # A file tree-sitter could not fully parse is warned about but does not
-    # set the exit code. It is not the tool failing — recovery is why the
-    # file still produced findings — and it is the normal case rather than
+    # set the exit code. It is not the tool failing -- recovery is why the
+    # file still produced findings -- and it is the normal case rather than
     # the exceptional one on preprocessor-heavy C++, so counting it would
     # make the exit code 1 on nearly every real sweep.
     return 1 if any(is_failure(error) for error in errors) else 0

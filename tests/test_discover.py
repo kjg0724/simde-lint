@@ -29,7 +29,7 @@ def test_accepts_a_single_file_path(tmp_path):
 def test_exclude_pattern_works_against_an_absolute_root(tmp_path):
     # `tests/*` is what a user naturally writes. fnmatch anchors to the whole
     # string, so without root-relative matching this excludes nothing when the
-    # root is absolute — and does so silently.
+    # root is absolute -- and does so silently.
     (tmp_path / "tests").mkdir()
     (tmp_path / "a.c").write_text("")
     (tmp_path / "tests" / "b.c").write_text("")

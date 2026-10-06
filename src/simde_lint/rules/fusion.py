@@ -114,7 +114,7 @@ def _applied(cost: CostInfo) -> str | None:
     decoration on one rationale branch: it was rendered only for
     `established` entries, leaving `_mm256_madd_epi16` and `_mm256_mul_ps`
     unqualified three lines away, and the JSON `suggestion` field carried the
-    bare mnemonic while the text said "per 128-bit half" — two claims for one
+    bare mnemonic while the text said "per 128-bit half" -- two claims for one
     finding.
 
     `register_bits` comes from the table rather than a `_mm256_` prefix test,
@@ -161,7 +161,7 @@ class FusionRule:
         adds = sorted((c for c in unit.calls if c.name in _ADDS), key=lambda c: c.start_byte)
         # An add is one fusion opportunity, so the first multiply reaching it
         # claims it. Without this, `sum = _mm_add_epi32(p1, p2)` over two
-        # products reports twice — and since each finding is anchored at its
+        # products reports twice -- and since each finding is anchored at its
         # own multiply's line, no repeated-line check would reveal it.
         #
         # That is one direction only. A product reaching two adds is two
@@ -257,7 +257,7 @@ class FusionRule:
     def cap_for(self, cost: CostInfo) -> tuple[Evidence | None, Reason | None]:
         """The grade ceiling this intrinsic's transform status imposes.
 
-        Returns `(None, None)` when the status imposes none — the def-use
+        Returns `(None, None)` when the status imposes none -- the def-use
         path then decides. Reads `transform_status` and never `suggestion`:
         what the report shows a reader is not what the tool asserts.
         """
@@ -274,7 +274,7 @@ class FusionRule:
         """What the rule can honestly claim about fusion for this intrinsic.
 
         The multiply and the add are always observed as separate SIMDe
-        translations — that much is structural. Whether NEON has a fused
+        translations -- that much is structural. Whether NEON has a fused
         multiply-accumulate that reaches them is a separate question the
         rule can only answer from the intrinsic's recorded `transform_status`:
         `unknown` means no fused form is recorded at all, so the rationale
@@ -284,7 +284,7 @@ class FusionRule:
         condition it needs is not something this rule checks, so the
         rationale names it without claiming it as the unconditional
         replacement. A recorded fused form with no instruction count still
-        names the instruction — the count is reported separately, and is
+        names the instruction -- the count is reported separately, and is
         absent when SIMDe's expansion leaves it to the compiler.
         """
         observed = _observed(cost)

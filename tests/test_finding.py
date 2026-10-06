@@ -108,14 +108,14 @@ def test_file_sort_key_reproduces_the_pre_v1_1_location_order():
 # `function` became `str | None` once a finding could sit in a macro body.
 # Neither sort key reads `function`, so a `None` must never reach a `<`
 # comparison against another finding's `str` function name. The two findings
-# below tie on every component either key actually reads — same file, line,
-# type, rule, impact, evidence — and differ only in scope/function/macro, so
+# below tie on every component either key actually reads -- same file, line,
+# type, rule, impact, evidence -- and differ only in scope/function/macro, so
 # both keys compare them as equal. That is deliberate: if `function` were
 # ever appended to either key, comparing these two would immediately raise
 # `TypeError: '<' not supported between instances of 'NoneType' and 'str'`,
 # because every earlier component ties and `function` is the first one that
-# differs. A pair that differs in `line` would never reach that comparison —
-# tuple comparison stops at the first differing component — so it would stay
+# differs. A pair that differs in `line` would never reach that comparison --
+# tuple comparison stops at the first differing component -- so it would stay
 # green even after that regression.
 _MACRO_FINDING = _finding(scope="macro", function=None, macro="LOAD4")
 _FUNCTION_FINDING = _finding(scope="function", function="f", macro=None)

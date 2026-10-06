@@ -1,4 +1,4 @@
-# Precision audit — results
+# Precision audit -- results
 
 Codebook fixed before sampling: [`codebook.md`](codebook.md).
 Sample drawn by [`sample.py`](sample.py) (seed 17) from the pinned revisions
@@ -7,7 +7,7 @@ Sample drawn by [`sample.py`](sample.py) (seed 17) from the pinned revisions
 ## What this measures
 
 **Whether the mechanism a finding names is present at the call site it
-names.** Not whether the rewrite is safe — the evidence grade reports that —
+names.** Not whether the rewrite is safe -- the evidence grade reports that --
 and not whether the tool finds everything, which §"What this does not
 measure" below is explicit about.
 
@@ -46,7 +46,7 @@ it says.**
 ## Two things worth recording that are not false positives
 
 **Grade conservatism (sample #29).** `padDmvr_SSE` at `InterPredX86.h:667`
-shuffles through `sl = _mm_setr_epi8(0,1,2,3,4,5,4,5,8,9,10,11,12,13,14,15)` —
+shuffles through `sl = _mm_setr_epi8(0,1,2,3,4,5,4,5,8,9,10,11,12,13,14,15)` --
 every lane pinned and every lane in `[0,15]`. The rule graded it B ("derives
 from a literal through `_mm_setr_epi8`, so the final lane values are not
 pinned") where A is justified: the literal tracer treats `set`/`setr` as an
@@ -66,7 +66,7 @@ because no fused form is established for `madd_epi16`.
 - **One judge, who is the tool's author.** No second coder and no blinding.
   The codebook was fixed before the sample was drawn, and the sample, the
   verdicts and the commands are all in this directory so the judgement can be
-  re-run by someone else — but that is reproducibility, not independence.
+  re-run by someone else -- but that is reproducibility, not independence.
 - **Precision only.** Recall is not estimated here. The per-module table in
   `verification.md` is the closest available evidence and it is not a recall
   measurement either.

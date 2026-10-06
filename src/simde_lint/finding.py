@@ -19,32 +19,32 @@ class Reason(str, Enum):
     Grade C always means "the tool cannot confirm the transform is safe from
     source alone", but that collapses five different situations:
 
-    - **UNRESOLVED** — the rule could not see far enough to judge at all (a
+    - **UNRESOLVED** -- the rule could not see far enough to judge at all (a
       runtime-loaded value, a call result with unknown lanes, a symbol not
       defined in the scanned inputs).
-    - **GUARD_REQUIRED** — the rule saw everything relevant and the answer is
+    - **GUARD_REQUIRED** -- the rule saw everything relevant and the answer is
       that the guard the rule is examining is load-bearing (a mask whose
       lanes are fully known but include one outside the safe range).
-    - **TRANSFORM_REQUIRES_CONTEXT** — a fused replacement exists, but only
+    - **TRANSFORM_REQUIRES_CONTEXT** -- a fused replacement exists, but only
       under a condition this rule does not check (a consumer shape, for
       instance). The rule saw the call clearly; what it did not verify is
       that the condition holds here.
-    - **TRANSFORM_CHANGES_RESULT** — a fused replacement applies with no
+    - **TRANSFORM_CHANGES_RESULT** -- a fused replacement applies with no
       condition attached, and it does not produce the same answer. Every
       reason above it is conditionally exact: satisfy the condition and the
       substitution preserves results. This one never is, so what a reader
-      has to settle is whether a different answer is acceptable — a
+      has to settle is whether a different answer is acceptable -- a
       numerical decision, not a code-shape one. In a decoder it can be a
       conformance question rather than a quality one.
-    - **TRANSFORM_WIDTH_MISMATCH** — a fused replacement is recorded, the rule
+    - **TRANSFORM_WIDTH_MISMATCH** -- a fused replacement is recorded, the rule
       checked it, and it does not fit: the instruction accumulates at a
       different lane width than the accumulator at this call site. The
       inefficiency is real; the recorded replacement is not the fix for it.
       Distinct from the two above because the rule reached an answer rather
-      than declining to — neither "could not see" nor "did not check".
+      than declining to -- neither "could not see" nor "did not check".
 
     v1 keeps one grade, C, for all three: the action each warrants is
-    identical — do not transform without human confirmation. A fourth grade
+    identical -- do not transform without human confirmation. A fourth grade
     would only be warranted if they ever needed different `--min-evidence`
     filtering or other CLI/automation behaviour, which they do not today.
     """
@@ -64,20 +64,20 @@ class Finding:
     evidence: Evidence
     file: str
     line: int
-    # None for a macro-scoped finding (see `scope`/`macro` below) — never
+    # None for a macro-scoped finding (see `scope`/`macro` below) -- never
     # both `function` and `macro` set, never both unset.
     function: str | None
     intrinsic: str
     rationale: str
     # None means the cost, or the suggested transform, could not be
-    # established — either the SIMDe expansion cost is unknown at the data
+    # established -- either the SIMDe expansion cost is unknown at the data
     # layer, or the rule's own evidence does not support the transform at
     # this call site. Both reporters render the pair as "unknown" rather
     # than guessing, and to_dict() emits null rather than a number.
     simde_insns: int | None
     native_insns: int | None
     suggestion: str | None
-    # "function" or "macro" — whether the call site sits in a function body
+    # "function" or "macro" -- whether the call site sits in a function body
     # or a `#define` body. A macro finding is fixed differently from a
     # function one: one edit changes every expansion, and has to be valid at
     # every expansion site, which this tool does not check. `function` and
@@ -96,7 +96,7 @@ class Finding:
     raw_name: str | None = None
 
     def __post_init__(self) -> None:
-        # The field comments above state the rule as absolute — enforcing it
+        # The field comments above state the rule as absolute -- enforcing it
         # turns that into a guarantee instead of leaving it to convention. A
         # violation would otherwise reach a reporter silently: `text.py`
         # would print the literal word "None" as a location, or "(macro)"
@@ -159,7 +159,7 @@ class Finding:
 
 # Explicit rank tables, not a bare comparison on the enum values. "A" < "B"
 # < "C" happens to sort correctly as a plain string today, but that is a
-# coincidence of the value names — renaming a value would silently reorder
+# coincidence of the value names -- renaming a value would silently reorder
 # findings with no test catching it. A rank table makes the order an
 # explicit decision instead of an accident of spelling.
 # The taxonomy types whose isolated-kernel microbenchmarks showed a speedup.
@@ -176,7 +176,7 @@ evidence_rank = {Evidence.A: 0, Evidence.B: 1, Evidence.C: 2}
 
 
 def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
-    """Benchmarked-type-first display order — the v1.1 default.
+    """Benchmarked-type-first display order -- the v1.1 default.
 
     Rule R alone accounts for the majority of a large sweep's findings (56%
     of SVT-AV1's), and its isolated-kernel microbenchmark showed no speedup:
@@ -187,7 +187,7 @@ def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
     order. It is a display default, not a claim about any one call site.
 
     Includes the rule id because one location can legitimately carry findings
-    from several rules — two Type M mechanisms can fire on the same statement.
+    from several rules -- two Type M mechanisms can fire on the same statement.
     Without it the order of such a pair would depend on the order the caller
     happened to assemble them, and two runs over the same input could differ.
     Both reporters use this so their outputs stay comparable.
@@ -202,7 +202,7 @@ def sort_key(finding: "Finding") -> tuple[int, int, str, int, str]:
 
 
 def file_sort_key(finding: "Finding") -> tuple[str, int, str, str]:
-    """Location-first display order — the pre-v1.1 default, kept as `--sort file`.
+    """Location-first display order -- the pre-v1.1 default, kept as `--sort file`.
 
     Some readers want a diff-friendly walk through the source tree rather
     than a priority ordering; this preserves that.

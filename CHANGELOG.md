@@ -1,18 +1,61 @@
 # Changelog
 
-## Unreleased
+## 2.6.0 - 2026-10-06
+
+### Punctuation, and a version string three tags shipped wrong
+
+Em dashes and curly quotes are gone from everything except `docs/consults/`,
+which holds verbatim records of an outside reviewer's words and must keep the
+punctuation it arrived with. 587 replacements across 43 files. `v1.0.0` had
+none of them, so the habit arrived with later work and was visible as a diff
+against this repository's own earlier prose.
+
+Auditing `CITATION.cff` across every tag turned up more than the one defect a
+reviewer reported. `test_every_file_carrying_a_version_string_agrees_with_the_package`
+was added in the `v2.5.0` cycle, and three earlier tags shipped a version
+string for a different release:
+
+| tag | `CITATION.cff` said | the tag was |
+| --- | --- | --- |
+| `v2.3.2` | 2.3.1 | 2.3.2 |
+| `v2.3.4` | 2.3.3 | 2.3.4 |
+| `v2.4.0` | 2.3.1 | 2.4.0 |
+
+`v2.3.4` is the one that was caught, by a reviewer, against a submission that
+cited it; `v2.3.5` corrects it. The guard covers the main line from `v2.5.0`
+onward, and a side tag branched from anything older does not inherit it.
+CONTRIBUTING now carries that table and the punctuation rule.
+
+### Release lineage
+
+This is the next release on the main line, after `v2.5.0`. Two tags exist with
+lower numbers and later dates, and neither is an ancestor of this one:
+
+| tag | tagged | branched from | contains |
+| --- | --- | --- | --- |
+| `v2.4.0` | 2026-09-08 | main line | the rule F accumulator-width check |
+| `v2.3.3` | 2026-09-09 | `v2.3.2` | documentation only -- **not** the width check |
+| `v2.5.0` | 2026-09-11 | main line | everything through the oracle corpus |
+| `v2.3.4` | 2026-09-11 | `v2.3.3` | `v2.3.3` plus the width check, nothing else |
+| `v2.3.5` | 2026-09-14 | `v2.3.4` | `v2.3.4` with corrected citation metadata |
+
+`v2.3.3` and `v2.3.4` are side tags cut for work that cites the `v2.3.x` line.
+Reading version numbers alone gives the wrong answer about which behaviour a
+tag has: `v2.3.3` was tagged *after* `v2.4.0` and does not contain its fix.
+That mis-ordering reached a manuscript, and CONTRIBUTING now carries the rule
+that prevents the next one.
 
 ### The oracle runner checks the output contract's shape, and every field it asserts is load-bearing
 
-#48 names a tuple — `(file, line, type, evidence, reason, intrinsic,
-suggestion, simde_insns, native_insns)` — and the runner checked six of the
+#48 names a tuple -- `(file, line, type, evidence, reason, intrinsic,
+suggestion, simde_insns, native_insns)` -- and the runner checked six of the
 nine. All nine are checked now, plus `rule`, `rule_mechanism`, `scope`,
 `macro` and `raw_name`.
 
 **Checked is not the same as decided, and the counts are where the two come
 apart.** `costs: reported|withheld|partial` says whether the tool must report
 instruction counts at all, which follows from whether SIMDe compiles the
-intrinsic to NEON — a question `x86/ssse3.h` and `x86/avx2.h` answer
+intrinsic to NEON -- a question `x86/ssse3.h` and `x86/avx2.h` answer
 directly. Three values, not two: one count known and the other not is a state
 `report/text.py` renders on purpose and rule R produces at every call site, so
 a check reading only `simde_insns` would file it under whichever of the other
@@ -20,7 +63,7 @@ two happened to match and a rule that started dropping a count would look
 unchanged. The numbers themselves are asserted in one case only:
 `_mm_shuffle_epi8` expands to `vqtbl1q_s8(a, vandq_u8(b, vdupq_n_u8(0x8F)))`,
 three instructions of which two are the pshufb guard, so a mask that needs no
-guard leaves the `vqtbl1q` alone — 3 to 1, counted off the header. Rule M's
+guard leaves the `vqtbl1q` alone -- 3 to 1, counted off the header. Rule M's
 entries are per chain element and turn on whether the scalar is already in a
 register, which is a modelling choice about the call site rather than a line
 to count. Reconstructing that reasoning from the table's own `note:` would
@@ -28,9 +71,9 @@ restate the table, not check it, so it is a recorded gap.
 
 **A present null is an assertion.** `suggestion:` with no value requires the
 tool to offer none; omitting the key asserts nothing. Two of the ten
-historical faults live in exactly that gap — a portable-fallback path
+historical faults live in exactly that gap -- a portable-fallback path
 asserting instruction counts SIMDe never emits, and a withdrawn suggestion
-keeping the count of the instruction it withdrew — and no expectation could
+keeping the count of the instruction it withdrew -- and no expectation could
 state the contract they broke. Five cases state it now.
 
 **Matched, not zipped.** Expectations paired with findings by sorting both
@@ -41,7 +84,7 @@ case passed only because its chain happened to anchor earliest of three.
 
 The pairing is maximum-cardinality, not first-fit. With first-fit, a broad
 expectation claims a finding a narrower one needed, and the narrow one is
-reported as unmet — a disagreement with the tool that is really an artefact of
+reported as unmet -- a disagreement with the tool that is really an artefact of
 which expectation was written first. `shared_producers.c` already holds two
 findings at one line differing only in `suggestion`, so that shape is one
 asserted field away.
@@ -49,7 +92,7 @@ asserted field away.
 **Every asserted field is falsified, one at a time, and the comparison must
 notice.** Six assertions have shipped in this repository that could not fail.
 Corrupting a field and requiring the case to go red is the only evidence that
-the corpus checks what it says it checks — it says nothing about whether the
+the corpus checks what it says it checks -- it says nothing about whether the
 tool is right, which is `faults.yaml`'s job. Dropping any expectation, or
 inventing one, must fail too: a rule reporting one extra finding per call site
 is the failure mode this corpus was built for, and a runner that only checked
@@ -58,7 +101,7 @@ what it was told about would not see it.
 **The runner validates its own input.** Value kinds and enum members, so
 `reason: guard-required` fails as a malformed expectation rather than as a
 disagreement with the tool. Repeated YAML keys, which PyYAML resolves to the
-last one silently — at case level that drops a whole case's expectations while
+last one silently -- at case level that drops a whole case's expectations while
 every completeness test still passes. And a field the runner checks that no
 case asserts now fails unless `coverage.yaml` records why: four were added at
 once here, and adding the capability is not the same as exercising it.
@@ -67,10 +110,10 @@ once here, and adding the capability is not the same as exercising it.
 replacement, so `Finding` rejects a native count without a `suggestion`. It
 holds on every finding the three corpora produce when each is scanned whole,
 9,526 of them; moving it into `__post_init__` makes it a guarantee rather than
-an observation. One test fixture violated it and was wrong — rule P does name
+an observation. One test fixture violated it and was wrong -- rule P does name
 a replacement.
 
-The mirror — a replacement's count known while the expansion's is not — was
+The mirror -- a replacement's count known while the expansion's is not -- was
 briefly forbidden too, and that was a mistake caught in review.
 `report/text.py` renders exactly that pair on purpose, arguing in its own
 docstring that collapsing it to "unknown" throws away a fact the header
@@ -78,7 +121,7 @@ states. Where SIMDe falls through to portable code only the *saving* is
 unavailable, not the number.
 
 **What the corpus still does not assert: most of the numbers.** One case pins
-a pair — `shuffle_guard.c`'s 3 → 1, counted off the header above. Every other
+a pair -- `shuffle_guard.c`'s 3 → 1, counted off the header above. Every other
 `simde_insns` and `native_insns` in the corpus is either null or unasserted,
 because deciding a number by hand otherwise means reading the tool's own
 knowledge table, and reading a table is not independent validation of it.
@@ -89,9 +132,9 @@ whether the scalar is already in a register. Recorded in
 ### The runner's own guards, neutralised one at a time
 
 `tests/runner_guards.yaml` is `faults.yaml`'s shape aimed inward: twenty-two
-mutations of the machinery that decides whether the corpus means anything —
+mutations of the machinery that decides whether the corpus means anything --
 nine in `tests/test_oracle.py`, eleven in the replay harness, two in the
-shared YAML loader — each naming the assertion that must die to it. Same
+shared YAML loader -- each naming the assertion that must die to it. Same
 harness; `run_faults.py` takes a catalogue path now.
 
 One check has no entry, and the absence is deliberate: narrowing `caught` from
@@ -110,7 +153,7 @@ catch elsewhere.
 It exists because of what review found. A counterexample test written to pin
 the file-attribution check re-derived the path comparison instead of calling
 it, so reverting that comparison left both the check and its regression test
-green — the ninth inert assertion in this repository, added in the commit that
+green -- the ninth inert assertion in this repository, added in the commit that
 fixed the eighth. That mutation is `attribution_by_name`, and it survived until
 the comparison moved into a shared helper. Naming both tests in an acceptance
 clause did not help, because a clause cannot see that two assertions do not
@@ -122,7 +165,7 @@ next one gets in.
 **The harness needed the same treatment, and a catalogue cannot give it.**
 `run_faults.py` read the new catalogue with `yaml.safe_load`, so a repeated
 top-level `faults:` would discard the earlier list and the run would print
-"all 0 mutations caught" and exit zero — the strict loader written for
+"all 0 mutations caught" and exit zero -- the strict loader written for
 `expected.yaml`, re-opened one file over. It is shared now
 (`tests/strict_yaml.py`) rather than copied, an empty catalogue is refused
 outright however it arose, and `tests/test_run_faults.py` pins both, because
@@ -140,13 +183,13 @@ rather than the exit code.
 The tables the tool publishes numbers from had the duplicate-key half of the
 same hole: `knowledge.py` read `patterns.yaml`, `redundant.yaml` and
 `aliases.yaml` with `yaml.safe_load`, where a repeated intrinsic keeps only
-the last row — silently changing every instruction count and replacement the
+the last row -- silently changing every instruction count and replacement the
 tool reports for it. The loader lives in the package now
 (`simde_lint/strictyaml.py`) rather than under `tests/`, and the tables use it.
 
 The catalogue hole generalised. Almost every check under `tests/oracle/` is a
 universal statement, and a universal statement over an empty collection is
-true — so an emptied `coverage.yaml` passes "every cell is covered or a named
+true -- so an emptied `coverage.yaml` passes "every cell is covered or a named
 gap" and "every mandatory combination is met by one case" **without examining
 anything**. Measured, not supposed:
 
@@ -178,14 +221,14 @@ more than once now, because `.replace(find, replace, 1)` otherwise mutates the
 first occurrence, which need not be the one the entry describes.
 
 **And it still printed `caught`.** The harness asked only whether the named
-assertion fails with the mutation applied — never whether it passes without
+assertion fails with the mutation applied -- never whether it passes without
 it. That test was red at the time for an unrelated reason, so a mutation
 landing somewhere harmless looked caught. A baseline run comes first now, and
 an already-failing assertion is refused rather than credited.
 
 **A test can pass off the traceback of the thing it is testing.** With
 required-field validation removed, every malformed entry died of a `KeyError`
-whose traceback printed the missing key's name — which is exactly what the
+whose traceback printed the missing key's name -- which is exactly what the
 test asserted. It now requires the refusal's own wording and no traceback at
 all.
 
@@ -225,7 +268,7 @@ see.** Review found each:
 
 - *"Empty is always bad" is false for an exception list.* `known_gaps` and
   `unasserted_fields` are subtracted from what the checks demand, so emptying
-  one makes the suite stricter, not vacuous — and an empty one is the goal
+  one makes the suite stricter, not vacuous -- and an empty one is the goal
   state, every gap closed. Requiring them non-empty would have forbidden ever
   finishing. Only the collections a check quantifies over positively are
   guarded now.
@@ -235,7 +278,7 @@ see.** Review found each:
   mutation was being credited to a failure raised by a different call site.
   The guard is gone and the test that named it says what it actually pins.
 - *The restore was registered after the write.* A signal arriving in that
-  window found the file already mutated and nothing recorded to restore it —
+  window found the file already mutated and nothing recorded to restore it --
   reintroducing, inside the handler added to prevent it, the failure that put
   `if False:` in the tree. Registration now precedes the write.
 
@@ -245,7 +288,7 @@ mutation for each.
 **The first version of that claim was false, and it is the reason for the
 section below.** One entry deleted an argument from `require(collection,
 what)` rather than neutralising the emptiness guard, so the named test died of
-`TypeError` without ever reaching it — and the harness printed `caught`. The
+`TypeError` without ever reaching it -- and the harness printed `caught`. The
 guard was reported covered by a mutation that never touched it.
 
 ### A script decides when #48 is done
@@ -255,7 +298,7 @@ the assertion that decides it, and prints what a green run does and does not
 establish. Two clauses are narrower than first written, because what they
 actually decide is narrower: the counts are excluded except the one adjudicated
 case, and "every discrepancy has a recorded resolution" became "no discrepancy
-remains, and every case carries its reasoning" — the suite checks that nothing
+remains, and every case carries its reasoning" -- the suite checks that nothing
 is open and that every case has a `why`, not that a past disagreement and its
 settlement were written down.
 
@@ -270,7 +313,7 @@ mutation and the assertion that must fail for it. `tests/run_faults.py`
 applies each, runs that one assertion, and requires a failure. CI runs it.
 
 Naming the assertion is the point. "Something fails" credits a test with
-catching a fault it fails for unrelated reasons — which is how three
+catching a fault it fails for unrelated reasons -- which is how three
 assertions in this repository went inert while still passing.
 
 Naming it was not quite enough, and the gap took until the runner-guard work
@@ -289,13 +332,13 @@ condition, so nothing is withdrawn.
 One claim is narrowed rather than withdrawn. These are *reconstructed* faults:
 the assertions were almost all written after the defect they name, so the
 replay shows that the current regression assertion detects the reconstructed
-shipped fault — not that the assertion would have blocked the release, which
+shipped fault -- not that the assertion would have blocked the release, which
 would require it to have existed in that commit's suite.
 
 **Six of the ten are over-restrictive**: a predicate that rejects too much, a
 family left unregistered, a producer retired before its second consumer.
 Every mutation run here before now made predicates *more* permissive, which
-exercises false positives only — and almost every defect this month was a
+exercises false positives only -- and almost every defect this month was a
 false negative.
 
 One of the ten was not caught. `widening-filters-the-consumer-after-choosing-it`
@@ -303,13 +346,13 @@ One of the ten was not caught. `widening-filters-the-consumer-after-choosing-it`
 would have been silent. `consumer_choice.c` covers it now.
 
 Two things went wrong while building this, both recorded where they happened.
-The first run stopped with "anchor not found" — a YAML block scalar had
+The first run stopped with "anchor not found" -- a YAML block scalar had
 stripped the indentation, so the mutation did not match the source. The
 harness treats that as a hard stop rather than a pass, because a mutation that
 does not land reports success; `indent:` states the indentation instead of
 encoding it in whitespace. And the first draft of the new case put the
 multiplies outside the `if`, which makes the arm's unpack nested rather than
-exclusive — a valid consumer, proving nothing.
+exclusive -- a valid consumer, proving nothing.
 
 Adding the case made the coverage manifest fail as designed: a gap it now
 covers was stale. The entry had merged rules W and F, so it is split, and
@@ -327,7 +370,7 @@ the cells it covers, and four tests decide the rest:
 - a gap a case now exercises fails as stale, because leaving it suppresses the
   failure that would demand the next case;
 - a mandatory combination must be met by **one** case, not by two with half of
-  it each — the defects here have all been interactions, and splitting them
+  it each -- the defects here have all been interactions, and splitting them
   across files is how they stayed invisible.
 
 "The corpus covers all seven rules" was true and useless. Every defect since
@@ -335,7 +378,7 @@ has been a shape nobody had written down, so adding a dimension value now
 fails the suite until a case exists: that is how a shape gets recorded before
 it is forgotten.
 
-It found three empty cells immediately — `value_flow.widening_hop`,
+It found three empty cells immediately -- `value_flow.widening_hop`,
 `claims.grade_b` and `claims.grade_c_guard_required`. Nine cases and nothing
 pinned grade B.
 
@@ -352,8 +395,8 @@ is untested and why.
 ### Both counting-unit divergences closed
 
 `docs/mechanisms.md` was written with two places the implementation did not
-meet it. Both were the same defect — a shared producer retired after its first
-consumer — and both are fixed.
+meet it. Both were the same defect -- a shared producer retired after its first
+consumer -- and both are fixed.
 
 Rule W reports one finding per consuming unpack (#66), so a pair rebuilding all
 eight lanes is two, which is what its own module docstring and its 5 -> 1 cost
@@ -364,13 +407,13 @@ DeQuant from reporting sixteen findings for four round-trips.
 
 `docs/precision/recall_widening.py` was brought to the same unit. It had taken
 one consumer per pair, matching the implementation rather than the contract, so
-its 17/17 agreement preserved the omission instead of exposing it — the failure
+its 17/17 agreement preserved the omission instead of exposing it -- the failure
 the recall work exists to catch, occurring inside the recall work.
 
 One mistake worth recording. Avoiding an infinite loop over a rejected consumer,
 the first attempt claimed it globally, on the reasoning that a consumer this
 pair cannot own is not one a later pair should inherit. That was asserted, not
-established, and it cost a real VVdeC finding — 9 became 8 where the change
+established, and it cost a real VVdeC finding -- 9 became 8 where the change
 should only add. Rejections are per-pair now. It was caught by re-measuring,
 not by any test.
 
@@ -406,7 +449,7 @@ from the docstring disagreed, and nothing decided between them.
 
 Two divergences are declared rather than fixed here, each reproduced:
 
-- rule W reports one finding where the contract says two (#66) — and the cost
+- rule W reports one finding where the contract says two (#66) -- and the cost
   model agrees with the contract, since 5 -> 1 is the cost of the four lanes
   one unpack rebuilds;
 - rule F reports one finding for a product reaching two adds, where each add is
@@ -426,7 +469,7 @@ Third correction to the same relation, and the reason it needed three: each
 was written against the shape in front of it.
 
 - `control_region` equality (v2.4.0, v2.5.0) rejected exclusive arms, and
-  nesting with them — six real VVenC findings.
+  nesting with them -- six real VVenC findings.
 - Prefix-of region chains (#60) fixed nesting, and still rejected two
   sequential sibling blocks, which run one after the other.
 
@@ -437,8 +480,8 @@ independent conditionals all can. `IntrinsicCall` now records which arm of
 each enclosing selection it sits in, and `on_a_common_path` compares those
 directly instead of inferring from region identity.
 
-Found by an external review of the oracle work. No corpus figure moves — the
-sibling shape appears in none of the three — and the oracle carries it as a
+Found by an external review of the oracle work. No corpus figure moves -- the
+sibling shape appears in none of the three -- and the oracle carries it as a
 case beside the other two, where it failed before this change.
 
 Rule M is untouched: a chain must sit in one region, so equality is the right
@@ -453,7 +496,7 @@ everything below was reproduced before being changed.
 added to rule F in `v2.4.0` and to rules W and P in `v2.5.0` to reject arms of
 an `if` that cannot both execute. It also rejects nesting, which is a different
 relation: where one region encloses the other, a path reaching the inner one
-runs both. Six real VVenC findings were suppressed — VVenC returns from 614 to
+runs both. Six real VVenC findings were suppressed -- VVenC returns from 614 to
 620, and the holdout from 597 to 600.
 
 The IR had said so. `_control_region`'s note warns that rules "must not read
@@ -479,7 +522,7 @@ multiplies' own region was never reached. The test moved inside the search.
 `portable_fallback` exists to suppress. Both paths now share `_observed`.
 
 Five smaller ones. The `suggestion` field said `vmlaq_s16` while the rationale
-said "vmlaq_s16 per 128-bit half" — one finding, two claims; register width is
+said "vmlaq_s16 per 128-bit half" -- one finding, two claims; register width is
 now a table column rather than a `_mm256_` prefix test, and every branch and
 the JSON field use the same applied form. The oracle's two sort keys disagreed
 and a case passed on the luck of its anchor line. `portable_fallback` loaded
@@ -499,7 +542,7 @@ written for and not their neighbours: exclusive arms but not nesting, the
 portable path at a matching width but not a mismatched one. Both gaps are
 cases now.
 
-## 2.5.0 — 2026-09-11
+## 2.5.0 - 2026-09-11
 
 Rules W, P, M and F, plus the verification surface that found most of it.
 
@@ -549,7 +592,7 @@ are regular expressions approximating comments, strings, preprocessor branches
 and declarations, not parsers; importing no `simde_lint` argues for
 independence and does not confer authority. The figures are agreement against
 the corrected enumerators over the population each one found, at the pinned
-revisions, and the document now lists what that does not establish —
+revisions, and the document now lists what that does not establish --
 generalisation to another revision, coverage of every C++ spelling, recall
 over the taxonomy rather than over each rule's registered families, or
 anything about regions the parser could not read.
@@ -596,8 +639,8 @@ site for site.
 The enumeration was wrong once, as the previous one was. It required a binding
 to end in `;` and so missed VVenC's `RdCostX86.h:2905`, where both multiplies
 sit in one declarator list ending in a comma. Twice out of two the independent
-check has been the side in error. That does not make it useless — a check that
-can only agree proves nothing — but the document now says it is not the more
+check has been the side in error. That does not make it useless -- a check that
+can only agree proves nothing -- but the document now says it is not the more
 reliable of the two.
 
 ### Recall, for one more mechanism than was claimed
@@ -689,7 +732,7 @@ Found by review after v2.4.0. Closes #50 and #51.
 ### What a finding establishes, said where the figures are
 
 `docs/verification.md` stated the precondition for a finding to mean anything
-— that the x86 path is what actually compiles on ARM — in the holdout section
+-- that the x86 path is what actually compiles on ARM -- in the holdout section
 and nowhere else. Asked of the two evaluation corpora, the answer changes what
 the headline figures describe.
 
@@ -701,8 +744,8 @@ VVenC carries hand-written NEON for thirteen modules under
 `CommonLib/arm/neon/`, leaving 20 of 614 findings in modules with no NEON
 counterpart.
 
-The counts measure what they always measured — call sites whose SIMDe
-translation would be inefficient — and that is a different quantity from the
+The counts measure what they always measured -- call sites whose SIMDe
+translation would be inefficient -- and that is a different quantity from the
 emulation cost these projects pay on ARM today. A new Section 0 says so before
 any figure appears, and `verify.py --native-neon` reports the split for any
 corpus, so the question is answered by a command rather than remembered. It
@@ -728,7 +771,7 @@ deliberate addition to that list rather than a silent omission.
 `v2.4.0`'s tag keeps the stale value -- a published tag is not moved -- and
 `v2.3.3` carries the corrected one for the release the paper cites.
 
-## 2.4.0 — 2026-09-08
+## 2.4.0 - 2026-09-08
 
 Rule F only. Every other rule is unchanged finding-for-finding on all three
 corpora, and the acceptance gate still reads 204 against `grep`'s 204.
@@ -934,7 +977,7 @@ round twice, so it is not the semantics-preserving substitution the integer
 cases are, and whether it belongs in rule F at all is a taxonomy question
 rather than a missing table entry. See #40.
 
-## 2.3.1 — 2026-09-07
+## 2.3.1 - 2026-09-07
 
 Same tool as `v2.3.0`: the `src/` tree is byte-identical and every figure
 measured at that tag holds here. The one difference is `docs/verification.md`.
@@ -948,7 +991,7 @@ now reports -- which is the exact failure that document exists to prevent.
 Tagged so a citation can point at a fixed revision whose verification
 document matches the tool it ships with.
 
-## 2.3.0 — 2026-09-07
+## 2.3.0 - 2026-09-07
 
 ### Note on version provenance
 
@@ -1033,14 +1076,14 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
 - **Rule M chained inserts across code that cannot all run.** The IR ordered
   calls by byte offset and knew nothing about blocks, so two arms of an `if`
   read as one straight-line sequence. Four inserts split two-and-two across
-  an `if`/`else` were reported as a chain of four — at evidence A, with the
-  instruction counts summed over both arms — when the threshold is three and
+  an `if`/`else` were reported as a chain of four -- at evidence A, with the
+  instruction counts summed over both arms -- when the threshold is three and
   neither arm builds more than two. No execution path assembles that chain.
 
   A loop boundary is a weaker case and is split for a different reason.
   `pickrst_avx2.c:1900` reported "16 scalar inserts assemble dd[0]" where the
   source has twelve before a `while` and four inside it. That chain *can*
-  execute — the outer run and the first iteration run consecutively — so the
+  execute -- the outer run and the first iteration run consecutively -- so the
   split is not a claim that it cannot. It is that this rule has no model of
   repetition: reporting one chain of sixteen states a cost that holds for one
   iteration count and no other, so a chain is confined to a single syntactic
@@ -1048,7 +1091,7 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
 
   `IntrinsicCall` gains `control_region`, the identity of the innermost
   enclosing block, switch arm, or unbraced `if`/loop body. Rule M splits a
-  chain wherever consecutive inserts disagree. Equality only — the field says
+  chain wherever consecutive inserts disagree. Equality only -- the field says
   which region a call is in, never which regions reach which, and reading
   nesting out of it would put back the control flow the parser never
   established. The field is unit-local and never serialized.
@@ -1060,7 +1103,7 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
   `M.scalar_insert_chain` rises from 27 to 35 on SVT-AV1, the total from 3264
   to 3272, and evidence B from 52 to 60. **The aggregate rises because
   thirteen findings were repartitioned into twenty-one region-local ones, not
-  because coverage expanded** — no new call site is reported. All are in three
+  because coverage expanded** -- no new call site is reported. All are in three
   files with the same shape, and every split was read against its source.
   Lengths of 16 disappear entirely (8 of them), replaced by the 12 + 4 and
   8 + 8 each site actually splits into.
@@ -1100,7 +1143,7 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
   the type table's "NEON alternative" column are corrected for the changes
   above.
 
-## 2.2.0 — 2026-09-01
+## 2.2.0 - 2026-09-01
 
 ### Added
 
@@ -1111,7 +1154,7 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
   same corpus, so a detached report file gave a reader no way to tell which
   analysis semantics produced it. The document now leads with
   `simde_lint_version`, read from `simde_lint.__version__` at render time so
-  it cannot drift from the field it names — an additive schema change; every
+  it cannot drift from the field it names -- an additive schema change; every
   key `--format json` already emitted is still emitted, in the same relative
   order. `--version` prints the same string and exits 0; the text format is
   untouched, since a header on every terminal report would be noise and
@@ -1119,9 +1162,9 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
 
   When version recording landed, at `a722b1d`, `__version__` and
   `pyproject.toml` advanced from `2.1.0` to `2.2.0.dev0`. Reporting `2.1.0`
-  from a `main` that had already moved past that tag — by the two
+  from a `main` that had already moved past that tag -- by the two
   correctness fixes below, both of which were on `main` under the old
-  version — would have manufactured, from a key whose whole purpose is
+  version -- would have manufactured, from a key whose whole purpose is
   answering "which version produced this", exactly the ambiguity the key
   exists to remove. Reports produced from `a722b1d` until this release
   therefore identify themselves as `2.2.0.dev0`, which is neither tagged
@@ -1145,16 +1188,16 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
   `assignment_expression` the walk still reaches.
 
   The walk is now inverted: only `parenthesized_expression` and
-  `cast_expression` are transparent — the same set `_unwrap_cast` already
-  treats as transparent for a plain assignment's right-hand side — and
+  `cast_expression` are transparent -- the same set `_unwrap_cast` already
+  treats as transparent for a plain assignment's right-hand side -- and
   every other node terminates the walk with no binding, exactly as a nested
   `call_expression` already did.
 
   Across SVT-AV1 and VVenC, 608 and 79 call sites respectively lost a
   wrongly claimed direct binding (mostly `initializer_list`,
   `binary_expression` and `conditional_expression`), but none of them named
-  an intrinsic any of F, P, W or M currently matches on — R and S never
-  read `result_var` at all — so every published count is unchanged:
+  an intrinsic any of F, P, W or M currently matches on -- R and S never
+  read `result_var` at all -- so every published count is unchanged:
   SVT-AV1 3264 and VVenC 449, with identical per-rule and per-evidence
   breakdowns.
 
@@ -1175,7 +1218,7 @@ SVT-AV1 3264 with evidence A 2661, this release 3272 with A 845.
   Neither reference corpus contains a compound assignment holding a current
   S, F, M or P anchor, so all published counts are unchanged.
 
-## 2.1.0 — 2026-08-31
+## 2.1.0 - 2026-08-31
 
 Minor rather than patch: `IntrinsicCall` gains a field, finding counts move
 on a corpus users may already have measured, and a missing input now sets a
@@ -1218,8 +1261,8 @@ this release's 27, and SVT-AV1 3261 against 3264. Cite this tag, not that one.
 
   This does not set the exit code, and `simde_lint.analyze.is_failure()`
   separates a genuine failure from an incomplete parse. Unparsed regions are
-  the normal case on preprocessor-heavy C++ — 362 of SVT-AV1's 561 files at
-  the pinned revision — so an exit code that counted them would be 1 on
+  the normal case on preprocessor-heavy C++ -- 362 of SVT-AV1's 561 files at
+  the pinned revision -- so an exit code that counted them would be 1 on
   nearly every sweep.
 
   Found by sweeping a holdout codebase: on VVdeC `e493ce51`, recovery cost
@@ -1235,7 +1278,7 @@ this release's 27, and SVT-AV1 3261 against 3264. Cite this tag, not that one.
 
 - **A missing or unreadable input now sets the exit code.** `simde-lint
   /path/that/moved` printed a warning and exited 0, so a sweep over a path
-  that had gone away reported success with an empty report — the failure a
+  that had gone away reported success with an empty report -- the failure a
   script cannot see. The same held for a file that could not be opened, and
   for both under `--dump-symbols`.
 
@@ -1253,12 +1296,12 @@ this release's 27, and SVT-AV1 3261 against 3264. Cite this tag, not that one.
   against the spelling it actually records rather than against any call on
   its line.
 
-  The published figure does not change — 1904 of 1922, 99.06% — because the
+  The published figure does not change -- 1904 of 1922, 99.06% -- because the
   shapes it accepted wrongly forwarded to intrinsics rule R does not
   register. What changes is that the checker now establishes the number
   instead of happening to agree with it.
 
-## 2.0.0 — 2026-08-28
+## 2.0.0 - 2026-08-28
 
 ### Breaking
 
@@ -1274,9 +1317,9 @@ the JSON output, and from the CLI.
 | `--sort impact` | `--sort benchmarked` (same order) |
 | `analyze(..., impact=...)` | `analyze(..., types=[...])` |
 
-No information is lost: the value was a complete function of `type` — every
+No information is lost: the value was a complete function of `type` -- every
 `S`, `W` and `F` finding carried `confirmed` and every `R`, `M` and `P`
-finding carried `diagnostic` — so any consumer can reconstruct the old field
+finding carried `diagnostic` -- so any consumer can reconstruct the old field
 from `type` alone. It was removed because a per-finding column reads as a
 claim about *this* call site's measured effect, and no measurement supports
 that. The microbenchmark figures it was derived from are now a reference
@@ -1294,7 +1337,7 @@ There is no deprecation window. If you need one, pin `simde-lint==1.2.0`.
   read from the source, but the established 128-bit `vmlaq_s32` transform
   applies twice across its eight lanes. Its 275 SVT-AV1 findings now grade on
   the def-use link, with both instruction counts absent. The `madd_epi16`
-  family is unaffected — its pairwise reduction has no established fused
+  family is unaffected -- its pairwise reduction has no established fused
   form, so it still caps at C.
 
   At the pinned revisions this moves SVT-AV1's evidence split from
@@ -1308,7 +1351,7 @@ There is no deprecation window. If you need one, pin `simde-lint==1.2.0`.
 ### Changed
 
 - **The precision audit's allocation and interval.** Three findings per
-  stratum could not support a population-level claim — the stratum holding
+  stratum could not support a population-level claim -- the stratum holding
   51.8% of the findings contributed the same evidence as one holding three.
   Allocation is now 25 for strata of 100 or more, 5 or a census below.
   `docs/precision/estimate.py` replaces the pooled Wilson interval, which is
@@ -1319,5 +1362,5 @@ There is no deprecation window. If you need one, pin `simde-lint==1.2.0`.
 - CI runs the test suite on Linux and macOS across Python 3.10–3.13.
 
 - README and `CITATION.cff` described the tool as detecting the six taxonomy
-  types. It implements seven named mechanisms drawn from them — one per type,
-  two for Type M — and both now say so.
+  types. It implements seven named mechanisms drawn from them -- one per type,
+  two for Type M -- and both now say so.

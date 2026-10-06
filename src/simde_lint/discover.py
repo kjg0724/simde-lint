@@ -14,7 +14,7 @@ def _excluded(path: Path, root: Path | None, patterns: Sequence[str]) -> bool:
     """Match a pattern against the whole path or the root-relative tail of it.
 
     `fnmatch` anchors to the entire string, so a natural pattern like
-    `tests/*` would match nothing whenever the scan root is absolute — and it
+    `tests/*` would match nothing whenever the scan root is absolute -- and it
     would fail silently, which is worse than rejecting it. Matching the
     root-relative path as well, and allowing a leading `*/`, makes the pattern
     mean what a reader expects regardless of how the root was spelled.
@@ -33,7 +33,7 @@ def _excluded(path: Path, root: Path | None, patterns: Sequence[str]) -> bool:
             return True
         # Only the root-relative path gets the implicit `*/` arm. Applying it to
         # the absolute path would let a directory name sitting ABOVE the scan
-        # root satisfy the pattern — `--exclude 'src/*'` under
+        # root satisfy the pattern -- `--exclude 'src/*'` under
         # `~/dev/src/project` would then exclude the entire tree, silently,
         # which is the failure this matcher exists to prevent.
         if relative is not None and (
@@ -53,12 +53,12 @@ def discover_files(
     `errors` collects a message per unusable input. A caller that passes one
     can tell a clean sweep from a sweep whose path was misspelled; a caller
     that does not still gets the stderr warning. The messages are plain
-    strings, which `analyze.is_failure` treats as failures — an input that
+    strings, which `analyze.is_failure` treats as failures -- an input that
     does not exist is the tool being unable to do its job, not a file it
     read and could not fully parse.
 
     A file reachable through more than one input is scanned once. Overlapping
-    inputs are ordinary — `simde-lint . src/main.c` names `main.c` twice — and
+    inputs are ordinary -- `simde-lint . src/main.c` names `main.c` twice -- and
     without this every finding in it would be reported twice, which would put
     the user's counts on a different footing from the published ones. The
     identity is the resolved path, so a symlink and its target are one file,

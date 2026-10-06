@@ -17,7 +17,7 @@ and the replay reports "all 0 mutations caught" as a success.
 universal statement over nothing is true. An emptied `coverage.yaml` passes
 "every cell is covered or a named gap" and "every mandatory combination is met"
 without examining anything; an emptied catalogue passes the replay. Zero
-attempted is zero evidence, whatever emptied it — a duplicate key, a bad
+attempted is zero evidence, whatever emptied it -- a duplicate key, a bad
 merge, a truncated edit.
 
 The loader is shared rather than copied -- and lives in the package rather
