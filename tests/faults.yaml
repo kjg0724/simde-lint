@@ -218,6 +218,19 @@ faults:
     replace: "    if max(runs.values()) < threshold:"
     kills: "tests/test_precision_count_claims.py::test_a_claim_on_a_target_below_the_threshold_is_a_disagreement"
 
+  - name: census-ignores-the-intrinsic-rule-r-names
+    issue: 74
+    why: >-
+      R's rationale names the intrinsic in "implements <name> as follows" and
+      `check_name_only` read none of its text, so the clause could name
+      another intrinsic entirely while the call lookup still found the call
+      that really is there. Found by review after the same hole was closed in
+      F, W, P and the set build.
+    file: docs/precision/verify.py
+    find: "    if named and named.group(1) != finding[\"intrinsic\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_redundant_claim_naming_another_intrinsic_is_a_disagreement"
+
   - name: census-ignores-a-claims-producer-line
     issue: 74
     why: >-

@@ -96,7 +96,15 @@ def test_an_aliased_finding_is_not_credited_without_its_definition():
     source = b"void f(void *p) {\n    _mm_alias(p);\n}\n"
     calls = []
     ctx = (calls, {2: [module.Call("_mm_alias", 2, ["p"], None, 0, 0)]}, source, {})
-    finding = {"line": 2, "intrinsic": "_mm_loadl_epi64", "raw_name": "_mm_alias"}
+    # The rationale is the R text for this intrinsic: `check_name_only` reads
+    # the name out of it as well as validating the forwarding, so a finding
+    # without one is not a finding this checker can be handed.
+    finding = {
+        "line": 2,
+        "intrinsic": "_mm_loadl_epi64",
+        "raw_name": "_mm_alias",
+        "rationale": "SIMDe 0.8.4 implements _mm_loadl_epi64 as follows: ...",
+    }
     ok, detail = module.check_name_only(finding, ctx)
     assert ok is False and "forwards it to" in detail
 

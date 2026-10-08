@@ -358,3 +358,51 @@ def test_a_set_claim_naming_another_intrinsic_is_a_disagreement(tmp_path):
     ok, why = module.check_set_build(claim, ctx)
     assert ok is False
     assert "claims _mm_set_epi32" in why
+
+_REDUNDANT = b"""
+void u(const void *p) {
+    __m128i v = _mm_loadu_si32(p);
+    (void)v;
+}
+"""
+
+
+def _redundant_claim(named="_mm_loadu_si32"):
+    return {
+        "line": 3,
+        "intrinsic": "_mm_loadu_si32",
+        "rationale": (
+            f"SIMDe 0.8.4 implements {named} as follows: a zero-initialized "
+            f"vector plus a partial load (x86/sse2.h:1). That explicitly "
+            f"constructs the zero-valued lanes the intrinsic is defined to "
+            f"produce"
+        ),
+    }
+
+
+def test_a_redundant_claim_naming_another_intrinsic_is_a_disagreement(tmp_path):
+    # R's rationale names the intrinsic in "implements <name> as follows", and
+    # that clause went unread while the other checks were taught to read
+    # theirs. The call lookup alone cannot catch it: the call really is there.
+    module, ctx = _ctx(_module(), tmp_path, _REDUNDANT, "red.c")
+    ok, why = module.check_name_only(_redundant_claim("_mm_loadu_si64"), ctx)
+    assert ok is False
+    assert "claims _mm_loadu_si64" in why
+
+
+def test_a_redundant_claim_naming_its_own_intrinsic_agrees(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _REDUNDANT, "red.c")
+    ok, why = module.check_name_only(_redundant_claim(), ctx)
+    assert ok is True, why
+
+
+def test_a_rationale_naming_no_intrinsic_is_still_checked_for_the_call(tmp_path):
+    # S's text names no intrinsic, so there is nothing of this kind to
+    # compare; the call must still be where the finding puts it.
+    module, ctx = _ctx(_module(), tmp_path, _REDUNDANT, "red.c")
+    claim = _redundant_claim()
+    claim["rationale"] = "SIMDe 0.8.4 guards the tbl index on every call"
+    claim["line"] = 9
+    ok, why = module.check_name_only(claim, ctx)
+    assert ok is False
+    assert "no call to" in why

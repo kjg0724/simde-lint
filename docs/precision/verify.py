@@ -242,10 +242,19 @@ def check_name_only(finding, ctx):
     five registered intrinsics; S reports every shuffle call, and grades it
     on the mask afterwards. So the claim reduces to the call being there,
     under the spelling the finding records.
+
+    R's rationale also names the intrinsic, in "implements <name> as follows",
+    and that clause was going unread while the other checks were taught to
+    read theirs. S's text names no intrinsic, so there is nothing of this kind
+    to compare there and the sentence is checked for what it does state.
     """
     _, by_line, _, defines = ctx
     raw = finding.get("raw_name")
     wanted = raw or finding["intrinsic"]
+    named = re.search(r"implements (\S+) as follows", finding["rationale"])
+    if named and named.group(1) != finding["intrinsic"]:
+        return False, ("claims %s, the finding is %s"
+                       % (named.group(1), finding["intrinsic"]))
     if not any(c.name == wanted for c in by_line.get(finding["line"], [])):
         return False, "no call to %s at this line" % wanted
     if raw and raw != finding["intrinsic"]:
