@@ -42,6 +42,12 @@ dimensions:
       nested: product written as the consumer's own operand
       widening_hop: one conversion between producer and consumer
       overwritten_before_use: the name rebound before the consumer runs
+      operand_rebound_between_producers: an input changed between the two
+        multiplies, so the halves belong to different products
+      consumer_operands_reversed: the consumer takes the halves in the order
+        that does not rebuild the product
+      consumer_reversed_behind_a_macro: the same reversal where the recorded
+        arguments are the call site's and the body swaps them
       overwritten_after_use: rebound after, which must not suppress
 
   multiplicity:
@@ -68,6 +74,18 @@ dimensions:
       element_float: float lanes
       spelling_direct: the x86 name as written
       spelling_macro: reached through a file-local `#define`
+      mask_written_after_init: the backing array is assigned after its
+        initializer, so the initializer is not the value read
+      mask_elements_wider_than_a_byte: the array's element type spans more
+        than one shuffle lane
+      mask_inside_arithmetic: the table appears within an expression, so the
+        operand is computed from it rather than being it
+      mask_behind_a_wrapper_macro: the array is declared through a registered
+        declaration macro, whose registration locates the declarator and says
+        nothing about whether the storage changes
+      mask_is_an_array_of_pointers: the element type is byte-sized and the
+        declarator makes the elements addresses, so the initializer values
+        are not lanes
 
   claims:
     applies_to: [R, S, W, F, M, P]
@@ -161,8 +179,5 @@ known_gaps:
     `consumer_choice.c` covers it for rule W. Rule F chooses its add the same
     way and has no case: a candidate it rejects must not end that search
     either.
-  representation.spelling_macro: >-
-    Rules F and P abstain on a macro-resolved consumer. Exercised in
-    `tests/fixtures`, not yet as an oracle case with a hand-decided answer.
   value_flow.overwritten_after_use: >-
     A rebinding after the consumer must not suppress the finding. No case.

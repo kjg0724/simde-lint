@@ -283,21 +283,16 @@ real finding from an SVT-AV1 scan (paths shortened for display):
   "rule_mechanism": "pshufb->tbl guard only",
   "evidence": "A",
   "reason": null,
-  "file": "Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c",
-  "line": 617,
+  "file": "Source/Lib/ASM_AVX2/convolve_avx2.h",
+  "line": 857,
   "scope": "function",
-  "function": "dr_prediction_z1_hxw_internal_avx2",
+  "function": "x_convolve_2tap_2x2_sse4_1",
   "macro": null,
   "intrinsic": "_mm_shuffle_epi8",
-  "rationale": "SIMDe 0.8.4 guards the tbl index on every call; mask resolved via even_odd_mask_x, all 8 row(s) have lanes in [0,15] or 0xFF (x86/ssse3.h:346)",
+  "rationale": "SIMDe 0.8.4 guards the tbl index on every call; mask is the local constant sfl, whose lanes are all in [0,15] or 0xFF (x86/ssse3.h:346)",
   "simde_insns": 3,
   "native_insns": 1,
-  "suggestion": "vqtbl1q_u8",
-  "mask_source": {
-    "symbol": "even_odd_mask_x",
-    "defined_at": "Source/Lib/Codec/intra_prediction.c:108",
-    "resolution": "all_rows"
-  }
+  "suggestion": "vqtbl1q_u8"
 }
 ```
 
@@ -310,11 +305,14 @@ real finding from an SVT-AV1 scan (paths shortened for display):
 `null`, as above. A call written in a `#define` body reports
 `"scope": "macro"` with the macro's name in `macro` and `function` `null`.
 All three keys are always present. The text reporter renders the two cases as
-`_mm_shuffle_epi8 in dr_prediction_z1_hxw_internal_avx2` and
+`_mm_shuffle_epi8 in x_convolve_2tap_2x2_sse4_1` and
 `_mm_loadl_epi64 in LOAD4_NAT (macro)`.
 
-The `mask_source` field is present only for rule S findings graded through
-`SymbolIndex`; it is omitted entirely (not `null`) on every other finding.
+The `mask_source` field is present only for rule S findings whose mask was
+resolved through `SymbolIndex`, which is why the example above does not carry
+one -- its mask is a local constant in the same function. It is omitted
+entirely (not `null`) on every other finding. No finding in the pinned
+SVT-AV1 tree carries it at present; `docs/verification.md` says why.
 `raw_name` is likewise present only when a call's original spelling differs
 from the resolved `intrinsic` name (a macro-aliased call site, e.g. VVenC's
 `_my_cmpgt_epi64` resolving to `_mm_cmpgt_epi64`) -- omitted, not `null`,

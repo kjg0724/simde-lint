@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from .diagnostics import Diagnostic, is_failure
 from .discover import discover_files
 from .extract import extract_units_and_diagnostics
 from .finding import Evidence, Finding
@@ -13,6 +14,8 @@ from .ir import AnalysisUnit
 from .knowledge import Knowledge, load_knowledge
 from .rules import ALL_RULES, Context, Rule, validate_config
 from .symbols import build_symbol_index
+
+__all__ = ["Diagnostic", "analyze", "is_failure", "read_sources"]
 
 # Ordered by strictness. --min-evidence is a floor: passing "B" keeps grades
 # A and B, not B alone, so the comparison below is <=, not ==.
@@ -22,47 +25,6 @@ _EVIDENCE_ORDER = {Evidence.A: 0, Evidence.B: 1, Evidence.C: 2}
 # bury the file name it is about. The count is always reported, so nothing
 # is hidden by the cap -- only shortened.
 _MAX_REPORTED_SPANS = 3
-
-
-class Diagnostic(str):
-    """A warning about an incomplete run, carrying why without ceasing to be
-    a message.
-
-    Two things go wrong in a sweep and they are not the same thing. A
-    FAILURE is the tool breaking on input it should have handled: a file it
-    could not read, an extraction that raised, a rule that raised. An
-    UNPARSED is tree-sitter declining to parse a construct, recovering, and
-    returning a tree anyway -- the tool worked, and the findings it produced
-    are real; what is missing is the assurance that they are all of them.
-
-    Only a FAILURE may set the exit code. Preprocessor-heavy C++ makes
-    UNPARSED the normal case rather than the exceptional one -- 362 of
-    SVT-AV1's 561 files at the pinned revision -- so an exit code that
-    counted them would be 1 on nearly every real sweep and would say
-    nothing.
-
-    Subclassing `str` rather than wrapping it keeps every existing consumer
-    working unchanged: these are still printed, still substring-matched,
-    still collected into a plain list.
-    """
-
-    FAILURE = "failure"
-    UNPARSED = "unparsed"
-
-    kind: str
-
-    def __new__(cls, message: str, kind: str) -> "Diagnostic":
-        diagnostic = super().__new__(cls, message)
-        diagnostic.kind = kind
-        return diagnostic
-
-
-def is_failure(diagnostic: str) -> bool:
-    """Whether a diagnostic means the tool broke, rather than that a file
-    did not fully parse. A plain string counts as a failure: it predates the
-    distinction, and treating an unlabelled warning as benign would be the
-    unsafe direction."""
-    return getattr(diagnostic, "kind", Diagnostic.FAILURE) == Diagnostic.FAILURE
 
 
 def _read(path: Path, errors: list[str] | None) -> bytes | None:
@@ -166,9 +128,10 @@ def analyze(
     """Run the full pipeline and report what it found.
 
     The third return value is the list of warnings produced by an isolated
-    extraction or rule failure, or by a file tree-sitter could not fully
-    parse (empty on a clean run) -- callers that need to know whether the
-    analysis was complete, rather than merely non-crashing, check this
+    extraction or rule failure, by a file tree-sitter could not fully parse,
+    or by a `#define` that withdraws the symbol index's reading of a
+    declaration (empty on a clean run) -- callers that need to know whether
+    the analysis was complete, rather than merely non-crashing, check this
     rather than inferring it from stderr output.
 
     A parse error is a warning, not a skip. tree-sitter recovers and the
@@ -190,7 +153,7 @@ def analyze(
     sources = read_sources(paths, exclude, errors)
 
     ctx = Context(
-        symbols=build_symbol_index(sources, knowledge),
+        symbols=build_symbol_index(sources, knowledge, errors),
         knowledge=knowledge,
         config=resolved_config,
     )

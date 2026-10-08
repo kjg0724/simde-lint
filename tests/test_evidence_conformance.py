@@ -34,11 +34,25 @@ ALLOWED: dict[str, set[str]] = {
     # has nothing that could grade higher.
     "R.zero_init_partial_load": {"C"},
     "S.pshufb_guard": {"A", "B", "C"},
-    "W.mul16_widen_roundtrip": {"A", "B"},
-    "F.mul_add_no_fuse": {"A", "B", "C"},
+    # C joined when W stopped establishing its round-trip from spelling. Two
+    # premises it cannot prove withdraw the replacement rather than the
+    # finding: an operand rebound between the multiplies (`unresolved`), and a
+    # producer inside a construct the consumer is outside (`requires_context`).
+    "W.mul16_widen_roundtrip": {"A", "B", "C"},
+    # A, C. B is the hop path, and it is structurally dead: every conversion in
+    # `fusion._WIDENING` raises the product above the width the multiply's
+    # recorded fused form accumulates at, so the width check caps the grade at
+    # C before the hop's B can stand. Declared as {A, B, C} it was a claim
+    # about the rule that no fixture could reach and nothing tested -- the
+    # equality assertion below is what surfaced it.
+    "F.mul_add_no_fuse": {"A", "C"},
     "M.scalar_insert_chain": {"A", "B"},
     "M.scalar_set_build": {"A", "B"},
-    "P.cmp_immediate_use": {"A"},
+    # C joined when P stopped claiming its premise held on every path. A
+    # compare inside a branch its consumer is outside feeds it on the taken
+    # pass only, so what the grade carries is the mechanism's presence, not a
+    # withheld transform -- hence a reason of its own.
+    "P.cmp_immediate_use": {"A", "C"},
 }
 
 
@@ -74,4 +88,15 @@ def test_every_rule_stays_within_its_declared_evidence_grades():
         assert grades <= ALLOWED[rule_id], (
             f"{rule_id} emitted {sorted(grades - ALLOWED[rule_id])}, "
             f"outside its declared {sorted(ALLOWED[rule_id])}"
+        )
+        # And every declared grade has to be reachable from the fixtures, or
+        # the declaration is unchecked in that direction. Containment alone let
+        # a grade be added to a rule with no fixture producing it: W gained C
+        # and `{A} <= {A, B}` kept passing while the table said W could not
+        # emit C at all. A declared grade nothing exercises is a claim about
+        # the rule that nothing tests.
+        assert grades == ALLOWED[rule_id], (
+            f"{rule_id} declares {sorted(ALLOWED[rule_id])} but the fixtures "
+            f"only reach {sorted(grades)}; add a fixture for "
+            f"{sorted(ALLOWED[rule_id] - grades)} or stop declaring it"
         )

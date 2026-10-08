@@ -1,12 +1,22 @@
 # Macros that wrap a declaration. The tool reinterprets a call to one of these
 # as a declaration ONLY for the names listed here, using declarator_arg as the
-# zero-based index of the argument holding the declarator. The tool never
-# infers this for unlisted macros: that would amount to reimplementing the
-# preprocessor.
+# zero-based index of the comma-separated argument holding the declarator. The
+# tool never infers this for unlisted macros: that would amount to
+# reimplementing the preprocessor.
+#
+# A registration locates the declarator. It is not a claim about the storage:
+# the argument before the declarator must still read as a byte-sized `const`
+# type for a mask to be resolved from the initializer, the same requirement
+# the plain declaration path makes.
 macros:
   DECLARE_ALIGNED:
     declarator_arg: 2
     note: "DECLARE_ALIGNED(align, type, name[dims]) in SVT-AV1"
   DECLARE_ALIGNED_16:
     declarator_arg: 1
+    # Registered and unreachable: with no leading integer argument this
+    # spelling parses as a K&R function definition rather than an assignment,
+    # so the collector never sees it. Pinned by
+    # test_a_wrapper_taking_no_alignment_argument_is_registered_and_unreachable.
+    # No corpus uses it.
     note: "DECLARE_ALIGNED_16(type, name[dims])"

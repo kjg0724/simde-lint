@@ -18,6 +18,7 @@ from .base import (
     on_a_common_path,
     own_availability,
     raw_name_if_aliased,
+    reaches_on_every_path,
 )
 
 _MULTIPLIES = {
@@ -206,6 +207,26 @@ class FusionRule:
                     # Leaving it made the report say "no replacement" and
                     # "the replacement is 3 instructions" in adjacent lines.
                     native_insns = None
+                if not reaches_on_every_path(mul, add):
+                    # The multiply sits inside a construct the add does not, so
+                    # a pass that skips it still reaches the add and consumes
+                    # whatever the name held instead. The unfused multiply-add
+                    # is real on the passes that run both, which is why the
+                    # finding stands and `nested_regions.c` keeps its verdict
+                    # that these are instances; what does not follow from that
+                    # is the grade. A fused instruction placed at the add runs
+                    # on the skipping passes too, where it would compute from
+                    # a product the multiply never supplied.
+                    # Grade and reason only. `requires_context` means a
+                    # replacement exists and holds under a condition the rule
+                    # does not check, so the instruction stays named: grade C
+                    # is a candidate for a human to check, and a candidate with
+                    # no name cannot be checked. Withdrawing it is for
+                    # `width_mismatch`, where the recorded instruction does not
+                    # fit at any width. Stripping it here took the names off
+                    # four VVenC findings that were already C for a different
+                    # unchecked condition.
+                    evidence, reason = Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,

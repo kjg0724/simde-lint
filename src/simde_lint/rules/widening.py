@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Iterable, Iterator
 
-from ..finding import Evidence, Finding
+from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit, IntrinsicCall, ValueKind
 from .base import (
     Context,
@@ -22,6 +22,7 @@ from .base import (
     on_a_common_path,
     own_availability,
     raw_name_if_aliased,
+    reaches_on_every_path,
 )
 
 # Which half of the 16-bit lanes the consumer reconstructs, and therefore
@@ -37,12 +38,45 @@ _UNPACK_SUGGESTION = {
 _UNPACK = set(_UNPACK_SUGGESTION)
 
 
+# The name every W finding reports. W is the one rule that writes this rather
+# than reporting a matched anchor, so it is defined once and
+# `test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize`
+# reads it back off a finding.
+_REPORTED = "_mm_mullo_epi16"
+
+
 def _operand_key(call: IntrinsicCall) -> tuple[str, ...]:
     return tuple(arg.text for arg in call.args)
 
 
 def _all_direct_variables(call: IntrinsicCall) -> bool:
     return all(arg.kind is ValueKind.VARIABLE for arg in call.args)
+
+
+def _operands_stable_between(
+    unit: AnalysisUnit, lo: IntrinsicCall, hi: IntrinsicCall
+) -> bool:
+    """Whether the pair's inputs still hold the same values at the second
+    multiply.
+
+    `_operand_key` compares the operands' *spelling*. Two calls spelled with
+    the same names can read different values: an assignment between them
+    rebinds the name, and the replacement computes one product from one pair
+    of inputs where the source computed two halves from two. Measured: the
+    source gives 65542 where `vmull_s16` gives 6 or 98301 depending on which
+    inputs it is handed, and neither is the answer.
+
+    Only names are checked, because only names are what `redefined_between`
+    can decide. An operand that is not a plain variable is handled by the
+    caller, which declines to claim the pair resolved.
+    """
+    first, second = (lo, hi) if lo.start_byte <= hi.start_byte else (hi, lo)
+    for arg in second.args:
+        if arg.kind is not ValueKind.VARIABLE:
+            continue
+        if unit.redefined_between(arg.text, first.start_byte, second.start_byte):
+            return False
+    return True
 
 
 class WideningRule:
@@ -118,18 +152,94 @@ class WideningRule:
                     continue
                 claimed_unpacks.add(consumer.id)
                 matched = True
-                yield self._finding(unit, cost, lo, hi, consumer)
+                yield self._finding(
+                    unit, cost, lo, hi, consumer,
+                    stable=_operands_stable_between(unit, lo, hi),
+                    reaching=(
+                        reaches_on_every_path(lo, consumer)
+                        and reaches_on_every_path(hi, consumer)
+                    ),
+                )
             if matched:
                 claimed_his.add(hi.id)
 
     def _finding(
         self, unit: AnalysisUnit, cost, lo: IntrinsicCall,
-        hi: IntrinsicCall, consumer: IntrinsicCall,
+        hi: IntrinsicCall, consumer: IntrinsicCall, stable: bool,
+        reaching: bool,
     ) -> Finding:
         """One finding for one consuming unpack, built from the pair that
         feeds it. Separate from `match` so the loop over consumers reads as
         the counting unit it implements."""
         direct = _all_direct_variables(lo) and _all_direct_variables(hi)
+        if not reaching:
+            # The round-trip is present on the passes that run the multiplies,
+            # so the finding stands. One widening multiply evaluated where the
+            # unpack is would also run on the passes that skipped them, where
+            # the unpack consumes a value these multiplies never produced --
+            # so what is withdrawn is the replacement, not the observation.
+            # `requires_context` rather than `unresolved`: nothing here was
+            # unreadable, the condition simply is not one this rule checks.
+            return Finding(
+                type=self.type,
+                rule=self.rule_id,
+                rule_mechanism=self.mechanism,
+                evidence=Evidence.C,
+                reason=Reason.TRANSFORM_REQUIRES_CONTEXT,
+                file=unit.file,
+                line=lo.line,
+                **location_fields(unit),
+                intrinsic=_REPORTED,
+                rationale=(
+                    f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at "
+                    f"line {hi.line} feed {consumer.name} at line "
+                    f"{consumer.line}, but sit inside a construct the consumer "
+                    f"does not, so a pass that skips them still reaches it and "
+                    f"a single widening multiply there reproduces a product "
+                    f"they did not supply"
+                ),
+                simde_insns=cost.simde_insns,
+                native_insns=cost.native_insns,
+                # Named, not withdrawn. The round-trip is exact wherever the
+                # multiplies do reach the unpack, so the instruction is a
+                # candidate a reader can check against the control flow --
+                # which is what `requires_context` says and what grade C is
+                # for. The unstable-operand branch below is the other case:
+                # there no single widening multiply reproduces the halves
+                # under any condition, so there the name goes.
+                suggestion=_UNPACK_SUGGESTION[consumer.name],
+                raw_name=raw_name_if_aliased(lo),
+            )
+        if not stable:
+            # The round-trip is real -- a mullo/mulhi pair feeding an unpack --
+            # so the finding stands. What cannot be claimed is the replacement:
+            # one widening multiply reads its inputs once, and here the two
+            # halves were computed from different values. Withdrawn the way
+            # rule S withdraws a guard it cannot establish, rather than
+            # dropping the observation with it.
+            return Finding(
+                type=self.type,
+                rule=self.rule_id,
+                rule_mechanism=self.mechanism,
+                evidence=Evidence.C,
+                reason=Reason.UNRESOLVED,
+                file=unit.file,
+                line=lo.line,
+                **location_fields(unit),
+                intrinsic=_REPORTED,
+                rationale=(
+                    f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at "
+                    f"line {hi.line} feed {consumer.name} at line "
+                    f"{consumer.line}, but an operand is reassigned between "
+                    f"them, so the two halves are not two halves of one "
+                    f"product and a single widening multiply does not "
+                    f"reproduce them"
+                ),
+                simde_insns=None,
+                native_insns=None,
+                suggestion=None,
+                raw_name=raw_name_if_aliased(lo),
+            )
         return Finding(
             type=self.type,
             rule=self.rule_id,
@@ -138,7 +248,7 @@ class WideningRule:
             file=unit.file,
             line=lo.line,
             **location_fields(unit),
-            intrinsic="_mm_mullo_epi16",
+            intrinsic=_REPORTED,
             rationale=(
                 f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at line "
                 f"{hi.line} share operands and feed {consumer.name} at line "
@@ -200,7 +310,16 @@ class WideningRule:
                 # round-trip -- was never reached and the file reported
                 # nothing.
                 continue
-            texts = {arg.text for arg in unpack.args}
-            if lo_var in texts and hi_var in texts:
+            if unpack.is_macro_alias:
+                # `docs/mechanisms.md` states that a macro-resolved consumer
+                # is abstained from, because its recorded arguments are the
+                # call site's own with no mapping back through the macro body.
+                # W did not honour that, and the gap is not academic: a
+                # `#define REV(x, y) _mm_unpacklo_epi16((y), (x))` invoked as
+                # `REV(lo, hi)` records `[lo, hi]` in the order the ordering
+                # check below wants, while the body reverses them.
+                continue
+            texts = [arg.text for arg in unpack.args]
+            if len(texts) == 2 and texts[0] == lo_var and texts[1] == hi_var:
                 return unpack
         return None

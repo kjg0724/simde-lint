@@ -128,3 +128,238 @@ faults:
     find: "            if not on_a_common_path(lo, unpack):\n"
     replace: "            if False:\n"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[consumer_choice.c]"
+
+  - name: widening-reports-an-unrecognized-intrinsic
+    issue: null
+    why: >-
+      Rule W writes its reported name as a literal rather than reporting a
+      matched anchor, so a typo in it would put a spelling no knowledge table
+      carries into every W finding. The assertion that claimed to catch this
+      checked the literal written in the test file instead of the one the rule
+      emits, and stayed green through exactly this mutation.
+    file: src/simde_lint/rules/widening.py
+    find: "_REPORTED = \"_mm_mullo_epi16\""
+    replace: "_REPORTED = \"_mm_NOT_A_REAL_INTRINSIC\""
+    kills: "tests/test_verification.py::test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize"
+
+  - name: widening-matches-the-unpack-by-membership
+    issue: null
+    why: >-
+      The consumer was chosen with `{arg.text for arg in unpack.args}`, a set,
+      so the halves could arrive in either order. Reversed they rebuild
+      nothing: 0x00060000 against the instruction's 0x00000006, compiled and
+      run against SIMDe 0.8.4.
+    file: src/simde_lint/rules/widening.py
+    find: "            if len(texts) == 2 and texts[0] == lo_var and texts[1] == hi_var:"
+    replace: "            if lo_var in texts and hi_var in texts:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
+
+  - name: widening-reads-a-macro-resolved-consumer
+    issue: null
+    why: >-
+      `docs/mechanisms.md` states that a macro-resolved consumer is abstained
+      from, because its recorded arguments are the call site's own with no
+      mapping through the body. W did not do it, so `#define REV(x, y)
+      _mm_unpacklo_epi16((y), (x))` invoked as `REV(lo, hi)` passed an
+      ordering check while the body reversed the halves.
+    file: src/simde_lint/rules/widening.py
+    find: "            if unpack.is_macro_alias:"
+    replace: "            if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
+
+  - name: widening-compares-operand-spelling-not-value
+    issue: null
+    why: >-
+      `_operand_key` compares the operands' text, so an input rebound between
+      the two multiplies left the pair looking shared. The halves then belong
+      to different products: the source gives 65542 where the instruction
+      gives 6 or 98301 depending on which inputs it reads.
+    file: src/simde_lint/rules/widening.py
+    find: "                    stable=_operands_stable_between(unit, lo, hi),"
+    replace: "                    stable=True,"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
+
+  - name: widening-reads-a-producer-that-may-not-have-run
+    issue: null
+    why: >-
+      `on_a_common_path` answers whether two calls can both run, which is not
+      whether the earlier one necessarily ran. A multiply inside `if (flag)`
+      with its unpack after the `if` passed it, and on the flag-false pass the
+      unpack consumes whatever the name held: source 1000 where the proposed
+      instruction gives 6. A `for` whose count is zero behaves identically,
+      which is what closed `control.loop_boundary`.
+    file: src/simde_lint/rules/widening.py
+    find: "                        reaches_on_every_path(lo, consumer)"
+    replace: "                        True or reaches_on_every_path(lo, consumer)"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[consumer_choice.c]"
+
+  - name: fusion-reads-a-producer-that-may-not-have-run
+    issue: null
+    why: >-
+      The same relation for rule F. `nested_regions.c` keeps its verdict that
+      both nesting directions are instances; what does not follow is the
+      grade. A fused instruction placed at the add runs on the passes that
+      skipped the multiply too.
+    file: src/simde_lint/rules/fusion.py
+    find: "                if not reaches_on_every_path(mul, add):"
+    replace: "                if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
+
+  - name: mask-initializer-taken-for-a-writable-array
+    issue: null
+    why: >-
+      The symbol index registered any array with an initializer, so
+      `unsigned char mask[16] = {0}` followed by `mask[0] = 16` graded A with
+      the guard dropped. Writes are not tracked, so `const` is the only claim
+      available. Measured: pshufb returns the source byte at lane 0 where
+      unguarded tbl returns zero.
+    file: src/simde_lint/symbols.py
+    find: "        if not _is_const(decl, source, shadowed) or not _byte_sized(decl, source, shadowed):"
+    replace: "        if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: qualifier-read-as-written-when-a-define-removes-it
+    issue: null
+    why: >-
+      `#define const` leaves `static const uint8_t m[16] = {0, 1, 2, 3}`
+      spelled immutable while its storage is writable, so the initializer was
+      taken for the bytes a shuffle reads -- the writable-array defect
+      arriving by preprocessing instead of by a later assignment. Reported by
+      review and reproduced through `build_symbol_index`.
+    file: src/simde_lint/symbols.py
+    find: "    if \"const\" in shadowed:\n        return False"
+    replace: "    if False:\n        return False"
+    kills: "tests/test_symbols.py::test_excludes_a_declaration_whose_const_a_define_removes"
+
+  - name: shadowing-is-applied-without-reaching-stderr
+    issue: null
+    why: >-
+      Pooling the scan across files means one CMake-generated
+      `CMakeCCompilerId.c` withdraws every mask in a tree. The first version
+      of this appended to a warning list and nothing printed it, so a run
+      that resolved no mask looked clean on the terminal while the changelog
+      said it was reported on stderr. Review found that, which is why the
+      mutation targets the print and the test reads stderr.
+    file: src/simde_lint/symbols.py
+    find: "                print(f\"warning: {message}\", file=sys.stderr)"
+    replace: "                pass"
+    kills: "tests/test_cli.py::test_a_shadowing_define_warns_on_stderr_and_does_not_fail_the_run"
+
+  - name: shadowing-warning-is-unlabelled
+    issue: null
+    why: >-
+      `is_failure` treats a plain string as a failure, because an unlabelled
+      warning predates the distinction and the unsafe direction is to assume
+      it is benign. Appending the message without `Diagnostic.SHADOWED`
+      therefore exits 1 on a run that worked.
+    file: src/simde_lint/symbols.py
+    find: "                    warnings.append(Diagnostic(message, Diagnostic.SHADOWED))"
+    replace: "                    warnings.append(message)"
+    kills: "tests/test_cli.py::test_a_shadowing_define_is_not_counted_as_a_failure"
+
+  - name: byte-spelling-read-as-written-when-a-define-redefines-it
+    issue: null
+    why: >-
+      The collector reads the type spelling before preprocessing, so
+      `#define uint8_t uint8_t *` left `static const uint8_t m[16]` looking
+      like an array of bytes while it declares an array of addresses. Both
+      the plain and the wrapper path accepted it. Reported by review and
+      reproduced through `build_symbol_index`; no corpus redefines a byte
+      keyword, so the hole was reachable and unreached.
+    file: src/simde_lint/symbols.py
+    find: "    if any(word in shadowed for word in words):\n        return False"
+    replace: "    if False:\n        return False"
+    kills: "tests/test_symbols.py::test_excludes_a_byte_spelling_a_define_redefines"
+
+  - name: wrapper-path-ignores-a-redefined-byte-spelling
+    issue: null
+    why: >-
+      The same shadowing hole on the wrapper side, where the check has its own
+      early return. Closing it in one path and not the other leaves
+      `DECLARE_ALIGNED(16, const uint8_t, m[16])` accepted under
+      `#define uint8_t uint8_t *`.
+    file: src/simde_lint/symbols.py
+    find: "    if any(word in shadowed for word in words):\n        return None"
+    replace: "    if False:\n        return None"
+    kills: "tests/test_symbols.py::test_excludes_a_byte_spelling_a_define_redefines"
+
+  - name: wrapper-declarator-argument-not-checked-for-a-pointer
+    issue: null
+    why: >-
+      `DECLARE_ALIGNED(16, const uint8_t, *m[16])` puts the asterisk on the
+      declarator side of the comma, where the type argument still reads as a
+      const byte. Checking only the type argument admitted it.
+    file: src/simde_lint/symbols.py
+    find: "    if \"*\" in kind or \"*\" in declarator:"
+    replace: "    if \"*\" in kind:"
+    kills: "tests/test_symbols.py::test_excludes_a_pointer_in_a_wrapper_declarator_argument"
+
+  - name: plain-declaration-reads-past-a-pointer-declarator
+    issue: null
+    why: >-
+      `_byte_sized` reads the declaration's type field, which says
+      `unsigned char` for `static const unsigned char *m[16] = {0, 1, 2, 3}`
+      while the declarator makes the elements addresses. Those four values
+      occupy 32 bytes and none of them is one of the sixteen lanes a shuffle
+      reads, so the mask resolved to bytes the rule never saw. Reported by
+      review, reproduced through `build_symbol_index`.
+    file: src/simde_lint/symbols.py
+    find: "            if declarator is None or _declares_a_pointer(declarator):"
+    replace: "            if declarator is None:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: wrapper-type-argument-reads-past-an-asterisk
+    issue: null
+    why: >-
+      The wrapper path removed `*` from the type argument before comparing it
+      to the byte-sized set, so `DECLARE_ALIGNED(16, const uint8_t *, m[16])`
+      reduced to `const uint8_t` and was indexed. Stripping a pointer is
+      reading past it: the same defect as the plain path, in the spelling
+      where the `*` sits in the type rather than the declarator.
+    file: src/simde_lint/symbols.py
+    find: "    if \"*\" in kind or \"*\" in declarator:"
+    replace: "    kind, declarator = kind.replace(\"*\", \" \"), declarator\n    if False:"
+    kills: "tests/test_symbols.py::test_excludes_an_array_of_pointers_behind_a_registered_wrapper_macro"
+
+  - name: wrapper-macro-registration-taken-for-immutability
+    issue: null
+    why: >-
+      A registration in wrapper_macros.yaml says where a declaration macro
+      keeps its declarator. The wrapper path read it as permission to index
+      the array, so `DECLARE_ALIGNED(16, uint8_t, m[16]) = {0..15}` followed
+      by `m[0] = 16` graded A while the plain path rejected the same shape.
+      Measured: pshufb returns 42 at lane 0 where the suggested unguarded
+      `vqtbl1q_u8` returns 0. This is what moved SVT-AV1's three
+      `even_odd_mask_x` findings from A to C.
+    file: src/simde_lint/symbols.py
+    find: "    if \"const\" not in words or \"volatile\" in words:"
+    replace: "    if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: wrapper-declarator-taken-by-node-index
+    issue: null
+    why: >-
+      The declarator was read as `arguments.named_children[declarator_arg]`,
+      which happens to be right only without the qualifier: tree-sitter gives
+      `(16, uint8_t, m[16])` one ERROR node covering the type and comma, and
+      `(16, const uint8_t, m[16])` an identifier plus an ERROR, so the
+      declarator shifts by one. The const table was then registered under the
+      name `uint8_t` and no mask resolved through it -- a const requirement
+      that rejected every wrapper, const or not.
+    file: src/simde_lint/symbols.py
+    find: "    parts = [part.strip() for part in text[1:-1].split(\",\")]"
+    replace: "    parts = [node_text(a, source) for a in arguments.named_children]"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: mask-table-inside-arithmetic-resolves-to-the-table
+    issue: null
+    why: >-
+      Operands were called a symbol load whenever their text contained `[` or
+      `*`, which `bias ^ *(__m128i *)mask` satisfies as readily as the load
+      does. The rule then graded the whole expression on the table's lanes
+      while the XOR put every index out of range.
+    file: src/simde_lint/extract.py
+    find: "    if symbol and _is_a_plain_load(node):"
+    replace: '    if symbol and ("[" in text or "*" in text):'
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+

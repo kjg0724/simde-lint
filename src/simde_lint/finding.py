@@ -16,8 +16,16 @@ class Evidence(str, Enum):
 class Reason(str, Enum):
     """Why a finding graded C, distinguishing meanings that grade alone can't.
 
-    Grade C always means "the tool cannot confirm the transform is safe from
-    source alone", but that collapses five different situations:
+    Grade C means the rule cannot confirm, unconditionally from source, either
+    its own premise or the applicability of the action it reports. The first
+    half joined the second when rule P needed it: every reason below it is
+    about a *transform* the rule declines to stand behind, and P reports no
+    transform -- its claim is that a latency hazard exists, and that claim is
+    what varies by path. Forcing a mechanism-confidence question into a
+    transform-only taxonomy would have meant filing it under a reason that
+    says a replacement was withheld, when none was offered.
+
+    Six situations, distinguished:
 
     - **UNRESOLVED** -- the rule could not see far enough to judge at all (a
       runtime-loaded value, a call result with unknown lanes, a symbol not
@@ -43,10 +51,16 @@ class Reason(str, Enum):
       Distinct from the two above because the rule reached an answer rather
       than declining to -- neither "could not see" nor "did not check".
 
-    v1 keeps one grade, C, for all three: the action each warrants is
-    identical -- do not transform without human confirmation. A fourth grade
-    would only be warranted if they ever needed different `--min-evidence`
-    filtering or other CLI/automation behaviour, which they do not today.
+    - **MECHANISM_PATH_CONDITIONAL** -- the mechanism itself is present on
+      some executions and not others, so the finding's premise is confirmed
+      for a path rather than for the call site. Distinct from every reason
+      above it: those answer "can this replacement be used", this answers
+      "is the thing being reported there at all". Rule P's compare feeding the
+      next call is the case -- a compare inside a branch the consumer is
+      outside is consumed by it on the taken pass and not otherwise.
+
+    v1 keeps one grade, C, for all of them: the action each warrants is
+    identical -- do not act without human confirmation.
     """
 
     UNRESOLVED = "unresolved"
@@ -54,6 +68,7 @@ class Reason(str, Enum):
     TRANSFORM_REQUIRES_CONTEXT = "transform_requires_context"
     TRANSFORM_CHANGES_RESULT = "transform_changes_result"
     TRANSFORM_WIDTH_MISMATCH = "transform_width_mismatch"
+    MECHANISM_PATH_CONDITIONAL = "mechanism_path_conditional"
 
 
 @dataclass(frozen=True)

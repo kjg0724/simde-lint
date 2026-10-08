@@ -52,3 +52,42 @@ void high_half(const short *a, const short *b) {
     __m128i wide = _mm_unpackhi_epi16(lo, hi);
     (void)wide;
 }
+
+// The pair sits inside a construct the consumer does not, so a pass that
+// skips it still reaches the unpack and consumes whatever `lo` held. The
+// round-trip is real on the taken pass, so the finding stands; the
+// replacement is withdrawn because an instruction placed at the unpack runs
+// on the skipping pass too.
+void producer_inside_a_branch_the_consumer_is_outside(__m128i a, __m128i b, __m128i c, int flag) {
+    __m128i lo = c;
+    __m128i hi = c;
+    if (flag) {
+        lo = _mm_mullo_epi16(a, b);
+        hi = _mm_mulhi_epi16(a, b);
+    }
+    __m128i r = _mm_unpacklo_epi16(lo, hi);
+    (void)r;
+}
+
+// An input rebound between the two multiplies: the halves belong to different
+// products, so one widening multiply reproduces neither.
+void an_operand_rebound_between_the_multiplies(__m128i a, __m128i b, __m128i c) {
+    __m128i lo = _mm_mullo_epi16(a, b);
+    a = c;
+    __m128i hi = _mm_mulhi_epi16(a, b);
+    __m128i r = _mm_unpacklo_epi16(lo, hi);
+    (void)r;
+}
+
+// Operands that are not plain variables. The pair is still the round-trip and
+// the unpack still rebuilds it, but the operands are expressions rather than
+// names, so their stability rests on the spelling matching rather than on a
+// definition the rule can read -- grade B, which is what B is for here.
+void operands_that_are_not_plain_variables(const int16_t *p, const int16_t *q) {
+    __m128i lo = _mm_mullo_epi16(_mm_loadu_si128((const __m128i *)p),
+                                 _mm_loadu_si128((const __m128i *)q));
+    __m128i hi = _mm_mulhi_epi16(_mm_loadu_si128((const __m128i *)p),
+                                 _mm_loadu_si128((const __m128i *)q));
+    __m128i r = _mm_unpacklo_epi16(lo, hi);
+    (void)r;
+}

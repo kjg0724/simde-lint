@@ -18,14 +18,142 @@ def test_collects_plain_static_const_array_as_single_row():
 
 
 def test_collects_two_dimensional_array_behind_a_registered_wrapper_macro():
-    array = _index().lookup("even_odd_mask_x")
+    array = _index().lookup("wrapped_mask")
     assert len(array.rows) == 2
     assert array.rows[0][:4] == (0, 2, 4, 6)
     assert array.rows[1][:4] == (0, 1, 3, 5)
 
 
+def test_excludes_a_writable_array_behind_a_registered_wrapper_macro():
+    # The registration says where DECLARE_ALIGNED keeps its declarator. It
+    # says nothing about the storage, and an initializer is only the bytes a
+    # shuffle reads while nothing writes them. This is how SVT-AV1 declares
+    # the table that used to carry the only grade-A findings resting on this
+    # index.
+    assert _index().lookup("even_odd_mask_x") is None
+
+
+def test_excludes_a_wrapped_array_whose_elements_are_wider_than_a_byte():
+    # The plain path's requirement, applied to the macro form: an element of
+    # 0x1000 spans two lanes, and reading it as one called an unsafe mask
+    # safe.
+    assert _index().lookup("wide_mask") is None
+
+
+def test_a_wrapper_taking_no_alignment_argument_is_registered_and_unreachable():
+    # wrapper_macros.yaml registers DECLARE_ALIGNED_16 with its declarator at
+    # argument 1. The collector walks assignment expressions, and this
+    # spelling never produces one: with no leading integer argument,
+    # tree-sitter reads `DECLARE_ALIGNED_16(const uint8_t, m[1][16])` as a
+    # K&R function definition and the initializer as a separate statement.
+    # Measured for both the qualified and unqualified type, inside a file and
+    # alone. No corpus uses the macro, so the entry costs nothing but claims
+    # something; this test is what keeps the claim from reading as working.
+    assert _index().lookup("unreached_mask") is None
+
+
 def test_parses_hex_lane_values():
     assert _index().lookup("sentinel_mask").rows[0] == (0xFF,) * 16
+
+
+def test_excludes_an_array_of_pointers_declared_plainly():
+    # The declaration's type field is `unsigned char` and the elements are
+    # addresses. Four pointers are not four lanes, and reading them as lanes
+    # resolved a mask whose bytes were never seen. The pointer lives in the
+    # declarator, so the type check cannot see it.
+    assert _index().lookup("pointer_mask") is None
+
+
+def test_excludes_an_array_of_pointers_behind_a_registered_wrapper_macro():
+    # The same shape through the macro form, where the `*` sits in the type
+    # argument instead.
+    assert _index().lookup("wrapped_pointer_mask") is None
+
+
+def test_excludes_a_pointer_in_a_wrapper_declarator_argument():
+    # The same array, with the asterisk on the declarator side of the comma.
+    # The type argument reads as a const byte either way, so the declarator
+    # argument has to be inspected too.
+    assert _index().lookup("wrapped_pointer_declarator") is None
+
+
+def test_excludes_a_byte_spelling_a_define_redefines():
+    # The collector reads the spelling as written. `#define uint8_t uint8_t *`
+    # leaves both declarations below looking like byte arrays while they
+    # declare arrays of addresses, and resolving that properly means
+    # preprocessing the translation unit.
+    knowledge = load_knowledge()
+    source = (
+        b"#define uint8_t uint8_t *\n"
+        b"static const uint8_t plain[16] = {0, 1, 2, 3};\n"
+        b"DECLARE_ALIGNED(16, const uint8_t, wrapped[16]) = {0, 1, 2, 3};\n"
+    )
+    index = build_symbol_index([("a.c", source)], knowledge)
+    assert index.lookup("plain") is None
+    assert index.lookup("wrapped") is None
+
+
+def test_a_define_in_one_file_shadows_the_spelling_in_another():
+    # Which header a file includes is not known here, so the scan is pooled
+    # across the files given rather than applied to each on its own.
+    knowledge = load_knowledge()
+    index = build_symbol_index(
+        [
+            ("a.c", b"#define uint8_t uint8_t *\n"),
+            ("b.c", b"static const uint8_t m[16] = {0, 1, 2, 3};\n"),
+        ],
+        knowledge,
+    )
+    assert index.lookup("m") is None
+
+
+def test_an_unshadowed_byte_spelling_still_resolves():
+    # The control for the two above: without the define, the same declaration
+    # is indexed, so their assertions are about the define and not about the
+    # declaration.
+    knowledge = load_knowledge()
+    index = build_symbol_index(
+        [("b.c", b"static const uint8_t m[16] = {0, 1, 2, 3};\n")], knowledge
+    )
+    assert index.lookup("m").rows == ((0, 1, 2, 3),)
+
+
+def test_excludes_a_declaration_whose_const_a_define_removes():
+    # `#define const` leaves the declaration spelled immutable and its storage
+    # writable, which is the writable-array defect arriving by preprocessing
+    # rather than by a later assignment. Both paths read the qualifier off the
+    # source spelling, so both have to withdraw.
+    knowledge = load_knowledge()
+    source = (
+        b"#define const\n"
+        b"static const uint8_t plain[16] = {0, 1, 2, 3};\n"
+        b"DECLARE_ALIGNED(16, const uint8_t, wrapped[16]) = {0, 1, 2, 3};\n"
+    )
+    index = build_symbol_index([("a.c", source)], knowledge)
+    assert index.lookup("plain") is None
+    assert index.lookup("wrapped") is None
+
+
+def test_records_each_shadowing_definition_it_acts_on():
+    # The scan is pooled across files, so one generated file can withdraw
+    # every mask in a tree. CMake writes a CMakeCCompilerId.c that defines
+    # `const` away, and a scan that includes one would resolve nothing while
+    # reporting a clean run.
+    knowledge = load_knowledge()
+    warnings: list[str] = []
+    index = build_symbol_index(
+        [
+            ("generated.c", b"#define const\n#define uint8_t uint8_t *\n"),
+            ("use.c", b"static const uint8_t m[16] = {0, 1, 2, 3};\n"),
+        ],
+        knowledge,
+        warnings,
+    )
+    assert index.lookup("m") is None
+    assert len(warnings) == 2
+    assert all("generated.c" in line for line in warnings)
+    assert any("`const`" in line for line in warnings)
+    assert any("`uint8_t`" in line for line in warnings)
 
 
 def test_ignores_unregistered_wrapper_macros():
@@ -66,6 +194,8 @@ def test_names_excludes_an_ambiguous_entry():
 
 
 def test_names_lists_every_resolvable_array():
-    # hidden_mask (unregistered macro) and mixed_mask (non-integer element)
-    # never enter the index at all, so they are absent here too.
-    assert _index().names() == ["even_odd_mask_x", "plain_mask", "sentinel_mask"]
+    # hidden_mask (unregistered macro), mixed_mask (non-integer element),
+    # even_odd_mask_x (writable), wide_mask (wide elements), unreached_mask
+    # (a registered macro the collector cannot see) and the two pointer
+    # arrays never enter the index at all, so they are absent here too.
+    assert _index().names() == ["plain_mask", "sentinel_mask", "wrapped_mask"]

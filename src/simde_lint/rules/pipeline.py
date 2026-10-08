@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from ..finding import Evidence, Finding
+from ..finding import Evidence, Finding, Reason
 from ..ir import AnalysisUnit, ValueKind
 from .base import (
     Context,
@@ -18,6 +18,7 @@ from .base import (
     on_a_common_path,
     own_availability,
     raw_name_if_aliased,
+    reaches_on_every_path,
 )
 
 _COMPARES = {
@@ -86,11 +87,22 @@ class PipelineRule:
                 # overwrote it in between, so the compare's result never
                 # reaches this call and there is no back-to-back use.
                 continue
+            # Whether the compare reaches the consumer on every pass, not
+            # merely whether both can run. A compare inside a branch the
+            # consumer is outside is consumed by it on the taken pass and by
+            # some other definition otherwise, so the hazard P reports exists
+            # for a path rather than for the call site. The grade is evidence
+            # for that premise, so it is the grade that moves -- and the
+            # reason is about the mechanism, not about a transform, because P
+            # withholds no instruction: its advice is to reorder, which is
+            # merely irrelevant on a pass where the compare did not run.
+            reaching = reaches_on_every_path(current, following)
             yield Finding(
                 type=self.type,
                 rule=self.rule_id,
                 rule_mechanism=self.mechanism,
-                evidence=Evidence.A,
+                evidence=Evidence.A if reaching else Evidence.C,
+                reason=None if reaching else Reason.MECHANISM_PATH_CONDITIONAL,
                 file=unit.file,
                 line=current.line,
                 **location_fields(unit),
@@ -98,7 +110,12 @@ class PipelineRule:
                 rationale=(
                     f"{current.name} at line {current.line} is consumed by "
                     f"{following.name} at line {following.line} with no independent "
-                    f"work between them; source order approximates scheduling order "
+                    f"work between them"
+                    + ("" if reaching else
+                       " on the passes that run the compare, which sits inside a "
+                       "construct the consumer does not, so another definition "
+                       "feeds it on the rest")
+                    + f"; source order approximates scheduling order "
                     f"({cost.source})"
                 ),
                 simde_insns=cost.simde_insns,

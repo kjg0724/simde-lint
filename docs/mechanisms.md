@@ -156,9 +156,43 @@ them are not supported. A `simde_`-prefixed name resolved through
 
 ## Open against this contract
 
-Nothing. The two divergences this file was written with -- rule W reporting one
-finding where the unit is the consuming unpack (#66), and rule F reporting one
-for a product reaching two adds (#68) -- are closed.
+Nothing at present, and this section says that only because each item below
+was closed by a change with a test that fails without it. The two divergences
+this file was written with -- rule W reporting one finding where the unit is
+the consuming unpack (#66), and rule F reporting one for a product reaching
+two adds (#68) -- are closed.
+
+**Rule W did not abstain on a macro-resolved consumer**, which the section
+above states as applying to every rule. It does now. The gap was not academic:
+`#define REV(x, y) _mm_unpacklo_epi16((y), (x))` invoked as `REV(lo, hi)`
+records the call site's arguments in the order an ordering check wants while
+the body reverses them, so the finding survived both the membership test it
+used to make and the ordering test that replaced it. This section said
+"Nothing" while that held, which is the failure mode it exists to prevent --
+a contract whose status is asserted rather than checked.
+
+**The wrapper-macro declaration path did not establish that its storage is
+immutable**, so `DECLARE_ALIGNED(16, uint8_t, t[8][16])` -- not const --
+backed grade-A S findings while the plain-declaration path refused the same
+shape. It requires `const` now, and the difference cost three grade-A findings
+in SVT-AV1; `docs/verification.md` records the movement.
+
+**Both declaration paths read past a pointer**, taking
+`const unsigned char *m[16] = {0, 1, 2, 3}` for four mask lanes when the four
+values are addresses, and the wrapper path did the same where the asterisk is
+in the type argument. Both reject any pointer under the declarator now. A
+pointer introduced by `#define uint8_t uint8_t *`, and a writable array left
+by `#define const`, are both invisible to a collector that reads the spelling
+as written, so a byte keyword or `const` that any scanned file redefines is
+rejected wherever it appears, and each definition acted on is printed to
+stderr where it is found -- pooling withdraws masks across a whole scan, and a
+recall loss nothing announces reads as a clean run.
+Resolving a definition rather than rejecting the spelling means preprocessing
+the translation unit, which this tool does not do. That bounds the claim: the
+scan ignores preprocessor state and ordering, so an `#undef`, an inactive
+`#if`, or a definition written after the declaration it would affect all
+reject conservatively, and a definition in a file outside the scan stays
+invisible.
 
 `docs/precision/recall_widening.py` was brought to the same unit in the same
 change. It had taken one consumer per pair, matching the implementation rather

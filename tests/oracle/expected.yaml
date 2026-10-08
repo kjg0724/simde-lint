@@ -334,6 +334,30 @@ nested_regions.c:
     would trade one false-positive class for a false-negative one, and VVenC
     has six of exactly this shape.
 
+    The two directions of nesting part company at the grade, not at the
+    finding. Where the consumer is nested and the producer is outside, every
+    pass that reaches the consumer has already run the producer, so the
+    replacement holds and the grade is A. Where the producer is nested and the
+    consumer is outside, a pass that skips the producer still reaches the
+    consumer and consumes whatever the name held instead -- the mechanism is
+    real on the passes that run both, and an instruction placed at the
+    consumer is wrong on the rest. So the finding stands and the replacement
+    is withdrawn: C with `transform_requires_context`, the reason for a
+    condition this rule does not check rather than one it could not read.
+
+    The instruction is still named. `requires_context` says a replacement
+    exists and holds wherever the condition does, so the name is what makes
+    the finding checkable -- a reader compares it against the control flow and
+    decides. Withdrawing the name belongs to the reasons where no condition
+    rescues the instruction: `width_mismatch`, and W's own `unresolved` where
+    the two halves came from different products.
+
+    Measured on the same shape outside the corpus: the source gives 1000 on
+    the untaken pass where the proposed instruction gives 6, and a `for` whose
+    count is zero behaves identically -- which is what closed
+    `control.loop_boundary`, a cell this manifest had carried as a harmless
+    gap.
+
     The fourth is neither nesting nor exclusivity: two sibling blocks that run
     one after the other. Their regions diverge and neither contains the other,
     so a relation built on containment rejects it -- but nothing makes two
@@ -346,8 +370,10 @@ nested_regions.c:
       intrinsic: _mm_mullo_epi32
     - line: 17
       type: F
-      evidence: A
+      evidence: C
+      reason: transform_requires_context
       intrinsic: _mm_mullo_epi32
+      suggestion: vmlaq_s32
     - line: 24
       type: W
       evidence: A
@@ -439,6 +465,153 @@ hop_and_guard.c:
       suggestion: null
       native_insns: null
 
+mask_is_not_its_initializer.c:
+  covers:
+    - representation.mask_written_after_init
+    - representation.mask_elements_wider_than_a_byte
+    - representation.mask_inside_arithmetic
+    - representation.mask_behind_a_wrapper_macro
+    - representation.mask_is_an_array_of_pointers
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.grade_a
+    - claims.grade_c_unresolved
+    - output.costs_reported
+    - output.no_replacement_named
+  why: >-
+    Rule S grades on the bytes a shuffle reads. It read an initializer instead,
+    which is the same thing only when the storage cannot change, the elements
+    are one byte wide, and the operand is the table rather than something
+    computed from it. The same three requirements hold whether the array is
+    declared plainly or through a registered declaration macro. Each verdict here was decided by compiling the call and
+    the instruction the rule proposes and comparing lanes: pshufb takes index
+    16 as `16 & 0x0F`, selecting lane 0 and returning 42 for a source filled
+    with 42, while unguarded `vqtbl1q_u8` treats 16 as out of range and returns
+    zero.
+
+    A write after the initializer makes the initializer stale, and writes are
+    not tracked, so `const` is the only claim available and its absence leaves
+    the mask unresolved. `0x1000` in a `short` array is two bytes, and taking
+    the element value for one lane read it as 0x00 where the byte at lane 1 is
+    0x10 -- truncation that turned an unsafe mask into a safe one. A table
+    inside an XOR resolved to the table's own name, so the rule graded the
+    whole expression on the table's lanes while the arithmetic put every index
+    out of range. The wrapper macro carried the same mistake one level further
+    in: a registration in wrapper_macros.yaml locates the declarator so the
+    call can be read as a declaration, and that was taken for a claim about
+    the storage. A const type argument restores grade A, which is what the
+    fourth function here pins.
+
+    None of the four is a safe-mask claim the rule can make, so each keeps the
+    finding -- the pshufb-to-tbl mismatch is still there -- and loses the
+    guard-free replacement: C with `unresolved`, because what is missing is a
+    fact about the source the rule could not read, not a condition it declined
+    to check.
+  findings:
+    - line: 11
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 20
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 28
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 41
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 51
+      type: S
+      evidence: A
+      intrinsic: _mm_shuffle_epi8
+      suggestion: vqtbl1q_u8
+      costs: reported
+    - line: 61
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 69
+      type: S
+      evidence: A
+      intrinsic: _mm_shuffle_epi8
+      suggestion: vqtbl1q_u8
+      costs: reported
+
+widening_value_identity.c:
+  covers:
+    - value_flow.operand_rebound_between_producers
+    - value_flow.consumer_operands_reversed
+    - value_flow.consumer_reversed_behind_a_macro
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - representation.spelling_macro
+    - claims.grade_a
+    - claims.grade_c_unresolved
+    - output.costs_reported
+    - output.no_replacement_named
+  why: >-
+    A round-trip is a claim about values. Rule W established it from spelling:
+    the pair had to share operand text and the unpack had to name both
+    results, with the unpack's argument order discarded and the operands
+    unchecked for rebinding. Three shapes satisfy that and are not
+    round-trips, and each was decided here by compiling the function and the
+    instruction the tool proposes and comparing lanes -- not by reading the
+    tool.
+
+    Reversed halves rebuild nothing: with every lane a=2, b=3 the source gives
+    0x00060000 and `vmull_s16` gives 0x00000006. The same reversal behind a
+    `#define` records the call site's arguments in the order a check would
+    want while the body swaps them, which is why `docs/mechanisms.md` abstains
+    on a macro-resolved consumer -- a contract W did not honour. Neither is an
+    instance, so neither is a finding.
+
+    The rebound operand is different in kind. A mullo and a mulhi do feed one
+    unpack, so the mechanism is present and the observation stands; what
+    cannot be claimed is that one widening multiply reproduces it, because the
+    halves came from different inputs. The source gives 65542 where the
+    instruction gives 6 on the old inputs and 98301 on the new ones, so the
+    replacement is withdrawn and the grade drops to C, the way rule S
+    withdraws a guard it cannot establish rather than dropping the finding
+    with it.
+  findings:
+    - line: 33
+      type: W
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_mullo_epi16
+      suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
+      rationale_includes: reassigned between them
+    - line: 42
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16
+      suggestion: vmull_s16
+      costs: reported
+
 consumer_choice.c:
   covers:
     - control.exclusive_arms
@@ -463,8 +636,17 @@ consumer_choice.c:
     My first attempt at this case put the multiplies outside the `if`. Then
     the arm's unpack is nested rather than exclusive, so it is a valid
     consumer and the case proved nothing.
+
+    The grade is C, and for a reason this case does not otherwise exercise:
+    the multiplies sit inside the `if` and the surviving unpack is after it,
+    so a pass taking the other arm reaches the unpack without them. What this
+    case pins is still which consumer is chosen -- rejecting a candidate must
+    not end the search -- and that is independent of the grade the chosen one
+    carries.
   findings:
     - line: 16
       type: W
-      evidence: A
+      evidence: C
+      reason: transform_requires_context
       intrinsic: _mm_mullo_epi16
+      suggestion: vmull_s16
