@@ -175,9 +175,17 @@ a contract whose status is asserted rather than checked.
 immutable**, so `DECLARE_ALIGNED(16, uint8_t, t[8][16])` -- not const --
 backed grade-A S findings while the plain-declaration path refused the same
 shape. It requires `const` now, and the difference cost three grade-A findings
-in SVT-AV1; `docs/verification.md` records the movement. Both paths also read
-past a pointer declarator, taking `const unsigned char *m[16] = {0, 1, 2, 3}`
-for four mask lanes when the four values are addresses; both reject it now.
+in SVT-AV1; `docs/verification.md` records the movement.
+
+**Both declaration paths read past a pointer**, taking
+`const unsigned char *m[16] = {0, 1, 2, 3}` for four mask lanes when the four
+values are addresses, and the wrapper path did the same where the asterisk is
+in the type argument. Both reject any pointer under the declarator now. A
+pointer introduced by `#define uint8_t uint8_t *` is invisible to a collector
+that reads the spelling as written, so a byte keyword any scanned file
+redefines is rejected wherever it appears. Resolving such a definition rather
+than rejecting it means preprocessing the translation unit, which this tool
+does not do.
 
 `docs/precision/recall_widening.py` was brought to the same unit in the same
 change. It had taken one consumer per pair, matching the implementation rather

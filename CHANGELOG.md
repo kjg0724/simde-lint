@@ -71,9 +71,20 @@ declarator, so the byte-size check never saw it; the four values are four
 addresses occupying 32 bytes and none of them is one of the sixteen lanes a
 shuffle reads. The wrapper path had the same hole in the other spelling,
 `DECLARE_ALIGNED(16, const uint8_t *, m[16])`, where the first const
-requirement deleted the `*` before comparing the type. Stripping a pointer is
-reading past it. Both paths reject any pointer under the declarator now, and
-no corpus finding changes: the hole was reachable and unreached.
+requirement deleted the `*` before comparing the type, and again where the
+asterisk sits on the declarator side of the comma. Stripping a pointer is
+reading past it. Both paths reject any pointer under the declarator now.
+
+A pointer can also arrive by preprocessing: under `#define uint8_t uint8_t *`
+the spelling the collector reads still says `uint8_t`. A byte keyword that any
+scanned file redefines is rejected wherever it appears, which is pooled across
+the files given because which header a file includes is not known here.
+Resolving the definition instead would mean preprocessing the translation
+unit.
+
+No corpus finding changes for any of this: the holes were reachable and
+unreached. No corpus redefines a byte keyword, and the figures above are
+unmoved.
 
 ### `DECLARE_ALIGNED_16` is registered and unreachable
 
@@ -103,7 +114,7 @@ declared grade no fixture reaches is a failure: W is `{A, B, C}`, F is
 `{A, C}` -- its B is structurally unreachable, since every widening conversion
 raises the product above the multiply's recorded accumulator width and the
 width check caps at C first -- and P is `{A, C}`. The fault catalogue grew
-from 10 to 22 mutations and the oracle corpus from 11 cases to 13. One
+from 10 to 25 mutations and the oracle corpus from 11 cases to 13. One
 assertion in
 `tests/test_verification.py` checked a literal this file writes rather than
 anything the tool emits; it runs rule W over its fixture now and reads the

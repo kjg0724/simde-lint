@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Collection, Iterable
 
 from tree_sitter import Node
 
@@ -122,12 +122,37 @@ _BYTE_ELEMENTS = frozenset(
     }
 )
 
+# The individual words above, which is the granularity a `#define` works at.
+_BYTE_WORDS = frozenset(word for spelling in _BYTE_ELEMENTS for word in spelling.split())
 
-def _byte_sized(decl: Node, source: bytes) -> bool:
+
+def _shadowed_byte_spellings(root: Node, source: bytes) -> set[str]:
+    """Byte-element keywords this file redefines with `#define`.
+
+    The collector reads the spelling as written, before preprocessing, so
+    `#define uint8_t uint8_t *` leaves `static const uint8_t m[16]` looking
+    like an array of bytes while it declares an array of addresses. Rejecting
+    every spelling any scanned file redefines costs nothing unless such a
+    definition exists, and resolving these properly means preprocessing the
+    translation unit, which this tool does not do.
+    """
+    shadowed = set()
+    for kind in ("preproc_def", "preproc_function_def"):
+        for definition in iter_nodes(root, kind):
+            name = node_text(definition.child_by_field_name("name"), source)
+            if name in _BYTE_WORDS:
+                shadowed.add(name)
+    return shadowed
+
+
+def _byte_sized(decl: Node, source: bytes, shadowed: Collection[str]) -> bool:
     kind = decl.child_by_field_name("type")
     if kind is None:
         return False
-    return " ".join(node_text(kind, source).split()) in _BYTE_ELEMENTS
+    words = node_text(kind, source).split()
+    if any(word in shadowed for word in words):
+        return False
+    return " ".join(words) in _BYTE_ELEMENTS
 
 
 def _is_const(decl: Node, source: bytes) -> bool:
@@ -165,9 +190,11 @@ def _declares_a_pointer(declarator: Node) -> bool:
     )
 
 
-def _collect_plain_declarations(root: Node, source: bytes, path: str, index: SymbolIndex) -> None:
+def _collect_plain_declarations(
+    root: Node, source: bytes, path: str, index: SymbolIndex, shadowed: Collection[str]
+) -> None:
     for decl in iter_nodes(root, "declaration"):
-        if not _is_const(decl, source) or not _byte_sized(decl, source):
+        if not _is_const(decl, source) or not _byte_sized(decl, source, shadowed):
             continue
         for child in decl.named_children:
             if child.type != "init_declarator":
@@ -184,7 +211,9 @@ def _collect_plain_declarations(root: Node, source: bytes, path: str, index: Sym
                 index.add(ConstantArray(name, f"{path}:{decl.start_point[0] + 1}", rows))
 
 
-def _wrapper_declarator(arguments: Node, arg_index: int, source: bytes) -> str | None:
+def _wrapper_declarator(
+    arguments: Node, arg_index: int, source: bytes, shadowed: Collection[str]
+) -> str | None:
     """The declarator text of a wrapper macro call, if its type is a const byte.
 
     `_collect_plain_declarations` can ask tree-sitter for a declaration's type
@@ -223,6 +252,8 @@ def _wrapper_declarator(arguments: Node, arg_index: int, source: bytes) -> str |
     if "*" in kind or "*" in declarator:
         return None
     words = kind.split()
+    if any(word in shadowed for word in words):
+        return None
     if "const" not in words or "volatile" in words:
         return None
     if " ".join(word for word in words if word != "const") not in _BYTE_ELEMENTS:
@@ -231,7 +262,12 @@ def _wrapper_declarator(arguments: Node, arg_index: int, source: bytes) -> str |
 
 
 def _collect_wrapper_macro_declarations(
-    root: Node, source: bytes, path: str, index: SymbolIndex, knowledge: Knowledge
+    root: Node,
+    source: bytes,
+    path: str,
+    index: SymbolIndex,
+    knowledge: Knowledge,
+    shadowed: Collection[str],
 ) -> None:
     """Reinterpret registered macro calls as declarations.
 
@@ -251,7 +287,7 @@ def _collect_wrapper_macro_declarations(
         arguments = left.child_by_field_name("arguments")
         if arguments is None:
             continue
-        declarator = _wrapper_declarator(arguments, arg_index, source)
+        declarator = _wrapper_declarator(arguments, arg_index, source, shadowed)
         if declarator is None:
             continue
         name = _declarator_name(declarator)
@@ -263,9 +299,16 @@ def _collect_wrapper_macro_declarations(
 def build_symbol_index(
     files: Iterable[tuple[str, bytes]], knowledge: Knowledge
 ) -> SymbolIndex:
+    # A `#define` in one file can shadow a byte keyword used in another, and
+    # which header a file includes is not known here, so the scan is pooled
+    # across every file rather than applied per file.
+    parsed = [(path, source, parse_source(source).root_node) for path, source in files]
+    shadowed: set[str] = set()
+    for _, source, root in parsed:
+        shadowed |= _shadowed_byte_spellings(root, source)
+
     index = SymbolIndex()
-    for path, source in files:
-        root = parse_source(source).root_node
-        _collect_plain_declarations(root, source, path, index)
-        _collect_wrapper_macro_declarations(root, source, path, index, knowledge)
+    for path, source, root in parsed:
+        _collect_plain_declarations(root, source, path, index, shadowed)
+        _collect_wrapper_macro_declarations(root, source, path, index, knowledge, shadowed)
     return index

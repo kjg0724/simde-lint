@@ -214,9 +214,46 @@ faults:
       available. Measured: pshufb returns the source byte at lane 0 where
       unguarded tbl returns zero.
     file: src/simde_lint/symbols.py
-    find: "        if not _is_const(decl, source) or not _byte_sized(decl, source):"
+    find: "        if not _is_const(decl, source) or not _byte_sized(decl, source, shadowed):"
     replace: "        if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: byte-spelling-read-as-written-when-a-define-redefines-it
+    issue: null
+    why: >-
+      The collector reads the type spelling before preprocessing, so
+      `#define uint8_t uint8_t *` left `static const uint8_t m[16]` looking
+      like an array of bytes while it declares an array of addresses. Both
+      the plain and the wrapper path accepted it. Reported by review and
+      reproduced through `build_symbol_index`; no corpus redefines a byte
+      keyword, so the hole was reachable and unreached.
+    file: src/simde_lint/symbols.py
+    find: "    if any(word in shadowed for word in words):\n        return False"
+    replace: "    if False:\n        return False"
+    kills: "tests/test_symbols.py::test_excludes_a_byte_spelling_a_define_redefines"
+
+  - name: wrapper-path-ignores-a-redefined-byte-spelling
+    issue: null
+    why: >-
+      The same shadowing hole on the wrapper side, where the check has its own
+      early return. Closing it in one path and not the other leaves
+      `DECLARE_ALIGNED(16, const uint8_t, m[16])` accepted under
+      `#define uint8_t uint8_t *`.
+    file: src/simde_lint/symbols.py
+    find: "    if any(word in shadowed for word in words):\n        return None"
+    replace: "    if False:\n        return None"
+    kills: "tests/test_symbols.py::test_excludes_a_byte_spelling_a_define_redefines"
+
+  - name: wrapper-declarator-argument-not-checked-for-a-pointer
+    issue: null
+    why: >-
+      `DECLARE_ALIGNED(16, const uint8_t, *m[16])` puts the asterisk on the
+      declarator side of the comma, where the type argument still reads as a
+      const byte. Checking only the type argument admitted it.
+    file: src/simde_lint/symbols.py
+    find: "    if \"*\" in kind or \"*\" in declarator:"
+    replace: "    if \"*\" in kind:"
+    kills: "tests/test_symbols.py::test_excludes_a_pointer_in_a_wrapper_declarator_argument"
 
   - name: plain-declaration-reads-past-a-pointer-declarator
     issue: null

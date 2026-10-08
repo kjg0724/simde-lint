@@ -70,6 +70,54 @@ def test_excludes_an_array_of_pointers_behind_a_registered_wrapper_macro():
     assert _index().lookup("wrapped_pointer_mask") is None
 
 
+def test_excludes_a_pointer_in_a_wrapper_declarator_argument():
+    # The same array, with the asterisk on the declarator side of the comma.
+    # The type argument reads as a const byte either way, so the declarator
+    # argument has to be inspected too.
+    assert _index().lookup("wrapped_pointer_declarator") is None
+
+
+def test_excludes_a_byte_spelling_a_define_redefines():
+    # The collector reads the spelling as written. `#define uint8_t uint8_t *`
+    # leaves both declarations below looking like byte arrays while they
+    # declare arrays of addresses, and resolving that properly means
+    # preprocessing the translation unit.
+    knowledge = load_knowledge()
+    source = (
+        b"#define uint8_t uint8_t *\n"
+        b"static const uint8_t plain[16] = {0, 1, 2, 3};\n"
+        b"DECLARE_ALIGNED(16, const uint8_t, wrapped[16]) = {0, 1, 2, 3};\n"
+    )
+    index = build_symbol_index([("a.c", source)], knowledge)
+    assert index.lookup("plain") is None
+    assert index.lookup("wrapped") is None
+
+
+def test_a_define_in_one_file_shadows_the_spelling_in_another():
+    # Which header a file includes is not known here, so the scan is pooled
+    # across the files given rather than applied to each on its own.
+    knowledge = load_knowledge()
+    index = build_symbol_index(
+        [
+            ("a.c", b"#define uint8_t uint8_t *\n"),
+            ("b.c", b"static const uint8_t m[16] = {0, 1, 2, 3};\n"),
+        ],
+        knowledge,
+    )
+    assert index.lookup("m") is None
+
+
+def test_an_unshadowed_byte_spelling_still_resolves():
+    # The control for the two above: without the define, the same declaration
+    # is indexed, so their assertions are about the define and not about the
+    # declaration.
+    knowledge = load_knowledge()
+    index = build_symbol_index(
+        [("b.c", b"static const uint8_t m[16] = {0, 1, 2, 3};\n")], knowledge
+    )
+    assert index.lookup("m").rows == ((0, 1, 2, 3),)
+
+
 def test_ignores_unregistered_wrapper_macros():
     assert _index().lookup("hidden_mask") is None
 

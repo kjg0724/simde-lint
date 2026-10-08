@@ -29,6 +29,9 @@ static const unsigned char *pointer_mask[16] = {0, 1, 2, 3};
 
 DECLARE_ALIGNED(16, const uint8_t *, wrapped_pointer_mask[16]) = {0, 1, 2, 3};
 
+/* The asterisk in the declarator argument rather than the type argument. */
+DECLARE_ALIGNED(16, const uint8_t, *wrapped_pointer_declarator[16]) = {0, 1, 2, 3};
+
 UNREGISTERED_MACRO(16, const uint8_t, hidden_mask[16]) = {0, 1, 2, 3};
 
 static const unsigned char mixed_mask[4] = {0, 1, SOME_RUNTIME_CONSTANT, 3};
