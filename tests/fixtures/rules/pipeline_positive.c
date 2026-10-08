@@ -78,3 +78,15 @@ void simde_spelled_consumer(__m128i x, __m128i y, __m128i mask) {
     __m128i sel = simde_mm_shuffle_epi8(cmp, mask);
     (void)sel;
 }
+
+// The compare sits inside a branch its consumer is outside, so it feeds the
+// consumer on the taken pass and another definition feeds it on the rest. The
+// hazard is real for a path, not for the call site, so the grade carries that
+// and the advice to reorder stays -- on a pass that skipped the compare there
+// is simply nothing to reorder.
+void compare_inside_a_branch_the_consumer_is_outside(__m128i a, __m128i b, __m128i m, int flag) {
+    __m128i c = m;
+    if (flag) c = _mm_cmpgt_epi32(a, b);
+    __m128i r = _mm_and_si128(c, m);
+    (void)r;
+}

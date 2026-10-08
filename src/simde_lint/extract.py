@@ -313,6 +313,51 @@ def _region_chain(call: Node) -> tuple[int, ...]:
     return tuple(chain)
 
 
+# Constructs whose body runs on some passes and not others. `do` is excluded
+# deliberately: its body always runs at least once, so a producer inside it
+# does reach code after it.
+_SKIPPABLE = {
+    "if_statement",
+    "switch_statement",
+    "for_statement",
+    "while_statement",
+    "for_range_loop",
+}
+
+
+def _conditional_chain(call: Node) -> tuple[int, ...]:
+    """Enclosing constructs whose body a reaching pass may skip, outermost first.
+
+    `_selection_arms` records which arm of a selection a call is in, which
+    decides whether two calls can both run. It cannot decide whether one
+    necessarily runs before the other: a call in an `if` arm and a call after
+    the `if` are on a common path, and on the arm-not-taken pass the second
+    still runs while the first did not.
+
+    A loop body is in here for the same reason an `if` arm is -- a `for` whose
+    count is zero skips it -- and `control.loop_boundary` was a declared gap in
+    the coverage manifest on the assumption that reporting it was harmless. It
+    was not: the shape produced a grade-A replacement that is wrong whenever
+    the loop does not run.
+    """
+    chain: list[int] = []
+    node = call
+    while node.parent is not None:
+        parent = node.parent
+        if parent.type in _SKIPPABLE:
+            body = parent.child_by_field_name("body")
+            consequence = parent.child_by_field_name("consequence")
+            alternative = parent.child_by_field_name("alternative")
+            if any(
+                part is not None and part.id == node.id
+                for part in (body, consequence, alternative)
+            ):
+                chain.append(parent.id)
+        node = parent
+    chain.reverse()
+    return tuple(chain)
+
+
 def _control_region(call: Node) -> int:
     """Identity of the innermost region `call` sits in, for equality only.
 
@@ -497,6 +542,7 @@ def _extract_calls(
             control_region=_control_region(node),
             region_chain=_region_chain(node),
             selection_arms=_selection_arms(node),
+            conditional_chain=_conditional_chain(node),
             is_macro_alias=raw_name in aliases.targets,
         )
         calls.append(call)

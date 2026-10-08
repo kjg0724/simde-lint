@@ -334,6 +334,23 @@ nested_regions.c:
     would trade one false-positive class for a false-negative one, and VVenC
     has six of exactly this shape.
 
+    The two directions of nesting part company at the grade, not at the
+    finding. Where the consumer is nested and the producer is outside, every
+    pass that reaches the consumer has already run the producer, so the
+    replacement holds and the grade is A. Where the producer is nested and the
+    consumer is outside, a pass that skips the producer still reaches the
+    consumer and consumes whatever the name held instead -- the mechanism is
+    real on the passes that run both, and an instruction placed at the
+    consumer is wrong on the rest. So the finding stands and the replacement
+    is withdrawn: C with `transform_requires_context`, the reason for a
+    condition this rule does not check rather than one it could not read.
+
+    Measured on the same shape outside the corpus: the source gives 1000 on
+    the untaken pass where the proposed instruction gives 6, and a `for` whose
+    count is zero behaves identically -- which is what closed
+    `control.loop_boundary`, a cell this manifest had carried as a harmless
+    gap.
+
     The fourth is neither nesting nor exclusivity: two sibling blocks that run
     one after the other. Their regions diverge and neither contains the other,
     so a relation built on containment rejects it -- but nothing makes two
@@ -346,8 +363,10 @@ nested_regions.c:
       intrinsic: _mm_mullo_epi32
     - line: 17
       type: F
-      evidence: A
+      evidence: C
+      reason: transform_requires_context
       intrinsic: _mm_mullo_epi32
+      suggestion: null
     - line: 24
       type: W
       evidence: A
@@ -518,8 +537,17 @@ consumer_choice.c:
     My first attempt at this case put the multiplies outside the `if`. Then
     the arm's unpack is nested rather than exclusive, so it is a valid
     consumer and the case proved nothing.
+
+    The grade is C, and for a reason this case does not otherwise exercise:
+    the multiplies sit inside the `if` and the surviving unpack is after it,
+    so a pass taking the other arm reaches the unpack without them. What this
+    case pins is still which consumer is chosen -- rejecting a candidate must
+    not end the search -- and that is independent of the grade the chosen one
+    carries.
   findings:
     - line: 16
       type: W
-      evidence: A
+      evidence: C
+      reason: transform_requires_context
       intrinsic: _mm_mullo_epi16
+      suggestion: null

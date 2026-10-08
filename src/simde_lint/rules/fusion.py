@@ -18,6 +18,7 @@ from .base import (
     on_a_common_path,
     own_availability,
     raw_name_if_aliased,
+    reaches_on_every_path,
 )
 
 _MULTIPLIES = {
@@ -206,6 +207,18 @@ class FusionRule:
                     # Leaving it made the report say "no replacement" and
                     # "the replacement is 3 instructions" in adjacent lines.
                     native_insns = None
+                if not reaches_on_every_path(mul, add):
+                    # The multiply sits inside a construct the add does not, so
+                    # a pass that skips it still reaches the add and consumes
+                    # whatever the name held instead. The unfused multiply-add
+                    # is real on the passes that run both, which is why the
+                    # finding stands and `nested_regions.c` keeps its verdict
+                    # that these are instances; what does not follow from that
+                    # is the grade. A fused instruction placed at the add runs
+                    # on the skipping passes too, where it would compute from
+                    # a product the multiply never supplied.
+                    evidence, reason = Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT
+                    suggestion, native_insns = None, None
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,

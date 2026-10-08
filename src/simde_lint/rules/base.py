@@ -166,6 +166,31 @@ def validate_config(config: dict, rules) -> dict:
     return resolved
 
 
+def reaches_on_every_path(
+    producer: "IntrinsicCall", consumer: "IntrinsicCall"
+) -> bool:
+    """Whether every pass reaching `consumer` has already run `producer`.
+
+    Sits above `on_a_common_path`, which answers a different question. Two
+    calls can be on a common path while the earlier one runs only sometimes:
+    a multiply inside `if (flag)` and an unpack after the `if` can both run,
+    and on the flag-false pass the unpack consumes whatever the name held
+    before. The mechanism is still present on the taken pass, so the finding
+    stands -- but a replacement evaluated at the consumer is wrong on the
+    rest, which is a statement about the replacement and therefore about the
+    grade.
+
+    True when every construct the producer sits inside also encloses the
+    consumer. A consumer nested deeper than its producer is fine: the producer
+    ran before the region was entered. The reverse is not.
+
+    Measured on the shape this exists for: source 1000 on the untaken pass
+    where the proposed instruction gives 6, and the same for a `for` loop
+    whose count is zero.
+    """
+    return set(producer.conditional_chain) <= set(consumer.conditional_chain)
+
+
 def on_a_common_path(one: "IntrinsicCall", other: "IntrinsicCall") -> bool:
     """Whether two calls can both run on one pass through their unit.
 

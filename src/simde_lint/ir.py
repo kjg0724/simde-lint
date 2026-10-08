@@ -88,6 +88,17 @@ class IntrinsicCall:
     # first. Two calls exclude each other exactly when one selection appears
     # in both with different arms; see `rules/base.py`'s `excludes`.
     selection_arms: tuple[tuple[int, int], ...] = ()
+    # Every enclosing construct whose body may be skipped on a pass that
+    # reaches the code after it, outermost first: each `if`/`else` arm, each
+    # `switch` case, and each loop body. Distinct from `selection_arms`, which
+    # answers "can these two run together"; this answers "if the later one
+    # runs, has the earlier one necessarily run". A producer sitting in one of
+    # these while its consumer sits outside supplies the consumer on some
+    # passes and not others, and a replacement evaluated at the consumer is
+    # then wrong on the rest -- measured at 1000 against the instruction's 6
+    # for an `if`, and the same for a `for` whose count is zero. See
+    # `rules/base.py`'s `reaches_on_every_path`.
+    conditional_chain: tuple[int, ...] = ()
     # True when `raw_name` was resolved to `name` through a file-local
     # `#define` forwarding alias (`extract.py`'s `aliases` map, built by
     # `macros.build_alias_map`) -- a macro whose *body* extraction never sees,

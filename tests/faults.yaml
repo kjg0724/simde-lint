@@ -179,3 +179,29 @@ faults:
     replace: "                    stable=True,"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
 
+  - name: widening-reads-a-producer-that-may-not-have-run
+    issue: null
+    why: >-
+      `on_a_common_path` answers whether two calls can both run, which is not
+      whether the earlier one necessarily ran. A multiply inside `if (flag)`
+      with its unpack after the `if` passed it, and on the flag-false pass the
+      unpack consumes whatever the name held: source 1000 where the proposed
+      instruction gives 6. A `for` whose count is zero behaves identically,
+      which is what closed `control.loop_boundary`.
+    file: src/simde_lint/rules/widening.py
+    find: "                        reaches_on_every_path(lo, consumer)"
+    replace: "                        True or reaches_on_every_path(lo, consumer)"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[consumer_choice.c]"
+
+  - name: fusion-reads-a-producer-that-may-not-have-run
+    issue: null
+    why: >-
+      The same relation for rule F. `nested_regions.c` keeps its verdict that
+      both nesting directions are instances; what does not follow is the
+      grade. A fused instruction placed at the add runs on the passes that
+      skipped the multiply too.
+    file: src/simde_lint/rules/fusion.py
+    find: "                if not reaches_on_every_path(mul, add):"
+    replace: "                if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
+

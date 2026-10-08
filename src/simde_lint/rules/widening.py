@@ -22,6 +22,7 @@ from .base import (
     on_a_common_path,
     own_availability,
     raw_name_if_aliased,
+    reaches_on_every_path,
 )
 
 # Which half of the 16-bit lanes the consumer reconstructs, and therefore
@@ -154,6 +155,10 @@ class WideningRule:
                 yield self._finding(
                     unit, cost, lo, hi, consumer,
                     stable=_operands_stable_between(unit, lo, hi),
+                    reaching=(
+                        reaches_on_every_path(lo, consumer)
+                        and reaches_on_every_path(hi, consumer)
+                    ),
                 )
             if matched:
                 claimed_his.add(hi.id)
@@ -161,11 +166,43 @@ class WideningRule:
     def _finding(
         self, unit: AnalysisUnit, cost, lo: IntrinsicCall,
         hi: IntrinsicCall, consumer: IntrinsicCall, stable: bool,
+        reaching: bool,
     ) -> Finding:
         """One finding for one consuming unpack, built from the pair that
         feeds it. Separate from `match` so the loop over consumers reads as
         the counting unit it implements."""
         direct = _all_direct_variables(lo) and _all_direct_variables(hi)
+        if not reaching:
+            # The round-trip is present on the passes that run the multiplies,
+            # so the finding stands. One widening multiply evaluated where the
+            # unpack is would also run on the passes that skipped them, where
+            # the unpack consumes a value these multiplies never produced --
+            # so what is withdrawn is the replacement, not the observation.
+            # `requires_context` rather than `unresolved`: nothing here was
+            # unreadable, the condition simply is not one this rule checks.
+            return Finding(
+                type=self.type,
+                rule=self.rule_id,
+                rule_mechanism=self.mechanism,
+                evidence=Evidence.C,
+                reason=Reason.TRANSFORM_REQUIRES_CONTEXT,
+                file=unit.file,
+                line=lo.line,
+                **location_fields(unit),
+                intrinsic=_REPORTED,
+                rationale=(
+                    f"_mm_mullo_epi16 at line {lo.line} and _mm_mulhi_epi16 at "
+                    f"line {hi.line} feed {consumer.name} at line "
+                    f"{consumer.line}, but sit inside a construct the consumer "
+                    f"does not, so a pass that skips them still reaches it and "
+                    f"a single widening multiply there reproduces a product "
+                    f"they did not supply"
+                ),
+                simde_insns=cost.simde_insns,
+                native_insns=None,
+                suggestion=None,
+                raw_name=raw_name_if_aliased(lo),
+            )
         if not stable:
             # The round-trip is real -- a mullo/mulhi pair feeding an unpack --
             # so the finding stands. What cannot be claimed is the replacement:

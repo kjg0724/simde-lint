@@ -303,3 +303,4 @@ void hop_precedes_its_apparent_multiply(const int *a, __m128i acc) {
     __m128i sum = _mm_add_epi64(acc, wide);
     (void)sum; (void)prod;
 }
+
