@@ -205,6 +205,40 @@ faults:
     replace: "                if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
 
+  - name: census-tests-the-threshold-against-another-target
+    issue: 74
+    why: >-
+      The chain threshold is about the target the claim names. Testing it
+      against the longest run in the span let two inserts on `dd[0]` pass
+      because `dd[1]` happened to have three, and `dd[0]` is not a chain the
+      rule may report. Found by review after the count comparison was added
+      beside it.
+    file: docs/precision/verify.py
+    find: "    if counted < threshold:"
+    replace: "    if max(runs.values()) < threshold:"
+    kills: "tests/test_precision_count_claims.py::test_a_claim_on_a_target_below_the_threshold_is_a_disagreement"
+
+  - name: census-ignores-the-fusion-claims-producer-line
+    issue: 74
+    why: >-
+      `check_fusion` parses the multiply's line out of the rationale and then
+      located the multiply by `finding["line"]`, so the sentence was free to
+      name any line and still agree. The same number, stated and parsed and
+      never compared.
+    file: docs/precision/verify.py
+    find: "    if mul_line != finding[\"line\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_fusion_claim_naming_another_line_is_a_disagreement"
+
+  - name: census-ignores-the-widening-claims-producer-line
+    issue: 74
+    why: >-
+      The same in `check_widening` for the low multiply's line.
+    file: docs/precision/verify.py
+    find: "    if lo_line != finding[\"line\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_widening_claim_naming_another_line_is_a_disagreement"
+
   - name: census-reads-the-insert-count-without-comparing-it
     issue: 74
     why: >-

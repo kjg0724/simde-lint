@@ -1,13 +1,18 @@
-"""The census's two quantitative checks, aimed at a false number.
+"""The census's quantitative claims, aimed at a false number.
 
 `docs/precision/verify.py` is the independent checker for the precision
-census, so it is loaded by path rather than imported. Two of its checks read
-a number out of the finding's rationale: how many inserts a chain holds, and
-how many of a `set` call's arguments are runtime values. Both parsed the
-number and returned agreement regardless, which left the only check that
-reads those numbers unable to reject a wrong one -- a census at 100% said
-nothing about them. An external review found the set-build half, then the
-insert-chain half after the first was fixed.
+census, so it is loaded by path rather than imported. Four of its checks read
+a number out of the finding's rationale and three of them went on to ignore
+it: how many inserts a chain holds, how many of a `set` call's arguments are
+runtime values, and the line each of F's and W's producers sits on. Parsing a
+number and returning agreement regardless leaves the only check that reads it
+unable to reject a wrong one, and a census at 100% says nothing about it.
+Review found them one at a time, each after the previous was fixed.
+
+The insert-chain check had a second form of the same weakness: it tested the
+rule's threshold against the longest run in the span rather than against the
+claimed target's own, so two inserts on `dd[0]` passed where `dd[1]` happened
+to have three.
 
 Correct corpus output cannot reach the rejection branches, so the rationale
 here is written false on purpose.
@@ -122,3 +127,106 @@ def test_an_unparsed_set_claim_is_unreadable(tmp_path):
     ok, why = module.check_set_build(claim, ctx)
     assert ok is None
     assert "not parsed" in why
+
+# `dd[0]` and `dd[1]` are different vectors sharing a prefix, which is the
+# shape the checker's target matching exists to keep apart: two inserts on
+# the first, three on the second, in one span.
+_TWO_TARGETS = b"""
+void h(__m128i dd[2], int w, int x, int y, int z) {
+    dd[0] = _mm_insert_epi32(dd[0], w, 0);
+    dd[0] = _mm_insert_epi32(dd[0], x, 1);
+    dd[1] = _mm_insert_epi32(dd[1], y, 0);
+    dd[1] = _mm_insert_epi32(dd[1], z, 1);
+    dd[1] = _mm_insert_epi32(dd[1], w, 2);
+    (void)dd;
+}
+"""
+
+_FUSION = b"""
+void p(__m128i u, __m128i v, __m128i acc) {
+    __m128i prod = _mm_mullo_epi32(u, v);
+    acc = _mm_add_epi32(acc, prod);
+    (void)acc;
+}
+"""
+
+
+def _fusion_claim(mul_line, add_line=4):
+    return {
+        "line": 3,
+        "intrinsic": "_mm_mullo_epi32",
+        "rationale": (
+            f"_mm_mullo_epi32 at line {mul_line} reaches _mm_add_epi32 at line "
+            f"{add_line}; SIMDe emits them separately (x86/sse4.1.h:1)"
+        ),
+    }
+
+
+def test_a_claim_on_a_target_below_the_threshold_is_a_disagreement(tmp_path):
+    # Two inserts on `dd[0]`, three on `dd[1]`, in one span. The claim names
+    # `dd[0]`, so `dd[1]`'s run is irrelevant: `dd[0]` is not a chain the rule
+    # may report. The threshold was tested against the longest run in the
+    # span, which `dd[1]` met.
+    module, ctx = _ctx(_module(), tmp_path, _TWO_TARGETS, "two.c")
+    ok, why = module.check_insert_chain(_chain_claim(2, target="dd[0]", first=3, last=7), ctx)
+    assert ok is False
+    assert "below the threshold" in why
+
+
+def test_a_claim_on_the_qualifying_target_of_two_agrees(tmp_path):
+    # The control for the above: same span, the claim names the target that
+    # does meet the threshold, and the other run is reported beside it.
+    module, ctx = _ctx(_module(), tmp_path, _TWO_TARGETS, "two.c")
+    ok, why = module.check_insert_chain(_chain_claim(3, target="dd[1]", first=3, last=7), ctx)
+    assert ok is True, why
+    assert "also holds" in why
+
+
+def test_a_fusion_claim_naming_another_line_is_a_disagreement(tmp_path):
+    # The rationale states the multiply's line and the finding carries one.
+    # The checker located the multiply by the field, so the sentence could
+    # name any line and still agree.
+    module, ctx = _ctx(_module(), tmp_path, _FUSION, "fuse.c")
+    ok, why = module.check_fusion(_fusion_claim(99), ctx)
+    assert ok is False
+    assert "claims the multiply at line 99" in why
+
+
+def test_a_fusion_claim_naming_its_own_line_agrees(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _FUSION, "fuse.c")
+    ok, why = module.check_fusion(_fusion_claim(3), ctx)
+    assert ok is True, why
+
+_WIDENING = b"""
+void q(__m128i u, __m128i v) {
+    __m128i lo = _mm_mullo_epi16(u, v);
+    __m128i hi = _mm_mulhi_epi16(u, v);
+    __m128i r = _mm_unpacklo_epi16(lo, hi);
+    (void)r;
+}
+"""
+
+
+def _widening_claim(lo_line):
+    return {
+        "line": 3,
+        "intrinsic": "_mm_mullo_epi16",
+        "rationale": (
+            f"_mm_mullo_epi16 at line {lo_line} and _mm_mulhi_epi16 at line 4 "
+            f"share operands and feed _mm_unpacklo_epi16 at line 5 "
+            f"(x86/sse2.h:1)"
+        ),
+    }
+
+
+def test_a_widening_claim_naming_another_line_is_a_disagreement(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _WIDENING, "widen.c")
+    ok, why = module.check_widening(_widening_claim(99), ctx)
+    assert ok is False
+    assert "claims the low multiply at line 99" in why
+
+
+def test_a_widening_claim_naming_its_own_line_agrees(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _WIDENING, "widen.c")
+    ok, why = module.check_widening(_widening_claim(3), ctx)
+    assert ok is True, why

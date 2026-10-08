@@ -280,8 +280,15 @@ def check_fusion(finding, ctx):
     match = re.search(r"at line (\d+) reaches (\S+) at line (\d+)", finding["rationale"])
     if not match:
         return None, "claim not parsed"
-    add_name, add_line = match.group(2), int(match.group(3))
-    muls = [c for c in by_line.get(finding["line"], [])
+    mul_line, add_name, add_line = (int(match.group(1)), match.group(2),
+                                    int(match.group(3)))
+    # The rationale states the producer's line and the finding carries one.
+    # Locating the multiply by the field and ignoring the parsed number left
+    # the sentence free to name any line at all.
+    if mul_line != finding["line"]:
+        return False, ("claims the multiply at line %d, the finding is at line %d"
+                       % (mul_line, finding["line"]))
+    muls = [c for c in by_line.get(mul_line, [])
             if c.name == (finding.get("raw_name") or finding["intrinsic"])]
     if not muls:
         return False, "no multiply at this line"
@@ -316,9 +323,13 @@ def check_widening(finding, ctx):
         finding["rationale"])
     if not match:
         return None, "claim not parsed"
-    hi_name, hi_line = match.group(2), int(match.group(3))
+    lo_line, hi_name, hi_line = (int(match.group(1)), match.group(2),
+                                 int(match.group(3)))
     unpack_name, unpack_line = match.group(4), int(match.group(5))
-    los = [c for c in by_line.get(finding["line"], []) if c.name == finding["intrinsic"]]
+    if lo_line != finding["line"]:
+        return False, ("claims the low multiply at line %d, the finding is at line %d"
+                       % (lo_line, finding["line"]))
+    los = [c for c in by_line.get(lo_line, []) if c.name == finding["intrinsic"]]
     his = [c for c in by_line.get(hi_line, []) if c.name == hi_name]
     unpacks = [c for c in by_line.get(unpack_line, []) if c.name == unpack_name]
     if not (los and his and unpacks):
@@ -386,20 +397,22 @@ def check_insert_chain(finding, ctx):
             runs[call.target] += 1
     if not runs:
         return False, "no inserts on %s in that span" % name
-    longest = max(runs.values())
     threshold = 3
-    if longest < threshold:
-        return False, ("claimed %d on %s, but they split across %s -- longest single "
-                       "target is %d, below the threshold of %d"
-                       % (claimed, name, dict(runs), longest, threshold))
-    # The claim is a number as well as a shape, and the number is about the
-    # target it names. Parsing it and returning agreement regardless left the
-    # count unchecked by the one check that reads it -- the same defect the
-    # set-build counts had.
+    # Everything below is about the target the claim names. Taking the longest
+    # run in the span instead let a span with two inserts on `dd[0]` and three
+    # on `dd[1]` satisfy a claim of two on `dd[0]`: the threshold was met by
+    # the other target's run, and `dd[0]` is not a chain the rule may report.
     counted = runs.get(name)
     if counted is None:
         return False, ("claims %d on %s, which has no inserts of its own in that "
                        "span; the span holds %s" % (claimed, name, dict(runs)))
+    if counted < threshold:
+        return False, ("claims %d on %s, which has %d inserts of its own, below "
+                       "the threshold of %d; the span holds %s"
+                       % (claimed, name, counted, threshold, dict(runs)))
+    # The claim is a number as well as a shape. Parsing it and returning
+    # agreement regardless left the count unchecked by the one check that
+    # reads it -- the same defect the set-build counts had.
     if claimed != counted:
         return False, ("claims %d inserts on %s, counted %d" % (claimed, name, counted))
     if len(runs) > 1:
