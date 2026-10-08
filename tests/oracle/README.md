@@ -81,29 +81,42 @@ number by hand otherwise means reading the tool's own knowledge table, and
 reading a table is not independent validation of that table.
 
 What an expectation *can* decide without the table is whether the counts
-exist at all -- `costs: reported`, `withheld`, or `partial` -- because that
-follows from whether SIMDe compiles the intrinsic to NEON or falls through to
-portable code, which is a question the source answers directly. Four of the
-eleven cases declare it, covering nine of the twenty-seven expected findings;
-the rest assert nothing about costs. Against SIMDe 0.8.4:
+exist at all -- `costs: reported`, `withheld`, or `partial`. **The test is not
+whether a NEON branch exists.** It did say that until issue #74, and the
+premise was wrong: a branch establishes that native code is available, not
+that an instruction count is readable. SIMDe's set constructors have a branch
+and write their arguments into a local array, which no compiler measured kept,
+so what the branch's text counts and what the machine runs are different
+numbers.
 
-| intrinsic | SIMDe source | NEON branch | `costs` |
+The test is whether both counts are derivable for the complete matched idiom
+without assuming where the operands live or what the optimizer does:
+
+- `reported` -- both are derivable under that standard.
+- `withheld` -- one or both are not.
+- `partial` -- exactly one is.
+
+A single-expression expansion usually qualifies, but that is an example rather
+than the criterion: it qualifies when every counted operation is explicit and
+preparing the operands adds no unresolved cost. Against SIMDe 0.8.4:
+
+| intrinsic | SIMDe source | what the source settles | `costs` |
 | --- | --- | --- | --- |
-| `_mm_shuffle_epi8` | `x86/ssse3.h:336` | `A64V8` → `vqtbl1q_s8` | reported |
-| `_mm_insert_epi32` | `x86/sse4.1.h:1582` | `A32V7` → `vsetq_lane_s32` | reported |
-| `_mm_set_epi32` | `x86/sse2.h:5720` | `A32V7` → `vld1q_s32` | reported |
-| `_mm256_mullo_epi16` | `x86/avx2.h:4050` | none -- portable loop | withheld |
-| `_mm256_insert_epi64` | `x86/avx.h:4086` | none -- scalar store | withheld |
-| `_mm_loadu_si32` | `x86/sse2.h:5750` | `A32V7` → `vdupq_n_s32` + `vsetq_lane_s32` | partial |
-| `_mm_loadl_epi64` | `x86/sse2.h:4156` | `A32V7` → `vdup_n_s64` + `vcombine_s64` | partial |
+| `_mm_shuffle_epi8` | `x86/ssse3.h:336` | `A64V8` → one expression, three explicit NEON operations | reported |
+| `_mm_insert_epi32` | `x86/sse4.1.h:1598` | `A32V7` → `vsetq_lane_s32`; cost turns on where the scalar lives | withheld |
+| `_mm_set_epi32` | `x86/sse2.h:5728` | `A32V7` → a local array plus `vld1q_s32`; the array need not survive | withheld |
+| `_mm256_mullo_epi16` | `x86/avx2.h:4050` | no branch -- portable loop | withheld |
+| `_mm256_insert_epi64` | `x86/avx.h:4086` | no branch -- a scalar store | withheld |
+| `_mm_loadu_si32` | `x86/sse2.h:5750` | `A32V7` → `vdupq_n_s32` + `vsetq_lane_s32`, and the rule names no replacement | partial |
+| `_mm_loadl_epi64` | `x86/sse2.h:4156` | `A32V7` → `vdup_n_s64` + `vcombine_s64`, likewise | partial |
 
-`partial` is two claims, not one: the expansion compiles to NEON so a count
-exists, and the rule proposes no replacement so no second count joins it. Only
-the first is a question for the source.
+`partial` is two claims, not one: the expansion's own cost is derivable, and
+the rule proposes no replacement so no second count joins it.
 
-Pinning the numbers needs the same citation carried further, into the complete
-idiom each count covers. Until that exists, asserting them would import the
-blind spot this corpus was built to avoid.
+Pinning a number needs the citation carried into the complete idiom it
+covers. `_mm_shuffle_epi8`'s 3 → 1 is the one entry where that has been done.
+Issue #74 did it for rule M and the answer was that the numbers are not
+derivable, which is why those rows now read `withheld`.
 
 **Where a chain anchors.** `scalar_assembly.c` asserts no `line` for the insert
 chain. Which call in a chain a finding attaches to is not fixed by the rule's

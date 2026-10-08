@@ -367,8 +367,9 @@ def check_insert_chain(finding, ctx):
     different chains however adjacent they are in the source.
     """
     calls, _, _, _ = ctx
-    match = re.search(r"(\d+) scalar inserts assemble (\S+) between lines (\d+) and (\d+)",
-                      finding["rationale"])
+    match = re.search(
+        r"(\d+) scalar insert operations assemble (\S+) between lines (\d+) and (\d+)",
+        finding["rationale"])
     if not match:
         return None, "claim not parsed"
     claimed, name, first, last = (int(match.group(1)), match.group(2),
@@ -398,21 +399,35 @@ def check_insert_chain(finding, ctx):
 
 
 def check_set_build(finding, ctx):
-    """M build: a set_epi* whose operands are runtime values, not literals."""
+    """M build: a set_epi* over runtime values, not literals and not a broadcast.
+
+    The broadcast half is the exclusion issue #74 added: one value named in
+    every lane is a `dup`, not an assembly of separate scalars. Equality is
+    textual here as it is in the rule, so this checks the same claim rather
+    than a stronger one.
+    """
     _, by_line, _, _ = ctx
     builds = [c for c in by_line.get(finding["line"], [])
               if c.name == (finding.get("raw_name") or finding["intrinsic"])]
     if not builds:
         return False, "no %s at this line" % finding["intrinsic"]
+    # The claim is read out of the rationale, so a prose change must surface
+    # here rather than quietly drop the cross-check: an unparsed claim is
+    # unreadable, not agreement.
+    claimed = re.search(r"assembles (\d+) runtime scalar arguments", finding["rationale"])
+    if not claimed:
+        return None, "claim not parsed"
     for build in builds:
         runtime = [a for a in build.args if not INT_LITERAL.match(a)]
-        if runtime:
-            claimed = re.search(r"assembles (\d+) runtime scalars", finding["rationale"])
-            if claimed and int(claimed.group(1)) != len(runtime):
-                return True, ("built from runtime scalars, though %s of the %s operands "
-                              "are literals" % (len(build.args) - len(runtime),
-                                                len(build.args)))
-            return True, "%d runtime operands" % len(runtime)
+        if not runtime:
+            continue
+        if len({" ".join(a.split()) for a in build.args}) == 1:
+            return False, "every operand is the same expression -- a broadcast"
+        if int(claimed.group(1)) != len(runtime):
+            return True, ("built from runtime scalars, though %s of the %s operands "
+                          "are literals" % (len(build.args) - len(runtime),
+                                            len(build.args)))
+        return True, "%d runtime operands" % len(runtime)
     return False, "every operand is a literal"
 
 

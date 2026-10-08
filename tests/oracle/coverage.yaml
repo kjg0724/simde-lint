@@ -94,7 +94,9 @@ dimensions:
       axis from how well the operands resolved.
     values:
       cost_known: the SIMDe expansion's instruction count is readable
-      cost_unknown: no NEON branch, or the count left to the compiler
+      cost_unknown: not derivable from the source -- no NEON branch, a
+        branch whose emitted cost turns on operand residence or the
+        optimizer, or a count left to the compiler
       replacement_applies: the recorded instruction fits this call site
       replacement_mismatched: it does not, and is withdrawn
       grade_a: fully resolved and the replacement stands
@@ -116,13 +118,17 @@ dimensions:
       read as ordinary findings.
 
       Which of the first two applies is read off the SIMDe source -- whether
-      the expansion has a NEON branch -- not off the tool's cost table, so a
-      case can decide it without validating that table against itself.
+      both counts are derivable for the complete idiom without assuming where
+      the operands live or what the optimizer does -- not off the tool's cost
+      table, so a case can decide it without validating that table against
+      itself. Branch presence was the test until issue #74 and is not the
+      test: SIMDe's set constructors have a branch and still have no readable
+      count.
     values:
-      costs_reported: a NEON branch exists, so counts must be present
+      costs_reported: both counts are derivable for the complete idiom
       costs_adjudicated: the numbers themselves, counted off the header
-      costs_adjudicated_for_chains: the same, where the unit is a chain element
-      costs_withheld: no NEON branch to read, so neither count is claimed
+      costs_withheld: at least one count is not derivable, so neither is
+        claimed
       costs_partial: one count known and the other not, which is a third state
       no_replacement_named: no suggestion, and no native count with it
       cost_without_replacement: the expansion's cost named, no replacement
@@ -157,13 +163,6 @@ unasserted_fields:
     shape; the corpus does not, for the same reason `spelling_macro` is open.
 
 known_gaps:
-  output.costs_adjudicated_for_chains: >-
-    `shuffle_epi8` is one header line and its count falls straight out of it.
-    Rule M's entries are per chain element and turn on whether the scalar is
-    already in a register or still in memory -- a modelling choice about the
-    call site, not a line to count. Deciding it independently means fixing
-    that question first; reconstructing the table's reasoning from its own
-    `note:` is restating the table, not checking it.
   control.independent_conditionals: >-
     Two separate `if`s can both be taken, so this must report. No case yet;
     the exclusivity test passes it by construction, which is exactly the kind

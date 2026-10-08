@@ -42,3 +42,17 @@ void mixed_scalars(long long m5, int a) {
     __m128i quad = _mm_set_epi32(a, 0, a, 0);
     (void)pair; (void)quad;
 }
+
+void broadcasts(int w, long long q) {
+    /* One value in every lane: a dup, not an assembly of separate scalars. */
+    __m128i all = _mm_set_epi32(w, w, w, w);
+    __m128i pair = _mm_set_epi64x(q, q);
+    /* The same, written across lines the way a long list is. */
+    __m128i wrapped = _mm_set_epi32(w,
+                                    w,
+                                    w,
+                                    w);
+    /* Two distinct values: still an assembly. */
+    __m128i two = _mm_set_epi32(w, w, w, 0);
+    (void)all; (void)pair; (void)wrapped; (void)two;
+}

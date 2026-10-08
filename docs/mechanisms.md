@@ -109,6 +109,7 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
 - **Unit:** one chain. A run of inserts on one target within one control
   region, at or above `memory_chain_threshold` (default 3), is one finding
   however long it is.
+- **Costs and suggestion:** none. See "What an instruction count means" below.
 - **Target identity:** the lvalue as written. `dd[0]` and `dd[1]` are different
   places; merging them once produced three false positives.
 - **Chain, not consecutive statements:** an insert on another target does not
@@ -121,10 +122,18 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
 ## M.scalar_set_build
 
 - **Unit:** one `set` call.
-- **Families:** `_mm_set_epi64x`, `_mm_set_epi32`, `_mm_set_epi16`. Calls whose
-  arguments are all literals are excluded as constant vectors.
+- **Families:** `_mm_set_epi64x`, `_mm_set_epi32`, `_mm_set_epi16`. Two
+  exclusions: calls whose arguments are all literals, which are constant
+  vectors, and calls naming one expression in every lane, which are
+  broadcasts. A broadcast is not an assembly of separate scalars -- SIMDe
+  compiles `_mm_set_epi16(wT, wT, wT, wT, wT, wT, wT, wT)` to a single `dup`
+  under both compilers measured for issue #74, so there is nothing at the
+  call site for this mechanism to name. Equality is textual: two spellings of
+  one value are two arguments, because deciding otherwise needs the
+  propagation this rule does not do.
 - **Boundary:** the rest of the `set`/`setr` families; where the scalars came
   from.
+- **Costs and suggestion:** none. See "What an instruction count means" below.
 
 ## P.cmp_immediate_use
 
@@ -136,6 +145,40 @@ two multiplies. A total over a corpus is a count of findings, not a saving.
 - **Grade:** A always.
 
 ---
+
+## What an instruction count means
+
+`simde_insns` and `native_insns` are emitted target-machine instructions
+attributable to the complete matched idiom. They are not source-level NEON
+operations and not an abstract intrinsic count. Where that number depends on
+where an operand lives, on what the optimizer does with a local array, or on
+which compiler is used, it is `unknown` and the finding reports no count and
+names no replacement.
+
+Issue #74 settled this against SIMDe 0.8.4 by compiling, at `-O2` and `-O3`
+with Apple clang 21 and GCC 13.5 on aarch64:
+
+- The set constructors' NEON branch writes each argument into a local array
+  and loads the vector from it. No measured case kept the array -- clang folds
+  each argument into a lane load, GCC loads into FP registers and moves into
+  lanes -- so the branch's text and the emitted code are different counts.
+- An insert chain over scalars in memory compiled to the same instructions as
+  the lane-load chain previously offered as its replacement, byte-identical in
+  both compilers for a four-lane `int32` chain. With the scalar already in a
+  register the chain is one instruction per lane and a lane load does not
+  apply at all.
+
+So both of rule M's mechanisms report structure and no cost. A count that
+moves with the compiler is not a property of the SIMDe source, and reading one
+off the header's idiom was reading the wrong thing. `_mm_shuffle_epi8`'s 3 to 1
+survives because its branch is a single expression whose three operations are
+all explicit.
+
+This also narrows the oracle's `costs_reported` test. It used to be "the
+expansion has a NEON branch"; a branch establishes that native code exists,
+not that a count is readable. The test is now whether both counts are
+derivable for the complete idiom without assuming operand residence or
+optimizer behaviour.
 
 ## Relations every rule shares
 

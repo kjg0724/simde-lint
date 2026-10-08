@@ -175,40 +175,68 @@ scalar_assembly.c:
     - representation.element_integer
     - representation.spelling_direct
     - claims.grade_a
-    - output.costs_reported
     - output.costs_withheld
+    - output.no_replacement_named
   why: >-
     Type M's two mechanisms. Three inserts on one target meet the default
     threshold of three and are one finding, not three -- the mechanism is the
     chain. Two inserts are below it and are nothing. A `_mm_set_epi32` over
     runtime scalars is the second mechanism; the same call over literals is a
-    constant vector and is excluded by the rule's own description. The line a
-    chain anchors at is not something the published description fixes, so it
-    is deliberately not asserted here.
+    constant vector and is excluded by the rule's own description. So is one
+    runtime value repeated across every lane -- a broadcast, which SIMDe
+    compiles to a single `dup` and which the lane-insert chain once offered
+    here would have turned into nine instructions under GCC. Two distinct
+    values are still an assembly, which is what `set_from_two_values` holds
+    the exclusion to. The line a chain anchors at is not something the
+    published description fixes, so it is deliberately not asserted here.
 
-    `simde/x86/sse4.1.h:1582` and `simde/x86/sse2.h:5720` both carry an
-    `SIMDE_ARM_NEON_A32V7_NATIVE` branch -- `vsetq_lane_s32` and `vld1q_s32` --
-    so the two 128-bit findings have an expansion to count.
+    No rule M finding carries a count or names a replacement. Both 128-bit
+    mechanisms do have a NEON branch -- `vsetq_lane_s32` at
+    `simde/x86/sse4.1.h:1598`, a local array plus `vld1q_s32` at
+    `simde/x86/sse2.h:5728` -- and issue #74 adjudicated what those branches
+    settle by compiling each idiom at `-O2` and `-O3` with Apple clang 21 and
+    GCC 13.5. They settle less than the branch's presence suggests: the local
+    array did not survive in any case measured, an insert chain compiled to
+    the same instructions as the lane-load chain offered to replace it, and
+    the answers moved with the compiler and with whether the scalar was in
+    memory or already in a register. A number that turns on those is not a
+    number the source states, so both counts are withheld and no replacement
+    is named.
 
-    The 256-bit chain is the same mechanism and still a finding, but
+    The 256-bit chain reaches the same place by the older route:
     `simde/x86/avx.h:4086` offers `simde_mm256_insert_epi64` only an x86 and a
-    LOONGARCH LASX branch, falling through to a scalar store, so what it costs
-    and
-    what would replace it are both outside what the source says. The finding
-    reports the shape and withholds the numbers, which is the same
-    concession `portable_fallback.c` pins for rule F -- one contract, not a
-    per-rule habit.
+    LOONGARCH LASX branch and falls through to a scalar store. Two different
+    reasons, one contract -- `portable_fallback.c` pins the same concession
+    for rule F.
+
+    What survives is the structure: rule M says a vector is assembled out of
+    separate runtime scalars at this call site, and says nothing about what
+    that costs.
   findings:
     - type: M
       rule: M.scalar_insert_chain
       intrinsic: _mm_insert_epi32
-      costs: reported
+      suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
     - line: 21
       type: M
       rule: M.scalar_set_build
       intrinsic: _mm_set_epi32
-      costs: reported
-    - line: 34
+      suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
+    - line: 42
+      type: M
+      rule: M.scalar_set_build
+      intrinsic: _mm_set_epi32
+      suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
+    - line: 49
       type: M
       rule: M.scalar_insert_chain
       intrinsic: _mm256_insert_epi64

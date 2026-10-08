@@ -205,6 +205,20 @@ faults:
     replace: "                if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
 
+  - name: set-build-reports-a-broadcast
+    issue: 74
+    why: >-
+      `_mm_set_epi16(wT, wT, wT, wT, wT, wT, wT, wT)` names one value in every
+      lane. SIMDe compiles it to a single `dup` under Apple clang 21 and GCC
+      13.5, so there is no scalar assembly at the call site, and the chain of
+      lane inserts this rule used to suggest is nine instructions under GCC.
+      Fourteen findings were of this shape in VVenC and VVdeC, twelve of them
+      grade A. See docs/precision/cost-adjudication/.
+    file: src/simde_lint/rules/memory.py
+    find: "            if _is_a_broadcast(call.args):"
+    replace: "            if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[scalar_assembly.c]"
+
   - name: mask-initializer-taken-for-a-writable-array
     issue: null
     why: >-
