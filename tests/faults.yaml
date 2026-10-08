@@ -231,17 +231,31 @@ faults:
     replace: "    if False:\n        return False"
     kills: "tests/test_symbols.py::test_excludes_a_declaration_whose_const_a_define_removes"
 
-  - name: shadowing-is-applied-without-being-reported
+  - name: shadowing-is-applied-without-reaching-stderr
     issue: null
     why: >-
       Pooling the scan across files means one CMake-generated
-      `CMakeCCompilerId.c` withdraws every mask in a tree. Applying that in
-      silence makes a run that resolved nothing read like a clean one, which
-      is the failure the parse warnings already exist to prevent.
+      `CMakeCCompilerId.c` withdraws every mask in a tree. The first version
+      of this appended to a warning list and nothing printed it, so a run
+      that resolved no mask looked clean on the terminal while the changelog
+      said it was reported on stderr. Review found that, which is why the
+      mutation targets the print and the test reads stderr.
     file: src/simde_lint/symbols.py
-    find: "            if warnings is not None and word not in shadowed:"
-    replace: "            if False:"
-    kills: "tests/test_symbols.py::test_reports_each_shadowing_definition_it_acts_on"
+    find: "                print(f\"warning: {message}\", file=sys.stderr)"
+    replace: "                pass"
+    kills: "tests/test_cli.py::test_a_shadowing_define_warns_on_stderr_and_does_not_fail_the_run"
+
+  - name: shadowing-warning-is-unlabelled
+    issue: null
+    why: >-
+      `is_failure` treats a plain string as a failure, because an unlabelled
+      warning predates the distinction and the unsafe direction is to assume
+      it is benign. Appending the message without `Diagnostic.SHADOWED`
+      therefore exits 1 on a run that worked.
+    file: src/simde_lint/symbols.py
+    find: "                    warnings.append(Diagnostic(message, Diagnostic.SHADOWED))"
+    replace: "                    warnings.append(message)"
+    kills: "tests/test_cli.py::test_a_shadowing_define_is_not_counted_as_a_failure"
 
   - name: byte-spelling-read-as-written-when-a-define-redefines-it
     issue: null

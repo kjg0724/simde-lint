@@ -134,7 +134,7 @@ def test_excludes_a_declaration_whose_const_a_define_removes():
     assert index.lookup("wrapped") is None
 
 
-def test_reports_each_shadowing_definition_it_acts_on():
+def test_records_each_shadowing_definition_it_acts_on():
     # The scan is pooled across files, so one generated file can withdraw
     # every mask in a tree. CMake writes a CMakeCCompilerId.c that defines
     # `const` away, and a scan that includes one would resolve nothing while

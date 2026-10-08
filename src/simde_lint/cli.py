@@ -81,6 +81,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # read_sources, not a bare read_bytes loop: this path must survive an
         # unreadable file exactly like the analysis path does.
         errors: list[str] = []
+        # No warning list here, unlike the analysis path: the only diagnostic
+        # this builder produces is a SHADOWED, which reaches stderr as it
+        # happens and never sets an exit code, so collecting it would add a
+        # line no test could falsify.
         index = build_symbol_index(read_sources(args.paths, args.exclude, errors), knowledge)
         for name in index.names():
             array = index.lookup(name)

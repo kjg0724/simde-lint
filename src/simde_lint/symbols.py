@@ -8,11 +8,13 @@ file collects those definitions so value resolution can reach them.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field
 from typing import Collection, Iterable
 
 from tree_sitter import Node
 
+from .diagnostics import Diagnostic
 from .knowledge import Knowledge
 from .parser import iter_nodes, node_text, parse_source
 
@@ -332,11 +334,17 @@ def build_symbol_index(
     shadowed: set[str] = set()
     for path, source, root in parsed:
         for word in sorted(_shadowed_words(root, source)):
-            if warnings is not None and word not in shadowed:
-                warnings.append(
+            if word not in shadowed:
+                message = (
                     f"{path}: #define of `{word}` withdraws every mask whose "
                     f"declaration is spelled with it; those grade C instead"
                 )
+                # Printed here rather than left for a caller to render, which
+                # is how the parse and read warnings work: a list a caller may
+                # or may not look at was reported as "on stderr" and was not.
+                print(f"warning: {message}", file=sys.stderr)
+                if warnings is not None:
+                    warnings.append(Diagnostic(message, Diagnostic.SHADOWED))
             shadowed.add(word)
 
     index = SymbolIndex()

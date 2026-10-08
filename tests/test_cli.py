@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from simde_lint.analyze import Diagnostic, is_failure
 from simde_lint.cli import main
 from simde_lint.finding import BENCHMARK_BACKED_TYPES
+from simde_lint.knowledge import load_knowledge
+from simde_lint.symbols import build_symbol_index
 
 SOURCE = """
 void kernel(const int *src, __m128i data) {
@@ -243,3 +246,50 @@ def test_every_file_carrying_a_version_string_agrees_with_the_package():
     declared = re.search(r'^version = "(.+)"$', pyproject, re.MULTILINE)
     assert declared is not None, "pyproject.toml declares no version"
     assert declared.group(1) == expected
+
+_SHADOWED_TREE = {
+    "generated.c": "#define const\n",
+    "use.c": (
+        "static const unsigned char m[16] = {0, 1, 2, 3};\n"
+        "void f(__m128i a) { __m128i r = _mm_shuffle_epi8(a, *(__m128i *)m); (void)r; }\n"
+    ),
+}
+
+
+def _shadowed_tree(tmp_path):
+    for name, text in _SHADOWED_TREE.items():
+        (tmp_path / name).write_text(text)
+    return str(tmp_path)
+
+
+def test_a_shadowing_define_warns_on_stderr_and_does_not_fail_the_run(tmp_path, capsys):
+    # The recall loss is real and silent without this: every mask spelled
+    # with the redefined word stops resolving. It is not the tool breaking,
+    # so the exit code stays 0 and the warning carries the news -- the same
+    # contract a file tree-sitter cannot fully parse has.
+    code = main([_shadowed_tree(tmp_path), "--format", "json"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "#define of `const`" in captured.err
+    assert "generated.c" in captured.err
+
+
+def test_dump_symbols_warns_about_a_shadowing_define_too(tmp_path, capsys):
+    # This path builds the index on its own rather than through `analyze`,
+    # and printed a shortened index while saying nothing. The warning is
+    # printed where it is discovered, so both paths carry it.
+    code = main([_shadowed_tree(tmp_path), "--dump-symbols"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.out == ""
+    assert "#define of `const`" in captured.err
+
+
+def test_a_shadowing_define_is_not_counted_as_a_failure(tmp_path):
+    # Diagnostic.SHADOWED, not a plain string: an unlabelled warning counts
+    # as a failure, which would have exited 1 on a run that worked.
+    knowledge = load_knowledge()
+    warnings: list[str] = []
+    build_symbol_index([("generated.c", b"#define const\n")], knowledge, warnings)
+    assert [w.kind for w in warnings] == [Diagnostic.SHADOWED]
+    assert not any(is_failure(w) for w in warnings)

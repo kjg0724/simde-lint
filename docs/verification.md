@@ -203,7 +203,7 @@ $ uv run simde-lint "$SIMDE_LINT_SVT_AV1/Source" --type S --format json \
     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['summary'])"
 {'total': 341, 'by_type': {'S': 341}, 'by_rule': {'S.pshufb_guard':
 {'type': 'S', 'count': 341, 'mechanism': 'pshufb->tbl guard only'}},
-'by_evidence': {'A': 35, 'C': 306}}
+'by_evidence': {'A': 32, 'C': 309}}
 ```
 
 341 is the combined total of both shuffle widths rule S matches. **`--type S`

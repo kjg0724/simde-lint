@@ -184,7 +184,9 @@ in the type argument. Both reject any pointer under the declarator now. A
 pointer introduced by `#define uint8_t uint8_t *`, and a writable array left
 by `#define const`, are both invisible to a collector that reads the spelling
 as written, so a byte keyword or `const` that any scanned file redefines is
-rejected wherever it appears, and each definition acted on is reported.
+rejected wherever it appears, and each definition acted on is printed to
+stderr where it is found -- pooling withdraws masks across a whole scan, and a
+recall loss nothing announces reads as a clean run.
 Resolving a definition rather than rejecting the spelling means preprocessing
 the translation unit, which this tool does not do. That bounds the claim: the
 scan ignores preprocessor state and ordering, so an `#undef`, an inactive

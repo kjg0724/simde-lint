@@ -86,12 +86,17 @@ not known here. `volatile` is deliberately not scanned: the collectors accept
 only a declaration spelled `const` and not `volatile`, and no definition of
 `volatile` adds a qualifier to such a declaration.
 
-Pooling costs real recall, so each definition acted on is reported on stderr
-rather than applied in silence -- CMake leaves a generated
-`CMakeCCompilerId.c` that defines `const` away, and a scan including one would
-resolve no mask at all while otherwise reading as a clean run. None of the
-three corpora contains such a definition inside its scanned scope, and none of
-the three scans emits the warning. Resolving a definition instead of rejecting
+Pooling costs real recall, so each definition acted on is printed to stderr
+where it is discovered -- CMake leaves a generated `CMakeCCompilerId.c` that
+defines `const` away, and a scan including one would resolve no mask at all
+while otherwise reading as a clean run. The first version of this appended to
+a warning list that nothing printed, and said in this file that it was
+reported on stderr; review caught the gap between the two, and the warning now
+has its own diagnostic kind (`SHADOWED`, which does not set the exit code the
+way a failure does), reaches stderr on both the analysis and the
+`--dump-symbols` path, and is checked through the CLI rather than through the
+list. None of the three corpora contains such a definition inside its scanned
+scope, and none of the three scans emits the warning. Resolving a definition instead of rejecting
 the spelling would mean preprocessing the translation unit, and the scan
 ignores preprocessor state and ordering, so an `#undef`, an inactive `#if` or
 a later definition all reject conservatively.
@@ -128,7 +133,7 @@ declared grade no fixture reaches is a failure: W is `{A, B, C}`, F is
 `{A, C}` -- its B is structurally unreachable, since every widening conversion
 raises the product above the multiply's recorded accumulator width and the
 width check caps at C first -- and P is `{A, C}`. The fault catalogue grew
-from 10 to 27 mutations and the oracle corpus from 11 cases to 13. One
+from 10 to 28 mutations and the oracle corpus from 11 cases to 13. One
 assertion in
 `tests/test_verification.py` checked a literal this file writes rather than
 anything the tool emits; it runs rule W over its fixture now and reads the
