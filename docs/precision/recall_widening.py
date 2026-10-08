@@ -1,4 +1,21 @@
-"""An independent enumeration of `W.mul16_widen_roundtrip`, built without the tool.
+"""A candidate enumeration for `W.mul16_widen_roundtrip`, built without the tool.
+
+**Candidates, not confirmed round-trips.** What this file counts is a syntactic
+shape: three calls, paired by argument text. A round-trip is a claim about
+values, and three of the four ways that claim can fail are invisible here --
+the unpack taking the halves in the wrong order, an operand rebound between the
+two multiplies, and a producer sitting inside a construct the consumer is
+outside. All three were measured as grade-A defects in the rule, and this
+enumerator counted each of them as an ordinary instance, so its agreement with
+the tool never established that either was right. It cannot be used to validate
+the predicates that now reject them.
+
+Nor should those predicates be copied in here. An enumerator that applies the
+rule's own tests and then agrees with the rule has established nothing; the
+value of this file is that it is cruder in a direction a reader can see. What
+turns a candidate count into a recall figure is adjudication of the difference,
+by hand, in the source -- which is what issue #75 is for. Until that exists,
+the number below is a population of candidates and must be labelled as one.
 
 The counting unit, from `docs/mechanisms.md`: **one consuming unpack**. A
 `_mm_mullo_epi16`/`_mm_mulhi_epi16` pair over operands equal as written, and

@@ -156,9 +156,24 @@ them are not supported. A `simde_`-prefixed name resolved through
 
 ## Open against this contract
 
-Nothing. The two divergences this file was written with -- rule W reporting one
-finding where the unit is the consuming unpack (#66), and rule F reporting one
-for a product reaching two adds (#68) -- are closed.
+One, named below. The two divergences this file was written with -- rule W
+reporting one finding where the unit is the consuming unpack (#66), and rule F
+reporting one for a product reaching two adds (#68) -- are closed.
+
+**Rule W did not abstain on a macro-resolved consumer**, which the section
+above states as applying to every rule. It does now. The gap was not academic:
+`#define REV(x, y) _mm_unpacklo_epi16((y), (x))` invoked as `REV(lo, hi)`
+records the call site's arguments in the order an ordering check wants while
+the body reverses them, so the finding survived both the membership test it
+used to make and the ordering test that replaced it. This section said
+"Nothing" while that held, which is the failure mode it exists to prevent --
+a contract whose status is asserted rather than checked.
+
+**Still open:** the wrapper-macro declaration path in `symbols.py` registers a
+table without establishing that its storage is immutable, so
+`DECLARE_ALIGNED(16, uint8_t, t[8][16])` -- not const, and extern -- backs
+grade-A S findings. The plain-declaration path requires `const`; this one does
+not, and closing the difference moves published figures.
 
 `docs/precision/recall_widening.py` was brought to the same unit in the same
 change. It had taken one consumer per pair, matching the implementation rather

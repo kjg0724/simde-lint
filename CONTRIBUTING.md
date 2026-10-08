@@ -72,12 +72,26 @@ uv run pytest tests/test_rule_suboptimal.py -v
 
 ## Adding an intrinsic to the knowledge tables
 
-`src/simde_lint/knowledge/*.yaml` is pure data. No rule hardcodes an
-instruction count, a NEON suggestion, or an alias spelling -- rule R reads
-`ctx.knowledge.redundant[...]`, and the other five read
-`ctx.knowledge.cost(self.rule_id)`. Extending what a rule can see is
-therefore a data change, not a code change, for any intrinsic that already
-fits an implemented mechanism.
+`src/simde_lint/knowledge/*.yaml` carries the instruction counts, the alias
+spellings and almost all of the suggestions -- rule R reads
+`ctx.knowledge.redundant[...]` and the other five read
+`ctx.knowledge.cost(self.rule_id)`.
+
+Two exceptions, both in rule W, and both deliberate. Its reported intrinsic is
+the literal `_REPORTED`, because W reports a fixed name rather than the anchor
+it matched. Its suggestion is `_UNPACK_SUGGESTION`, keyed by the unpack the
+rule matched, because which widening multiply rebuilds the half being fed is
+decided by the consumer and not by the multiply: a single `suggestion:` in the
+cost entry would be the wrong half for every high unpack, and 24 of the 51 W
+findings across the three corpora take the high one. The mapping could live in
+data under a consumer-keyed schema; what it cannot be is one value per
+intrinsic.
+
+**Adding an intrinsic is a data change only when the rule already anchors on
+it.** Rules S, F, M and P each match against an anchor set in their own module
+-- `fusion._MULTIPLIES`, `pipeline._COMPARES`, `memory._INSERTS` -- so a cost
+entry for a name absent from the relevant set changes nothing a rule can see.
+R is the rule for which registration really is data alone.
 
 **Every entry must cite the SIMDe source line it was read from**, in the
 form `x86/<header>.h:<line>` (e.g. `x86/sse2.h:5760`). Do not guess a value

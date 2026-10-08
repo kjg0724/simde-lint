@@ -1219,16 +1219,33 @@ enumerates it without importing the tool:
 
 Both agree site for site, not only in total.
 
-**`W.mul16_widen_roundtrip` is decidable too.** Its description names three
-calls and one relation between them -- `_mm_mullo_epi16` and `_mm_mulhi_epi16`
-over the same operands, consumed by an unpack -- and operands compared as
-written settle it. `docs/precision/recall_widening.py` enumerates it:
+**`W.mul16_widen_roundtrip` is not decidable from spelling, and this table
+used to say it was.** The sentence here read "operands compared as written
+settle it". They do not. A round-trip is a claim about values, and three ways
+it fails leave the spelling intact: the unpack taking the halves in the wrong
+order, an operand rebound between the two multiplies, and a producer inside a
+construct the consumer is outside. Each was a grade-A defect in the rule, found
+by an external audit and confirmed by compiling the source and the proposed
+instruction and comparing lanes -- 0x00060000 against 0x00000006 for the first,
+65542 against 6 or 98301 for the second, 1000 against 6 for the third.
 
-| Corpus | Enumerated | Reported | Missed | Agreement |
-|---|---:|---:|---:|---:|
-| SVT-AV1 `Source` | 2 | 2 | 0 | 100% |
-| VVenC `CommonLib/x86` | 31 | 31 | 0 | 100% |
-| VVdeC `CommonLib/x86` | 18 | 18 | 0 | 100% |
+`docs/precision/recall_widening.py` counted all three as ordinary instances, so
+the agreement below was never evidence that either reading was right. It is a
+count of **candidates** matching a syntactic shape, against the rule's reports
+of the same sites:
+
+| Corpus | Candidates | Reported | Difference |
+|---|---:|---:|---:|
+| SVT-AV1 `Source` | 2 | 2 | 0 |
+| VVenC `CommonLib/x86` | 31 | 31 | 0 |
+| VVdeC `CommonLib/x86` | 18 | 18 | 0 |
+
+The two agree on these corpora because none of the three failing shapes occurs
+in them -- which the fixes confirmed by moving no figure at all. **No recall
+claim for W follows from this table.** Turning a candidate population into a
+recall figure needs the difference adjudicated by hand in the source, which is
+#75; copying the rule's new predicates into the enumerator and reporting
+agreement would establish nothing.
 
 **`M.scalar_insert_chain` is decidable as well**, once "chain" is read as the
 description writes it rather than as consecutive statements: SVT-AV1's
