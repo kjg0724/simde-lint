@@ -153,3 +153,18 @@ def test_reports_no_cost_or_replacement_for_either_mechanism(run_rule):
     assert all(f.simde_insns is None for f in findings)
     assert all(f.native_insns is None for f in findings)
     assert all(f.suggestion is None for f in findings)
+
+def test_states_how_many_arguments_are_runtime_not_how_many_there_are(run_rule):
+    # `_mm_set_epi64x(0, m5)` assembles one runtime value, not two. The
+    # rationale said two, which is a false quantitative claim about the call
+    # the finding reports, and `docs/precision/verify.py` is the one check
+    # that reads the number -- it rejects a mismatch now rather than noting
+    # it and agreeing.
+    findings = sorted(
+        (f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
+         if f.function == "mixed_scalars"),
+        key=lambda f: f.line,
+    )
+    assert [f.intrinsic for f in findings] == ["_mm_set_epi64x", "_mm_set_epi32"]
+    assert "assembles 1 runtime scalar argument(s) of 2" in findings[0].rationale
+    assert "assembles 2 runtime scalar argument(s) of 4" in findings[1].rationale

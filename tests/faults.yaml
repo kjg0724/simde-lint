@@ -205,6 +205,19 @@ faults:
     replace: "                if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
 
+  - name: set-build-counts-arguments-as-runtime-values
+    issue: 74
+    why: >-
+      The rationale states how many of a call's arguments are runtime values.
+      Reporting the argument count instead says `_mm_set_epi64x(0, m5)`
+      assembles two, which is false, and the mismatch reached review because
+      the independent checker that reads the number reported it and returned
+      agreement anyway.
+    file: src/simde_lint/rules/memory.py
+    find: "            runtime = sum(1 for arg in call.args if not _is_integer_literal(arg.text))"
+    replace: "            runtime = len(call.args)"
+    kills: "tests/test_rule_memory.py::test_states_how_many_arguments_are_runtime_not_how_many_there_are"
+
   - name: set-build-reports-a-broadcast
     issue: 74
     why: >-

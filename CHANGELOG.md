@@ -75,6 +75,12 @@ being filled: the numbers it asked for are not derivable.
 
 ### Tests
 
+**The set-build rationale now says how many arguments are runtime values**,
+not how many there are. `_mm_set_epi64x(0, m5)` assembles one, and the text
+said two. The number only ever appears in one place that checks it,
+`docs/precision/verify.py`, which detected the mismatch and returned
+agreement anyway; it rejects one now.
+
 `docs/precision/verify.py` reads each finding's claim out of its rationale
 text, so the rewording broke two parsers. One failed loudly -- 37 insert-chain
 findings became unreadable and the census said so -- and one failed silently:
@@ -84,7 +90,7 @@ surfaces instead of quietly weakening the check. `recall_set_build.py`
 enumerates the broadcast exclusion too, independently; it and the tool agree
 site for site at 29 / 15 / 2.
 
-The fault catalogue grew from 28 to 29 mutations, and one guard was removed
+The fault catalogue grew from 28 to 30 mutations, and one guard was removed
 rather than kept: normalizing whitespace inside a broadcast's arguments could
 not be killed by any mutation, because the recorded argument text carries no
 surrounding whitespace in the first place.

@@ -6,13 +6,15 @@ and W turn on structure, so their ground truth was said to need judgement.
 
 That is true of three of the four mechanisms. `M.scalar_set_build` is the
 exception: its description is "`_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
-assembling a vector from runtime scalars, all-literal calls excluded as
-constant vectors". Both halves are decidable from the text of the call, so a
-ground truth can be enumerated here and compared.
+assembling a vector from runtime scalars, excluding calls whose arguments are
+all literals, which are constant vectors, and calls naming one expression in
+every lane, which are broadcasts". All three parts are decidable from the text
+of the call, so a ground truth can be enumerated here and compared.
 
 This file imports no `simde_lint`. It finds the calls with a regular
-expression and classifies each argument list by whether anything in it is not
-a literal, then prints the count a correct implementation must report.
+expression and classifies each argument list -- whether anything in it is not
+a literal, and whether every argument reads the same -- then prints the count
+a correct implementation must report.
 
     uv run python3 docs/precision/recall_set_build.py <root>...
 """

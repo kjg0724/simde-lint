@@ -237,6 +237,10 @@ class ScalarSetBuildRule:
                 # need the propagation this rule does not do.
                 continue
             cost = ctx.knowledge.cost(self.rule_id, call.name)
+            # The count the rationale states is of runtime arguments, not of
+            # arguments: `_mm_set_epi64x(0, m5)` assembles one, and saying two
+            # was a false quantitative claim about a call the rule reports.
+            runtime = sum(1 for arg in call.args if not _is_integer_literal(arg.text))
             direct = all(arg.kind is ValueKind.VARIABLE for arg in call.args)
             simde_total = cost.simde_insns * len(call.args) if cost.simde_insns is not None else None
             native_total = (
@@ -252,10 +256,10 @@ class ScalarSetBuildRule:
                 **location_fields(unit),
                 intrinsic=call.name,
                 rationale=(
-                    f"{call.name} assembles {len(call.args)} runtime scalar "
-                    f"arguments into one vector through SIMDe's set-constructor "
-                    f"path; emitted cost depends on argument shape and compiler "
-                    f"optimization ({cost.source})"
+                    f"{call.name} assembles {runtime} runtime scalar "
+                    f"argument(s) of {len(call.args)} into one vector through "
+                    f"SIMDe's set-constructor path; emitted cost depends on "
+                    f"argument shape and compiler optimization ({cost.source})"
                 ),
                 simde_insns=simde_total,
                 native_insns=native_total,

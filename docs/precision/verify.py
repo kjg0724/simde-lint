@@ -414,20 +414,24 @@ def check_set_build(finding, ctx):
     # The claim is read out of the rationale, so a prose change must surface
     # here rather than quietly drop the cross-check: an unparsed claim is
     # unreadable, not agreement.
-    claimed = re.search(r"assembles (\d+) runtime scalar arguments", finding["rationale"])
+    claimed = re.search(
+        r"assembles (\d+) runtime scalar argument\(s\) of (\d+)", finding["rationale"])
     if not claimed:
         return None, "claim not parsed"
     for build in builds:
         runtime = [a for a in build.args if not INT_LITERAL.match(a)]
         if not runtime:
             continue
-        if len({" ".join(a.split()) for a in build.args}) == 1:
+        if len(set(build.args)) == 1:
             return False, "every operand is the same expression -- a broadcast"
-        if int(claimed.group(1)) != len(runtime):
-            return True, ("built from runtime scalars, though %s of the %s operands "
-                          "are literals" % (len(build.args) - len(runtime),
-                                            len(build.args)))
-        return True, "%d runtime operands" % len(runtime)
+        # A wrong count is a disagreement. This used to report the mismatch
+        # and return agreement anyway, which left the claim unchecked by the
+        # one check that reads it.
+        if (int(claimed.group(1)), int(claimed.group(2))) != (len(runtime), len(build.args)):
+            return False, ("claims %s runtime of %s, counted %d of %d"
+                           % (claimed.group(1), claimed.group(2),
+                              len(runtime), len(build.args)))
+        return True, "%d runtime of %d operands" % (len(runtime), len(build.args))
     return False, "every operand is a literal"
 
 

@@ -22,10 +22,12 @@ docker run --rm --platform linux/arm64 -v "$PWD":/w -v "$SIMDE":/simde -w /w \
                   objdump -d /w/g.o | awk -f /w/count.awk'
 ```
 
-`count.awk` counts each function body up to and including its `ret`.
-Alignment padding after `ret` belongs to no function; counting it inflated a
-first reading of the GCC results by two instructions per function and made
-two sequences look different that are byte-identical.
+`count.awk` counts each function body between its symbol header and its
+`ret`, excluding the `ret`: every function here ends in exactly one, so
+counting it would add the same constant to every row. A single `dup` reads as
+1. Alignment padding after `ret` belongs to no function and is excluded too;
+counting that inflated a first reading of the GCC results by two instructions
+per function and made two sequences look different that are byte-identical.
 
 Each function takes its vector and its scalars or pointer as parameters, so
 the body is the idiom and not a prologue. `idioms.c` holds the insert chains
