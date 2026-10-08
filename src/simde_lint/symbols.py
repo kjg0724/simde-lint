@@ -162,6 +162,43 @@ def _collect_plain_declarations(root: Node, source: bytes, path: str, index: Sym
                 index.add(ConstantArray(name, f"{path}:{decl.start_point[0] + 1}", rows))
 
 
+def _wrapper_declarator(arguments: Node, arg_index: int, source: bytes) -> str | None:
+    """The declarator text of a wrapper macro call, if its type is a const byte.
+
+    `_collect_plain_declarations` can ask tree-sitter for a declaration's type
+    and qualifiers. Here it cannot: a type inside an argument list does not
+    parse as a type, and the resulting node shape shifts with the qualifier.
+    `DECLARE_ALIGNED(16, uint8_t, m[16])` yields a number, one `ERROR` node
+    covering `uint8_t,`, and the declarator; adding `const` yields a number,
+    an identifier, an `ERROR`, and the declarator. So the arguments are split
+    on commas instead, which is the reading `declarator_arg` in
+    wrapper_macros.yaml already documents. Array dimensions are bracketed and
+    the initializer is outside this node, so no argument of a registered
+    wrapper contains a comma.
+
+    The type is the argument before the declarator and has to satisfy the same
+    two requirements the plain path makes: byte-sized elements, and `const`
+    without `volatile`. Without the const requirement an initializer plus a
+    wrapper registration was enough for grade A. Measured on
+    `DECLARE_ALIGNED(16, uint8_t, m[16]) = {0..15}; m[0] = 16;` -- pshufb
+    returns 42 at lane 0 where the suggested unguarded `vqtbl1q_u8` returns 0.
+    """
+    if arg_index < 1:
+        return None
+    text = node_text(arguments, source).strip()
+    if not text.startswith("(") or not text.endswith(")"):
+        return None
+    parts = [part.strip() for part in text[1:-1].split(",")]
+    if arg_index >= len(parts):
+        return None
+    words = parts[arg_index - 1].replace("*", " ").split()
+    if "const" not in words or "volatile" in words:
+        return None
+    if " ".join(word for word in words if word != "const") not in _BYTE_ELEMENTS:
+        return None
+    return parts[arg_index]
+
+
 def _collect_wrapper_macro_declarations(
     root: Node, source: bytes, path: str, index: SymbolIndex, knowledge: Knowledge
 ) -> None:
@@ -183,10 +220,10 @@ def _collect_wrapper_macro_declarations(
         arguments = left.child_by_field_name("arguments")
         if arguments is None:
             continue
-        args = [a for a in arguments.named_children]
-        if arg_index >= len(args):
+        declarator = _wrapper_declarator(arguments, arg_index, source)
+        if declarator is None:
             continue
-        name = _declarator_name(node_text(args[arg_index], source))
+        name = _declarator_name(declarator)
         rows = _rows_from_initializer(right, source)
         if name and rows:
             index.add(ConstantArray(name, f"{path}:{left.start_point[0] + 1}", rows))

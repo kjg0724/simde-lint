@@ -218,6 +218,36 @@ faults:
     replace: "        if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
 
+  - name: wrapper-macro-registration-taken-for-immutability
+    issue: null
+    why: >-
+      A registration in wrapper_macros.yaml says where a declaration macro
+      keeps its declarator. The wrapper path read it as permission to index
+      the array, so `DECLARE_ALIGNED(16, uint8_t, m[16]) = {0..15}` followed
+      by `m[0] = 16` graded A while the plain path rejected the same shape.
+      Measured: pshufb returns 42 at lane 0 where the suggested unguarded
+      `vqtbl1q_u8` returns 0. This is what moved SVT-AV1's three
+      `even_odd_mask_x` findings from A to C.
+    file: src/simde_lint/symbols.py
+    find: "    if \"const\" not in words or \"volatile\" in words:"
+    replace: "    if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: wrapper-declarator-taken-by-node-index
+    issue: null
+    why: >-
+      The declarator was read as `arguments.named_children[declarator_arg]`,
+      which happens to be right only without the qualifier: tree-sitter gives
+      `(16, uint8_t, m[16])` one ERROR node covering the type and comma, and
+      `(16, const uint8_t, m[16])` an identifier plus an ERROR, so the
+      declarator shifts by one. The const table was then registered under the
+      name `uint8_t` and no mask resolved through it -- a const requirement
+      that rejected every wrapper, const or not.
+    file: src/simde_lint/symbols.py
+    find: "    parts = [part.strip() for part in text[1:-1].split(\",\")]"
+    replace: "    parts = [node_text(a, source) for a in arguments.named_children]"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
   - name: mask-table-inside-arithmetic-resolves-to-the-table
     issue: null
     why: >-

@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from simde_lint.analyze import analyze, read_sources
-from simde_lint.finding import Evidence
+from simde_lint.finding import Evidence, Reason
 from simde_lint.knowledge import load_knowledge
 from simde_lint.macros import build_alias_map, reparse_macros
 from simde_lint.parser import parse_source
@@ -225,17 +225,30 @@ def test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize()
 
 
 @requires_svt
-def test_symbol_index_lifts_table_backed_masks_to_grade_a():
-    """even_odd_mask_x resolves through the cross-file symbol index.
+def test_the_wrapper_declared_table_does_not_reach_grade_a():
+    """`even_odd_mask_x` is declared through `DECLARE_ALIGNED` without const.
 
-    Three _mm_shuffle_epi8 call sites index this table at runtime
-    (`even_odd_mask_x[base_shift]`); the all-rows check still grades them A
-    because every row's lanes lie in [0,15].
+    Three `_mm_shuffle_epi8` call sites read it. They graded A until 2.7.0,
+    on the table's initializer; an initializer establishes the bytes at the
+    start of the object's life and the rule tracks no writes, so grade A --
+    which authorizes dropping the tbl guard -- rested on an assumption. The
+    table is no longer indexed at all, so these three carry no mask source
+    either; the lines are named so this fails if any of them reaches A again.
+    A const wrapper still grades A, which
+    `tests/oracle/cases/mask_is_not_its_initializer.c` pins.
     """
     findings, _, _ = analyze([SVT_AV1], types=["S"])
-    graded_a = [f for f in findings if f.evidence is Evidence.A and f.mask_source]
-    assert graded_a
-    assert any(f.mask_source["symbol"] == "even_odd_mask_x" for f in graded_a)
+    at_the_table = {
+        f.line: f
+        for f in findings
+        if f.line in {617, 1420, 1533} and Path(f.file).name == "intra_pred_intrin_avx2.c"
+    }
+    assert sorted(at_the_table) == [617, 1420, 1533]
+    for line, finding in at_the_table.items():
+        assert finding.evidence is Evidence.C, line
+        assert finding.reason is Reason.UNRESOLVED, line
+        assert finding.suggestion is None, line
+    assert not [f for f in findings if f.mask_source]
 
 
 @requires_vvenc
@@ -535,7 +548,12 @@ def test_current_svt_av1_aggregates_hold_at_the_pinned_revision():
         # One more C: the single `_mm256_mul_ps` pair in this corpus, now that
         # rule F registers the float family. It grades C by construction --
         # `vfmaq_f32` is never an exact substitution.
-        "evidence": {"A": 911, "B": 60, "C": 2438},
+        #
+        # Three moved A to C when rule S stopped reading a wrapper macro's
+        # registration as a claim about the storage: `even_odd_mask_x` is
+        # declared through `DECLARE_ALIGNED` without `const`. See
+        # docs/verification.md for the measured lanes that decided it.
+        "evidence": {"A": 908, "B": 60, "C": 2441},
     }
 
 

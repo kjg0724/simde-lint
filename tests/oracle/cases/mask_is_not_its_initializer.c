@@ -1,4 +1,4 @@
-// Rule S grades on the mask bytes a shuffle actually reads. Three shapes make
+// Rule S grades on the mask bytes a shuffle actually reads. Four shapes make
 // an initializer look like those bytes and are not them. Every verdict here
 // was decided by compiling the call and the instruction the rule proposes and
 // comparing lanes: pshufb reads index 16 as lane 0 and returns the source
@@ -26,6 +26,29 @@ void the_elements_are_wider_than_a_byte(__m128i a) {
 alignas(16) const unsigned char inside_arithmetic[16] = {0};
 void the_table_is_inside_an_expression(__m128i a, __m128i bias) {
     __m128i r = _mm_shuffle_epi8(a, bias ^ *(__m128i*)inside_arithmetic);
+    (void)r;
+}
+
+// Behind a declaration wrapper. The macro is registered in
+// knowledge/wrapper_macros.yaml, so the call is read as a declaration, and a
+// registration says where the declarator sits -- not that the storage is
+// immutable. This is how SVT-AV1 spells its shuffle tables, and the write
+// below is what the plain path already rejects.
+DECLARE_ALIGNED(16, unsigned char, behind_a_wrapper[16]) =
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+void the_mask_is_mutable_behind_a_wrapper(__m128i a) {
+    behind_a_wrapper[0] = 16;
+    __m128i r = _mm_shuffle_epi8(a, *(__m128i*)behind_a_wrapper);
+    (void)r;
+}
+
+// The same wrapper with a const type. The qualifier shifts the shape the
+// parser produces for the unparseable type argument, which is why the
+// declarator is taken by comma position rather than by node index.
+DECLARE_ALIGNED(16, const unsigned char, wrapped_and_const[16]) =
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+void a_wrapped_table_the_rule_can_establish(__m128i a) {
+    __m128i r = _mm_shuffle_epi8(a, *(__m128i*)wrapped_and_const);
     (void)r;
 }
 

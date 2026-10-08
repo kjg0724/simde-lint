@@ -1,4 +1,7 @@
-DECLARE_ALIGNED(16, uint8_t, table_mask[2][16]) = {
+/* const is load-bearing: a writable table's initializer is not the bytes
+   the shuffle reads, and the wrapper's registration says nothing about
+   that -- see tests/oracle/cases/mask_is_not_its_initializer.c. */
+DECLARE_ALIGNED(16, const uint8_t, table_mask[2][16]) = {
     {0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15},
     {0, 1, 3, 5, 7, 9, 11, 13, 0, 2, 4, 6, 8, 10, 12, 14}};
 

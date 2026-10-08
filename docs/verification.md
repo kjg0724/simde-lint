@@ -243,18 +243,18 @@ fixture, so it re-verifies itself on every future run against the same tree.
 
 ### Evidence grade distribution
 
-Of the 204 `_mm_shuffle_epi8` findings: **A 22, C 182**, no B. (The combined
-341-finding total above carries A 35 / C 306, i.e. `_mm256_shuffle_epi8`
+Of the 204 `_mm_shuffle_epi8` findings: **A 19, C 185**, no B. (The combined
+341-finding total above carries A 32 / C 309, i.e. `_mm256_shuffle_epi8`
 contributes A 13 / C 124 on top.)
 
-The 182 grade-C findings are masks the symbol index and literal tracer could
+The 185 grade-C findings are masks the symbol index and literal tracer could
 not resolve -- mostly runtime-loaded or call-produced vectors, which is the
 honest outcome for indices the tool cannot see the values of.
 
-### The symbol index lifts three findings to grade A
+### No grade-A finding in this tree rests on the symbol index
 
-Three of the 22 grade-A findings resolve through `SymbolIndex`, not an
-inline or local-constant literal:
+The cross-file symbol index resolves a mask declared in one translation unit
+and used in another. In this tree it carries no grade-A finding:
 
 ```
 $ uv run python3 - <<'EOF'
@@ -264,21 +264,35 @@ from simde_lint.analyze import analyze
 from simde_lint.finding import Evidence
 
 findings, _, _ = analyze([Path(os.environ["SIMDE_LINT_SVT_AV1"]) / "Source"], types=["S"])
-for f in findings:
-    if f.evidence is Evidence.A and f.mask_source:
-        print(f.file, f.line, f.mask_source)
+print(sum(1 for f in findings if f.evidence is Evidence.A and f.mask_source))
 EOF
-.../Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c 617  {'symbol': 'even_odd_mask_x', 'defined_at': '.../Source/Lib/Codec/intra_prediction.c:108', 'resolution': 'all_rows'}
-.../Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c 1420 {'symbol': 'even_odd_mask_x', 'defined_at': '.../Source/Lib/Codec/intra_prediction.c:108', 'resolution': 'all_rows'}
-.../Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c 1533 {'symbol': 'even_odd_mask_x', 'defined_at': '.../Source/Lib/Codec/intra_prediction.c:108', 'resolution': 'all_rows'}
+0
 ```
 
-All three resolve `even_odd_mask_x`, defined at
-`Source/Lib/Codec/intra_prediction.c:108`, `resolution: all_rows` -- the table
-is indexed at runtime (`even_odd_mask_x[base_shift]`) but every one of its 8
-rows has lanes in `[0,15]`, so the finding grades A regardless of which row
-the runtime index selects. Verified by
-`test_symbol_index_lifts_table_backed_masks_to_grade_a`.
+Until 2.7.0 three findings appeared here, at
+`Source/Lib/ASM_AVX2/intra_pred_intrin_avx2.c:617`, `:1420` and `:1533`, all
+resolving `even_odd_mask_x` from `Source/Lib/Codec/intra_prediction.c:108`.
+That table is declared `DECLARE_ALIGNED(16, uint8_t, even_odd_mask_x[8][16])`
+with an initializer and no `const`. Grade A authorizes dropping the tbl
+guard, which requires every runtime mask byte to be established; an
+initializer establishes the bytes at the start of the object's life, and the
+rule tracks no writes, so without `const` the bytes it reads are the bytes it
+can only assume. The three are now C with `unresolved`.
+
+This is the first recall cost this project has accepted for a soundness
+requirement, and it is the whole of that cost in the three corpora:
+SVT-AV1's grade-A S findings go 35 to 32, grade C 306 to 309, with no other
+field of any other finding changed and the totals for VVenC and VVdeC
+unmoved. No counterexample was found in any corpus -- `even_odd_mask_x` has
+no visible write -- so the decisive case is the fixture in
+`tests/oracle/cases/mask_is_not_its_initializer.c`, where the same wrapper
+with a write after the initializer graded A with the guard dropped, and the
+measured lanes disagree: pshufb returns 42 at lane 0 where the suggested
+unguarded `vqtbl1q_u8` returns 0.
+
+`DECLARE_ALIGNED(16, const unsigned char, m[16])` still grades A, which the
+same fixture pins; verified by
+`test_the_symbol_index_carries_no_grade_a_finding_in_this_tree`.
 
 ### Full sweep
 
@@ -303,7 +317,7 @@ not the tool erring.
 which is documentation-only on top of it and is what the paper cites -- gives
 3272 findings, `F 1019, R 1816, S 341, M 64, P 31, W 1`,
 evidence `A 845, B 60, C 2367`. `main` gives 3409 findings,
-`F 1153, R 1816, S 341, M 66, P 31, W 2`, evidence `A 911, B 60, C 2438`.
+`F 1153, R 1816, S 341, M 66, P 31, W 2`, evidence `A 908, B 60, C 2441`.
 
 Three changes since the tag, kept apart because they move different things.
 1816 rule R findings moved from A to C: the earlier implementation graded an

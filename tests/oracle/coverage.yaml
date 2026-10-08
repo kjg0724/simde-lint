@@ -80,6 +80,9 @@ dimensions:
         than one shuffle lane
       mask_inside_arithmetic: the table appears within an expression, so the
         operand is computed from it rather than being it
+      mask_behind_a_wrapper_macro: the array is declared through a registered
+        declaration macro, whose registration locates the declarator and says
+        nothing about whether the storage changes
 
   claims:
     applies_to: [R, S, W, F, M, P]

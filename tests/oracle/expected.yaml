@@ -470,6 +470,7 @@ mask_is_not_its_initializer.c:
     - representation.mask_written_after_init
     - representation.mask_elements_wider_than_a_byte
     - representation.mask_inside_arithmetic
+    - representation.mask_behind_a_wrapper_macro
     - representation.width_128
     - representation.element_integer
     - representation.spelling_direct
@@ -481,7 +482,8 @@ mask_is_not_its_initializer.c:
     Rule S grades on the bytes a shuffle reads. It read an initializer instead,
     which is the same thing only when the storage cannot change, the elements
     are one byte wide, and the operand is the table rather than something
-    computed from it. Each verdict here was decided by compiling the call and
+    computed from it. The same three requirements hold whether the array is
+    declared plainly or through a registered declaration macro. Each verdict here was decided by compiling the call and
     the instruction the rule proposes and comparing lanes: pshufb takes index
     16 as `16 & 0x0F`, selecting lane 0 and returning 42 for a source filled
     with 42, while unguarded `vqtbl1q_u8` treats 16 as out of range and returns
@@ -494,9 +496,13 @@ mask_is_not_its_initializer.c:
     0x10 -- truncation that turned an unsafe mask into a safe one. A table
     inside an XOR resolved to the table's own name, so the rule graded the
     whole expression on the table's lanes while the arithmetic put every index
-    out of range.
+    out of range. The wrapper macro carried the same mistake one level further
+    in: a registration in wrapper_macros.yaml locates the declarator so the
+    call can be read as a declaration, and that was taken for a claim about
+    the storage. A const type argument restores grade A, which is what the
+    fourth function here pins.
 
-    None of the three is a safe-mask claim the rule can make, so each keeps the
+    None of the four is a safe-mask claim the rule can make, so each keeps the
     finding -- the pshufb-to-tbl mismatch is still there -- and loses the
     guard-free replacement: C with `unresolved`, because what is missing is a
     fact about the source the rule could not read, not a condition it declined
@@ -523,7 +529,20 @@ mask_is_not_its_initializer.c:
       intrinsic: _mm_shuffle_epi8
       suggestion: null
       native_insns: null
-    - line: 36
+    - line: 41
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 51
+      type: S
+      evidence: A
+      intrinsic: _mm_shuffle_epi8
+      suggestion: vqtbl1q_u8
+      costs: reported
+    - line: 59
       type: S
       evidence: A
       intrinsic: _mm_shuffle_epi8
