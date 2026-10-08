@@ -247,11 +247,19 @@ def check_name_only(finding, ctx):
     and that clause was going unread while the other checks were taught to
     read theirs. S's text names no intrinsic, so there is nothing of this kind
     to compare there and the sentence is checked for what it does state.
+
+    Which rule this is decides whether the clause is required. Treating an
+    absent clause as nothing to compare would skip R's comparison silently
+    whenever its text changed, which is the failure this series of fixes is
+    made of; the finding says which rule it is, so R demands the clause and
+    an R rationale without one is unreadable rather than agreed.
     """
     _, by_line, _, defines = ctx
     raw = finding.get("raw_name")
     wanted = raw or finding["intrinsic"]
     named = re.search(r"implements (\S+) as follows", finding["rationale"])
+    if finding.get("rule", "").startswith("R.") and not named:
+        return None, "claim not parsed"
     if named and named.group(1) != finding["intrinsic"]:
         return False, ("claims %s, the finding is %s"
                        % (named.group(1), finding["intrinsic"]))
@@ -263,7 +271,8 @@ def check_name_only(finding, ctx):
         if defines.get(raw) != finding["intrinsic"]:
             return False, ("%s is called here, but no single-call #define in "
                            "this file forwards it to %s" % (raw, finding["intrinsic"]))
-        return True, "call to %s, forwarded to %s by a local #define" % (raw, wanted)
+        return True, ("call to %s, forwarded to %s by a local #define"
+                      % (raw, finding["intrinsic"]))
     return True, "call to %s present" % wanted
 
 

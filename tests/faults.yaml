@@ -218,6 +218,18 @@ faults:
     replace: "    if max(runs.values()) < threshold:"
     kills: "tests/test_precision_count_claims.py::test_a_claim_on_a_target_below_the_threshold_is_a_disagreement"
 
+  - name: census-skips-rule-rs-clause-when-it-is-absent
+    issue: 74
+    why: >-
+      Comparing the clause only when it parses loses the comparison silently
+      the next time R's text changes, which is how every defect in this
+      series behaved: the check was present, the claim was parsed, and the
+      verdict did not depend on it. R demands the clause; S has none.
+    file: docs/precision/verify.py
+    find: "    if finding.get(\"rule\", \"\").startswith(\"R.\") and not named:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_an_r_rationale_without_its_clause_is_unreadable"
+
   - name: census-ignores-the-intrinsic-rule-r-names
     issue: 74
     why: >-

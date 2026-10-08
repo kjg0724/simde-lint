@@ -370,6 +370,7 @@ void u(const void *p) {
 def _redundant_claim(named="_mm_loadu_si32"):
     return {
         "line": 3,
+        "rule": "R.zero_init_partial_load",
         "intrinsic": "_mm_loadu_si32",
         "rationale": (
             f"SIMDe 0.8.4 implements {named} as follows: a zero-initialized "
@@ -396,13 +397,28 @@ def test_a_redundant_claim_naming_its_own_intrinsic_agrees(tmp_path):
     assert ok is True, why
 
 
-def test_a_rationale_naming_no_intrinsic_is_still_checked_for_the_call(tmp_path):
+def test_an_s_rationale_naming_no_intrinsic_is_still_checked_for_the_call(tmp_path):
     # S's text names no intrinsic, so there is nothing of this kind to
-    # compare; the call must still be where the finding puts it.
+    # compare; the call must still be where the finding puts it. The rule is
+    # named on purpose -- the same text under an R finding is unreadable.
     module, ctx = _ctx(_module(), tmp_path, _REDUNDANT, "red.c")
     claim = _redundant_claim()
+    claim["rule"] = "S.pshufb_guard"
     claim["rationale"] = "SIMDe 0.8.4 guards the tbl index on every call"
     claim["line"] = 9
     ok, why = module.check_name_only(claim, ctx)
     assert ok is False
     assert "no call to" in why
+
+
+def test_an_r_rationale_without_its_clause_is_unreadable(tmp_path):
+    # Skipping the comparison when the clause is absent would lose it
+    # silently the next time R's text changes, which is how every defect in
+    # this series behaved.
+    module, ctx = _ctx(_module(), tmp_path, _REDUNDANT, "red.c")
+    claim = _redundant_claim()
+    claim["rule"] = "R.zero_init_partial_load"
+    claim["rationale"] = "SIMDe 0.8.4 builds a zero vector and loads part of it"
+    ok, why = module.check_name_only(claim, ctx)
+    assert ok is None
+    assert "not parsed" in why

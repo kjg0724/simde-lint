@@ -79,14 +79,17 @@ being filled: the numbers it asked for are not derivable.
 not how many there are. `_mm_set_epi64x(0, m5)` assembles one, and the text
 said two.
 
-**Every name and number a rationale states is now read back and compared.**
-None of them was. Four rationale forms -- F's, W's, P's and the set build's --
+**The structural claim each rationale states is now read back and compared.**
+None of it was. Four rationale forms -- F's, W's, P's and the set build's --
 open by naming the call the finding is about and the line it sits on, and all
 four checks that parse that sentence located the call by the `intrinsic` and
 `line` fields instead, so a rationale could name another intrinsic at another
 line and the census still reported agreement. R names its intrinsic in a
 clause of its own, "implements <name> as follows", which went unread the same
-way; S's text names none, so there is nothing of this kind to compare there. The counts were the same: the insert count and the
+way; S's text names none, so there is nothing of this kind to compare there.
+The rest of each sentence -- the SIMDe version it quotes, the header line it
+cites, the prose explaining the mechanism -- is not checked here and is not
+claimed to be. The counts were the same: the insert count and the
 runtime-argument count were parsed and ignored, and the set-build check
 reported the mismatch in its own explanation before agreeing. Rule W's
 checker parsed one of three rationale forms, so its two grade-C forms were
@@ -105,7 +108,7 @@ which is the measurement that found the distinction.
 
 Correct corpus output cannot reach a rejection branch, so
 `tests/test_precision_count_claims.py` writes the rationale false on purpose:
-25 tests, with a mutation for each comparison. Review found these one at a
+27 tests, with a mutation for each comparison. Review found these one at a
 time, each after the previous was fixed, which is the shape this project's
 review history keeps taking -- the assertion added to catch a defect is where
 the next one hides.
@@ -120,7 +123,7 @@ surfaces instead of quietly weakening the check. `recall_set_build.py`
 enumerates the broadcast exclusion too, independently; it and the tool agree
 site for site at 29 / 15 / 2.
 
-The fault catalogue grew from 28 to 40 mutations, and one guard was removed
+The fault catalogue grew from 28 to 41 mutations, and one guard was removed
 rather than kept: normalizing whitespace inside a broadcast's arguments could
 not be killed by any mutation, because the recorded argument text carries no
 surrounding whitespace in the first place.
