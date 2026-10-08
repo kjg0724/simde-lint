@@ -199,8 +199,15 @@ class WideningRule:
                     f"they did not supply"
                 ),
                 simde_insns=cost.simde_insns,
-                native_insns=None,
-                suggestion=None,
+                native_insns=cost.native_insns,
+                # Named, not withdrawn. The round-trip is exact wherever the
+                # multiplies do reach the unpack, so the instruction is a
+                # candidate a reader can check against the control flow --
+                # which is what `requires_context` says and what grade C is
+                # for. The unstable-operand branch below is the other case:
+                # there no single widening multiply reproduces the halves
+                # under any condition, so there the name goes.
+                suggestion=_UNPACK_SUGGESTION[consumer.name],
                 raw_name=raw_name_if_aliased(lo),
             )
         if not stable:

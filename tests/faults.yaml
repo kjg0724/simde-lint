@@ -205,3 +205,28 @@ faults:
     replace: "                if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
 
+  - name: mask-initializer-taken-for-a-writable-array
+    issue: null
+    why: >-
+      The symbol index registered any array with an initializer, so
+      `unsigned char mask[16] = {0}` followed by `mask[0] = 16` graded A with
+      the guard dropped. Writes are not tracked, so `const` is the only claim
+      available. Measured: pshufb returns the source byte at lane 0 where
+      unguarded tbl returns zero.
+    file: src/simde_lint/symbols.py
+    find: "        if not _is_const(decl, source) or not _byte_sized(decl, source):"
+    replace: "        if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: mask-table-inside-arithmetic-resolves-to-the-table
+    issue: null
+    why: >-
+      Operands were called a symbol load whenever their text contained `[` or
+      `*`, which `bias ^ *(__m128i *)mask` satisfies as readily as the load
+      does. The rule then graded the whole expression on the table's lanes
+      while the XOR put every index out of range.
+    file: src/simde_lint/extract.py
+    find: "    if symbol and _is_a_plain_load(node):"
+    replace: '    if symbol and ("[" in text or "*" in text):'
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+

@@ -110,8 +110,46 @@ def _declarator_name(text: str) -> str | None:
     return match.group(0) if match else None
 
 
+# Element types whose storage is one byte, so an initializer value is the byte
+# a shuffle reads. Anything else -- a wider type, or a typedef this does not
+# resolve -- leaves the mask unresolved rather than truncated: `0x1000` in a
+# `short` array is byte 0x00 at lane 0 and 0x10 at lane 1, and reading it as a
+# single lane value of 0x00 called an unsafe mask safe.
+_BYTE_ELEMENTS = frozenset(
+    {
+        "char", "signed char", "unsigned char",
+        "int8_t", "uint8_t",
+    }
+)
+
+
+def _byte_sized(decl: Node, source: bytes) -> bool:
+    kind = decl.child_by_field_name("type")
+    if kind is None:
+        return False
+    return " ".join(node_text(kind, source).split()) in _BYTE_ELEMENTS
+
+
+def _is_const(decl: Node, source: bytes) -> bool:
+    """Whether the declaration says the storage does not change.
+
+    An initializer is not a value. `unsigned char mask[16] = {0}` followed by
+    `mask[0] = 16` is read by a shuffle as 16, and taking the initializer for
+    the runtime bytes graded that mask A with the guard dropped -- measured,
+    pshufb returns lane 0 of the source where unguarded tbl returns zero.
+    Writes are not tracked here, so `const` is the only claim available, and
+    `volatile` withdraws it: the storage may change without a write this file
+    contains.
+    """
+    text = node_text(decl, source)
+    head = text.split("=", 1)[0]
+    return "const" in head.split() and "volatile" not in head.split()
+
+
 def _collect_plain_declarations(root: Node, source: bytes, path: str, index: SymbolIndex) -> None:
     for decl in iter_nodes(root, "declaration"):
+        if not _is_const(decl, source) or not _byte_sized(decl, source):
+            continue
         for child in decl.named_children:
             if child.type != "init_declarator":
                 continue

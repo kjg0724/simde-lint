@@ -156,9 +156,59 @@ def _value_ref(node: Node, source: bytes, call_ids: dict[int, int]) -> ValueRef:
     if node.type == "identifier":
         return ValueRef(ValueKind.VARIABLE, text)
     symbol = _symbol_name(node, source)
-    if symbol and ("[" in text or "*" in text):
+    if symbol and _is_a_plain_load(node):
         return ValueRef(ValueKind.SYMBOL, text, symbol=symbol)
     return ValueRef(ValueKind.UNKNOWN, text)
+
+
+# How a bare load of a table may be spelled: a subscript, a dereference or
+# cast around one, parentheses, the name itself. Anything else in the value
+# position means the operand is computed from the table rather than being it.
+_PLAIN_LOAD = {
+    "subscript_expression",
+    "pointer_expression",
+    "cast_expression",
+    "parenthesized_expression",
+    "identifier",
+    "field_expression",
+    "number_literal",
+    # The index itself, and whatever spells it. A subscript's index is part of
+    # how the load is written -- omitting these rejected
+    # `*(__m128i *)table[row]`, which is how SVT-AV1 spells every one of its
+    # table-backed masks, and measured as three grade-A findings dropping to C.
+    "subscript_argument_list",
+}
+
+# Children that describe a type rather than carry a value. A cast's type is
+# part of how the load is spelled, not part of what is loaded, so walking into
+# it rejected `*(__m128i *)mask` -- the ordinary spelling -- and measured as a
+# control case dropping from A to C. Skipped rather than whitelisted, because
+# the set of type node types is open and the set of value positions is not.
+_TYPE_PARTS = {"type_descriptor", "type_identifier", "sized_type_specifier"}
+
+
+def _is_a_plain_load(node: Node) -> bool:
+    """Whether this operand is a load of one symbol and nothing else.
+
+    `_symbol_name` finds a table name anywhere inside the operand, which is
+    the right search for `*(__m128i *)mask` and the wrong one for
+    `bias ^ *(__m128i *)mask`: the second resolved to `mask` and the rule then
+    graded the whole expression A on that table's lanes. Measured, pshufb
+    returns lane 0 of the source there where unguarded tbl returns zero,
+    because the XOR puts every index out of range.
+
+    Decided by node type rather than by searching the text for `[` or `*`,
+    which both appear in the XOR as readily as in the load.
+    """
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if not current.is_named or current.type in _TYPE_PARTS:
+            continue
+        if current.type not in _PLAIN_LOAD:
+            return False
+        stack.extend(current.named_children)
+    return True
 
 
 def _literal_lanes(call: Node, source: bytes) -> tuple[int, ...] | None:

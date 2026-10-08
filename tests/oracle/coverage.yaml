@@ -74,6 +74,12 @@ dimensions:
       element_float: float lanes
       spelling_direct: the x86 name as written
       spelling_macro: reached through a file-local `#define`
+      mask_written_after_init: the backing array is assigned after its
+        initializer, so the initializer is not the value read
+      mask_elements_wider_than_a_byte: the array's element type spans more
+        than one shuffle lane
+      mask_inside_arithmetic: the table appears within an expression, so the
+        operand is computed from it rather than being it
 
   claims:
     applies_to: [R, S, W, F, M, P]

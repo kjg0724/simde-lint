@@ -345,6 +345,13 @@ nested_regions.c:
     is withdrawn: C with `transform_requires_context`, the reason for a
     condition this rule does not check rather than one it could not read.
 
+    The instruction is still named. `requires_context` says a replacement
+    exists and holds wherever the condition does, so the name is what makes
+    the finding checkable -- a reader compares it against the control flow and
+    decides. Withdrawing the name belongs to the reasons where no condition
+    rescues the instruction: `width_mismatch`, and W's own `unresolved` where
+    the two halves came from different products.
+
     Measured on the same shape outside the corpus: the source gives 1000 on
     the untaken pass where the proposed instruction gives 6, and a `for` whose
     count is zero behaves identically -- which is what closed
@@ -366,7 +373,7 @@ nested_regions.c:
       evidence: C
       reason: transform_requires_context
       intrinsic: _mm_mullo_epi32
-      suggestion: null
+      suggestion: vmlaq_s32
     - line: 24
       type: W
       evidence: A
@@ -457,6 +464,71 @@ hop_and_guard.c:
       intrinsic: _mm_shuffle_epi8
       suggestion: null
       native_insns: null
+
+mask_is_not_its_initializer.c:
+  covers:
+    - representation.mask_written_after_init
+    - representation.mask_elements_wider_than_a_byte
+    - representation.mask_inside_arithmetic
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - claims.grade_a
+    - claims.grade_c_unresolved
+    - output.costs_reported
+    - output.no_replacement_named
+  why: >-
+    Rule S grades on the bytes a shuffle reads. It read an initializer instead,
+    which is the same thing only when the storage cannot change, the elements
+    are one byte wide, and the operand is the table rather than something
+    computed from it. Each verdict here was decided by compiling the call and
+    the instruction the rule proposes and comparing lanes: pshufb takes index
+    16 as `16 & 0x0F`, selecting lane 0 and returning 42 for a source filled
+    with 42, while unguarded `vqtbl1q_u8` treats 16 as out of range and returns
+    zero.
+
+    A write after the initializer makes the initializer stale, and writes are
+    not tracked, so `const` is the only claim available and its absence leaves
+    the mask unresolved. `0x1000` in a `short` array is two bytes, and taking
+    the element value for one lane read it as 0x00 where the byte at lane 1 is
+    0x10 -- truncation that turned an unsafe mask into a safe one. A table
+    inside an XOR resolved to the table's own name, so the rule graded the
+    whole expression on the table's lanes while the arithmetic put every index
+    out of range.
+
+    None of the three is a safe-mask claim the rule can make, so each keeps the
+    finding -- the pshufb-to-tbl mismatch is still there -- and loses the
+    guard-free replacement: C with `unresolved`, because what is missing is a
+    fact about the source the rule could not read, not a condition it declined
+    to check.
+  findings:
+    - line: 11
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 20
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 28
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 36
+      type: S
+      evidence: A
+      intrinsic: _mm_shuffle_epi8
+      suggestion: vqtbl1q_u8
+      costs: reported
 
 widening_value_identity.c:
   covers:
@@ -550,4 +622,4 @@ consumer_choice.c:
       evidence: C
       reason: transform_requires_context
       intrinsic: _mm_mullo_epi16
-      suggestion: null
+      suggestion: vmull_s16

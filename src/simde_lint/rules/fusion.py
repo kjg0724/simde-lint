@@ -217,8 +217,16 @@ class FusionRule:
                     # is the grade. A fused instruction placed at the add runs
                     # on the skipping passes too, where it would compute from
                     # a product the multiply never supplied.
+                    # Grade and reason only. `requires_context` means a
+                    # replacement exists and holds under a condition the rule
+                    # does not check, so the instruction stays named: grade C
+                    # is a candidate for a human to check, and a candidate with
+                    # no name cannot be checked. Withdrawing it is for
+                    # `width_mismatch`, where the recorded instruction does not
+                    # fit at any width. Stripping it here took the names off
+                    # four VVenC findings that were already C for a different
+                    # unchecked condition.
                     evidence, reason = Evidence.C, Reason.TRANSFORM_REQUIRES_CONTEXT
-                    suggestion, native_insns = None, None
                 claimed_adds.add(add.id)
                 yield Finding(
                     type=self.type,
