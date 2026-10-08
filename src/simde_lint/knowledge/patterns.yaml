@@ -167,28 +167,36 @@ patterns:
         applies twice over the 8 lanes
   M.scalar_insert_chain:
     _mm_insert_epi16:
-      simde_insns: 2
-      native_insns: 1
-      suggestion: vld1q_lane_s16
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
       source: x86/sse2.h:4005
       note: >-
-        Counts are per chain element. insert_epi16 maps to vsetq_lane_s16,
-        which needs the value in a general-purpose register first; a lane
-        load reads straight into the vector register
+        the NEON branch is a vsetq_lane_s16 macro. This entry recorded
+        2 -> 1 vld1q_lane_s16 per chain element, read as a general-purpose
+        register transfer the lane load avoids. Neither count holds: with the
+        scalar coming from memory, Apple clang 21 and GCC 13.5 both compile
+        the SIMDe chain and the lane-load chain to the same instructions at
+        -O2 and -O3 -- byte-identical for a four-lane int32 chain -- and with
+        the scalar already in a register a lane load does not apply. The cost
+        turns on where the operand lives and on the optimizer, so it is not
+        readable from this branch
     _mm_insert_epi32:
-      simde_insns: 2
-      native_insns: 1
-      suggestion: vld1q_lane_s32
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
       source: x86/sse4.1.h:1598
-      note: Counts are per chain element, same shape as insert_epi16
+      note: the NEON branch is a vsetq_lane_s32 macro; same as insert_epi16
     _mm_insert_epi64:
       simde_insns: unknown
       native_insns: unknown
       suggestion: unknown
-      source: x86/sse4.1.h:1619
+      source: x86/sse4.1.h:1639
       note: >-
-        no lane-insert branch; defers to simde_mm_set_epi64x, which spills to
-        a stack array
+        the NEON branch is a vsetq_lane_s64 macro. An earlier entry cited
+        line 1619 and said there was no lane-insert branch; 1619 is inside
+        the SIMDE_BUG_GCC_94482 fallback body, not the branch selected on
+        NEON
     _mm256_insert_epi16:
       simde_insns: unknown
       native_insns: unknown
@@ -209,27 +217,32 @@ patterns:
       note: no NEON branch -- a scalar store into the private lane array
   M.scalar_set_build:
     _mm_set_epi64x:
-      simde_insns: 1
-      native_insns: 1
-      suggestion: vsetq_lane_s64
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
       source: x86/sse2.h:5811
       note: >-
-        Counts are per assembled lane. SIMDe writes each scalar into a stack
-        array and reloads the whole vector with vld1q_s64, so no instruction
-        is saved on paper -- the cost is the store-to-load round trip that a
-        lane insert or a structured load avoids
+        the NEON branch writes each argument into a local array and loads it
+        with vld1q_s64. That is the source idiom and not the emitted code:
+        the array is a candidate for scalar replacement, and in every case
+        measured -- Apple clang 21 and GCC 13.5, -O2 and -O3 -- neither
+        compiler kept it, clang folding each argument into a lane load and
+        GCC loading into FP registers and moving into lanes. This entry
+        recorded 1 -> 1 per assembled lane for a trip through memory that no
+        measured case performs; the emitted cost varies with argument shape
+        and compiler, so it is not readable here
     _mm_set_epi32:
-      simde_insns: 1
-      native_insns: 1
-      suggestion: vsetq_lane_s32
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
       source: x86/sse2.h:5728
-      note: same shape as set_epi64x
+      note: same source idiom as set_epi64x
     _mm_set_epi16:
-      simde_insns: 1
-      native_insns: 1
-      suggestion: vsetq_lane_s16
+      simde_insns: unknown
+      native_insns: unknown
+      suggestion: unknown
       source: x86/sse2.h:5676
-      note: same shape as set_epi64x
+      note: same source idiom as set_epi64x
   P.cmp_immediate_use:
     _mm_cmpgt_epi64:
       simde_insns: 2

@@ -544,7 +544,7 @@ x86 source as the other four modules.
 | LoopFilterX86.h | P | 2 | 0 |
 | QuantX86.h | R | 2 | 5 |
 | QuantX86.h | S | 0 | 0 |
-| QuantX86.h | W | 6 | 4 |
+| QuantX86.h | W | 6 | 6 |
 | QuantX86.h | F | 4 | 8 |
 | QuantX86.h | M | 0 | 0 |
 | QuantX86.h | P | 0 | 0 |
@@ -557,15 +557,22 @@ x86 source as the other four modules.
 | FGAX86.h | R | 2 | 0 |
 | FGAX86.h | S | 0 | 0 |
 | FGAX86.h | W | 0 | 0 |
-| FGAX86.h | F | 5 | 0 |
+| FGAX86.h | F | 5 | 11 |
 | FGAX86.h | M | 3 | 0 |
 | FGAX86.h | P | 0 | 0 |
 
-Re-running the `analyze()` calls above against the current checkout
-reproduces every cell in this table with no changes.
+**Two cells in this table were stale and are corrected here.** The text said
+re-running the calls above reproduced every cell with no changes; it did not.
+Only DepQuant's row is pinned by a test, so the rest went stale when rule F
+and rule W changed: `QuantX86.h` W read 4 and is 6, and `FGAX86.h` F read 0
+and is 11, both from the float families rule F and rule W registered in
+`v2.4.0`. The figures above are the measured ones.
+
 `test_depquant_reports_the_types_its_source_can_carry` in
 `tests/test_verification.py` pins DepQuant's row directly: R 40, S 22, P 3,
-W/F/M 0. (R was 26 before v1.1 added `_mm_loadu_si64` to
+W/F/M 0. Nothing pins the other four rows, which is why a reader should take
+them as measured at the version this document ships with rather than as a
+standing claim. (R was 26 before v1.1 added `_mm_loadu_si64` to
 `knowledge/redundant.yaml`; DepQuant carries 14 call sites of it, all of
 them in the `+40` here.)
 
@@ -574,9 +581,12 @@ SIMDe-dependent modules plus the rest of `CommonLib/x86`, including its
 `avx2/` and `sse41/` subdirectories) totals 449 findings -- `R 106, S 164,
 F 135, W 17, M 23, P 4` -- evidence `A 207, B 87, C 155` **as `v2.2.0`
 emitted it**; `v2.3.1` gives the same 449 with evidence `A 101, B 87, C 261`,
-the 106 rule R findings having moved from A to C (see Section 1). On `main`
-`v2.4.0` totals 614 -- `R 106, S 164, F 306, W 31, M 23, P 4` -- evidence
-`A 131, B 87, C 416`. Rule F more than doubles here, 135 to 306, and the
+the 106 rule R findings having moved from A to C (see Section 1). On `main` at
+`v2.8.0` the sweep totals 626 -- `R 106, S 164, F 306, W 31, M 15, P 4` --
+evidence `A 124, B 86, C 416`. (`v2.4.0` gave 634 with `M 23` and evidence
+`A 131, B 87, C 416`; this text recorded that total as 614, which matched
+neither its own per-type row nor its evidence row. Rule M's 23 became 15 when
+issue #74 withdrew the broadcast findings.) Rule F more than doubles here, 135 to 306, and the
 reason is one idiom: VVenC's adaptive loop filter writes its accumulator as
 `accumA = _mm_add_epi32(accumA, _mm_madd_epi16(val01A, coeff01A))` throughout,
 and every one of those was invisible while rule F required a named product. By scope: **445 in function bodies, 4 in
@@ -1164,7 +1174,7 @@ concealed.
 
 ```
 $ uv run simde-lint "$VVDEC/source/Lib/CommonLib/x86" --format json
-609 findings: R 224, S 196, F 161, W 18, M 8, P 2
+603 findings: R 224, S 196, F 161, W 18, M 2, P 2
 $ echo $?
 0
 ```
@@ -1175,7 +1185,7 @@ look like on a corpus it was not fitted to. `v2.3.1` gave 516 here, `F 77`.
 
 10 parse warnings on stderr, one per unparsable file. For reference across
 all three corpora on `main`: SVT-AV1 3409 findings / 362 warnings, VVenC
-634 / 11, VVdeC 609 / 10 -- every one exit 0. The warning counts do not move
+626 / 11, VVdeC 603 / 10 -- every one exit 0. The warning counts do not move
 with the findings; they count files, not call sites.
 
 All six taxonomy types fire on a codebase none of them were fitted to.
@@ -1224,17 +1234,26 @@ chain turn on structure, so their ground truth is not claimed here.
 
 **`M.scalar_set_build` is not one of them**, and saying it was overstated the
 gap. Its description -- `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
-assembling a vector from runtime scalars, all-literal calls excluded -- is
-decidable from the text of the call. `docs/precision/recall_set_build.py`
-enumerates it without importing the tool:
+assembling a vector from runtime scalars, with all-literal calls and calls
+naming one expression in every lane excluded -- is decidable from the text of
+the call. `docs/precision/recall_set_build.py` enumerates it without importing
+the tool:
 
 | Corpus | Enumerated | Reported | Missed | Agreement |
 |---|---:|---:|---:|---:|
 | SVT-AV1 `Source` | 29 | 29 | 0 | 100% |
-| VVenC `CommonLib/x86` | 23 | 23 | 0 | 100% |
-| VVdeC `CommonLib/x86` | 8 | 8 | 0 | 100% |
+| VVenC `CommonLib/x86` | 15 | 15 | 0 | 100% |
+| VVdeC `CommonLib/x86` | 2 | 2 | 0 | 100% |
 
 Both agree site for site, not only in total.
+
+The VVenC and VVdeC figures were 23 and 8 before issue #74 added the second
+exclusion. Of the 124 `set_*` call sites in SVT-AV1 and VVenC, 72 are
+all-literal, 8 name one value in every lane, and 44 are assemblies; the
+holdout's 22 split 14 / 6 / 2. The broadcasts were reported as findings and
+are not: `_mm_set_epi16(wT, wT, wT, wT, wT, wT, wT, wT)` compiles to a single
+`dup` under both compilers measured, so there is no scalar assembly at those
+call sites to report, and 12 of the 14 withdrawn findings were grade A.
 
 **`W.mul16_widen_roundtrip` is not decidable from spelling, and this table
 used to say it was.** The sentence here read "operands compared as written
@@ -1387,21 +1406,24 @@ one agreeing with itself.
 
 ```
 $ uv run python3 docs/precision/verify.py
-findings checked: 4043 (census, not a sample)
+findings checked: 4035 (census, not a sample)
 
-  agree          4011   99.2%
+  agree          4003   99.2%
   macro            32    0.8%
 
-agreement on structurally checkable findings: 4011 / 4011 = 100.00%
+agreement on structurally checkable findings: 4003 / 4003 = 100.00%
 ```
 
 Re-run against both pinned checkouts. The population is every finding from
-both sweeps -- 3409 + 634 = 4043 -- so it moves with them: at `v2.1.0` it read
+both sweeps -- 3409 + 626 = 4035 -- so it moves with them: at `v2.1.0` it read
 3713 / 3681 and at `v2.3.0` 3721 / 3689. The eight-finding step is SVT-AV1's
 3264 becoming 3272 under rule M's control-region split, which repartitions
 thirteen findings into twenty-one; the 237 after it are rule F's nested
 multiply-add, the 13 after those its float family, and the 45 after
-those the sixteen-lane family plus the two false-positive classes removed. The 32 unchecked and the 100.00% agreement are unchanged.
+those the sixteen-lane family plus the two false-positive classes removed.
+The latest step is downward: eight fewer, VVenC's broadcast `set_*` call
+sites, withdrawn by issue #74. The 32 unchecked and the 100.00% agreement are
+unchanged.
 
 Those 237 are the reason to say what re-running the census cost. `verify.py`
 tested for a *named* product reaching the add, so it disagreed with all 237 --

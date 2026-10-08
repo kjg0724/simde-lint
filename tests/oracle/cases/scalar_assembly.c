@@ -28,6 +28,21 @@ void set_from_literals(void) {
     (void)v;
 }
 
+// One runtime value in every lane. Not all-literal, and not an assembly of
+// separate scalars either: this is a broadcast, and SIMDe compiles it to a
+// single `dup`. VVenC and VVdeC write it as `_mm_set_epi16(wT, ..., wT)`.
+void set_from_one_repeated_scalar(int w) {
+    __m128i v = _mm_set_epi32(w, w, w, w);
+    (void)v;
+}
+
+// Two distinct values, so still an assembly even though one repeats. The
+// exclusion above is every argument the same, not merely some.
+void set_from_two_values(int a, int b) {
+    __m128i v = _mm_set_epi32(a, a, a, b);
+    (void)v;
+}
+
 // The 256-bit insert family. epi16 was registered and epi32/epi64 were not,
 // with no difference in the mechanism: all three store a scalar into a lane.
 void wide_insert_chain(__m256i v, long long x, long long y, long long z) {

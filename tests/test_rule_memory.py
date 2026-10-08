@@ -48,7 +48,7 @@ def test_reports_a_vector_assembled_from_runtime_scalars(run_rule):
 
 
 def test_ignores_a_set_whose_arguments_are_all_literals(run_rule):
-    # A constant vector is not a scalar assembly, so nothing is spilled.
+    # A constant vector is not an assembly of runtime scalars.
     findings = [
         f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
         if f.function == "strided_rows"
@@ -57,9 +57,9 @@ def test_ignores_a_set_whose_arguments_are_all_literals(run_rule):
 
 
 def test_grades_b_when_not_every_argument_is_a_direct_variable(run_rule):
-    # A literal mixed among variables is still a scalar assembly -- something
-    # is spilled -- but the call is not fully resolved to variable references,
-    # so the grade drops. This is the rule's only path to B.
+    # A literal mixed among variables is still an assembly of separate
+    # values, but the call is not fully resolved to variable references, so
+    # the grade drops. This is the rule's only path to B.
     findings = [
         f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
         if f.function == "mixed_scalars"
@@ -118,3 +118,53 @@ def test_a_macro_body_regions_exactly_as_a_function_body_does(run_rule):
     ]
     assert [f.macro for f in findings] == ["BUILD_IN_MACRO"]
     assert int(re.match(r"(\d+) scalar", findings[0].rationale).group(1)) == 3
+
+def test_ignores_a_set_naming_one_expression_in_every_lane(run_rule):
+    # A broadcast. SIMDe compiles `_mm_set_epi32(w, w, w, w)` to a single
+    # `dup` on both compilers measured for issue #74, so the mechanism this
+    # rule names is not present; the two-distinct-value call in the same
+    # function holds the exclusion to every argument rather than some.
+    findings = [
+        f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
+        if f.function == "broadcasts"
+    ]
+    assert [f.line for f in findings] == [56]
+
+
+def test_excludes_a_broadcast_written_across_several_lines(run_rule):
+    # A wrapped argument list is the common spelling for the wide families.
+    # The recorded argument text carries no surrounding whitespace, so no
+    # normalization is needed for it and none is done.
+    lines = {
+        f.line for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
+        if f.function == "broadcasts"
+    }
+    assert 51 not in lines
+
+
+def test_reports_no_cost_or_replacement_for_either_mechanism(run_rule):
+    # Issue #74: both counts and the suggestion are withheld, because what
+    # they would say turns on where the operands live and on the optimizer.
+    # See docs/mechanisms.md, "What an instruction count means".
+    findings = list(run_rule(ScalarSetBuildRule(), "memory_positive.c")) + list(
+        run_rule(MemoryRule(), "memory_positive.c")
+    )
+    assert findings
+    assert all(f.simde_insns is None for f in findings)
+    assert all(f.native_insns is None for f in findings)
+    assert all(f.suggestion is None for f in findings)
+
+def test_states_how_many_arguments_are_runtime_not_how_many_there_are(run_rule):
+    # `_mm_set_epi64x(0, m5)` assembles one runtime value, not two. The
+    # rationale said two, which is a false quantitative claim about the call
+    # the finding reports, and `docs/precision/verify.py` is the one check
+    # that reads the number -- it rejects a mismatch now rather than noting
+    # it and agreeing.
+    findings = sorted(
+        (f for f in run_rule(ScalarSetBuildRule(), "memory_positive.c")
+         if f.function == "mixed_scalars"),
+        key=lambda f: f.line,
+    )
+    assert [f.intrinsic for f in findings] == ["_mm_set_epi64x", "_mm_set_epi32"]
+    assert "assembles 1 runtime scalar argument(s) of 2" in findings[0].rationale
+    assert "assembles 2 runtime scalar argument(s) of 4" in findings[1].rationale

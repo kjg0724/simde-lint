@@ -1,14 +1,20 @@
 """Type M: a vector assembled from scalars instead of a structured load.
 
-Two mechanisms live here. `MemoryRule` catches a chain of scalar inserts:
-SIMDe has no counterpart for ARM's structured and lane-wise loads, so strided
-reads become a chain of scalar inserts, each needing the value in a
-general-purpose register first, where a NEON lane load reads straight into
-the vector register. `ScalarSetBuildRule` catches a vector built in one call
-from runtime scalars (`_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`):
-SIMDe's NEON path spills each scalar to a stack array and reloads the whole
-vector, the same store-to-load round trip a lane insert or structured load
-avoids.
+Two mechanisms live here, and both report structure rather than cost.
+`MemoryRule` catches a chain of scalar inserts: SIMDe has no counterpart for
+ARM's structured and lane-wise loads, so a strided read is written as a chain
+of single-lane inserts. `ScalarSetBuildRule` catches a vector built in one
+call from runtime scalars (`_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`),
+whose NEON branch writes each argument into a local array and loads the
+vector from it.
+
+Neither carries an instruction count. Issue #74 adjudicated the recorded
+counts against SIMDe 0.8.4 by compiling each idiom: the local array is a
+candidate for scalar replacement and no compiler measured kept it, and an
+insert chain compiles to the same instructions as the lane-load chain that
+was offered as its replacement. What the cost turns on is where the operands
+live and what the optimizer does, neither of which this branch states, so
+both counts are withheld.
 
 This rule has the highest false-positive risk of the six; the chain length
 threshold is configurable through `ctx.config["memory_chain_threshold"]`.
@@ -41,6 +47,20 @@ _SCALAR_SETS = {"_mm_set_epi64x", "_mm_set_epi32", "_mm_set_epi16"}
 
 def _is_integer_literal(text: str) -> bool:
     return parse_int_literal(text) is not None
+
+
+def _is_a_broadcast(args) -> bool:
+    """Whether every argument is the same expression as written.
+
+    `_mm_set_epi32(offset, offset, offset, offset)` names one value four
+    times. Comparison is on the text exactly as recorded, which carries no
+    surrounding whitespace, so a wrapped argument list reads the same as a
+    single-line one. Nothing is normalized beyond that: two spellings of one
+    value stay two arguments, and the error that leaves -- reporting an
+    assembly where a reader sees a broadcast -- is the direction that does
+    not withdraw a finding.
+    """
+    return len({arg.text for arg in args}) == 1
 
 
 class MemoryRule:
@@ -150,9 +170,10 @@ class MemoryRule:
             **location_fields(unit),
             intrinsic=first.name,
             rationale=(
-                f"{len(calls)} scalar inserts assemble {target} between lines "
-                f"{first.line} and {last.line}; a NEON lane load chain avoids "
-                f"the general-purpose to vector register transfers ({first_cost.source})"
+                f"{len(calls)} scalar insert operations assemble {target} between "
+                f"lines {first.line} and {last.line}; consider whether a native "
+                f"load or vector-construction idiom better expresses the "
+                f"surrounding access pattern ({first_cost.source})"
             ),
             simde_insns=simde_total,
             native_insns=native_total,
@@ -183,11 +204,14 @@ class MemoryRule:
 class ScalarSetBuildRule:
     """Type M, second mechanism: a vector assembled from runtime scalars.
 
-    On NEON, SIMDe's set constructors write each scalar into a stack array and
-    reload the whole vector, so values already in general-purpose registers
-    make a round trip through memory. VVenC's LoopFilter reads strided pixel
-    rows this way, which is where the paper's LoopFilter Type M instances come
-    from.
+    On NEON, SIMDe's set constructors write each argument into a local array
+    and load the whole vector from it. That is the source idiom; it is not the
+    emitted code, and no compiler measured for issue #74 kept the array. What
+    this rule reports is the structure at the call site -- separate runtime
+    scalars assembled into one vector -- and not a cost, because the emitted
+    cost turns on argument shape and on the optimizer. VVenC's LoopFilter
+    reads strided pixel rows this way, which is where the paper's LoopFilter
+    Type M instances come from.
     """
 
     type = "M"
@@ -202,7 +226,21 @@ class ScalarSetBuildRule:
             if all(_is_integer_literal(arg.text) for arg in call.args):
                 # A constant vector, not a scalar assembly.
                 continue
+            if _is_a_broadcast(call.args):
+                # Every lane the same expression. The mechanism this rule
+                # names is assembling a vector out of separate scalars, and
+                # one value repeated is not that: SIMDe compiles
+                # `_mm_set_epi16(w, w, w, w, w, w, w, w)` to a single `dup`
+                # on both compilers measured, so there is no scalar assembly
+                # at the call site to report. The comparison is textual on
+                # purpose -- equal expressions, not equal values, which would
+                # need the propagation this rule does not do.
+                continue
             cost = ctx.knowledge.cost(self.rule_id, call.name)
+            # The count the rationale states is of runtime arguments, not of
+            # arguments: `_mm_set_epi64x(0, m5)` assembles one, and saying two
+            # was a false quantitative claim about a call the rule reports.
+            runtime = sum(1 for arg in call.args if not _is_integer_literal(arg.text))
             direct = all(arg.kind is ValueKind.VARIABLE for arg in call.args)
             simde_total = cost.simde_insns * len(call.args) if cost.simde_insns is not None else None
             native_total = (
@@ -218,10 +256,10 @@ class ScalarSetBuildRule:
                 **location_fields(unit),
                 intrinsic=call.name,
                 rationale=(
-                    f"{call.name} assembles {len(call.args)} runtime scalars into a "
-                    f"vector; SIMDe spills them to a stack array and reloads it, a "
-                    f"round trip a lane insert or structured load avoids "
-                    f"({cost.source})"
+                    f"{call.name} assembles {runtime} runtime scalar "
+                    f"argument(s) of {len(call.args)} into one vector through "
+                    f"SIMDe's set-constructor path; emitted cost depends on "
+                    f"argument shape and compiler optimization ({cost.source})"
                 ),
                 simde_insns=simde_total,
                 native_insns=native_total,

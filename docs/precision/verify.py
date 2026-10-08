@@ -242,10 +242,27 @@ def check_name_only(finding, ctx):
     five registered intrinsics; S reports every shuffle call, and grades it
     on the mask afterwards. So the claim reduces to the call being there,
     under the spelling the finding records.
+
+    R's rationale also names the intrinsic, in "implements <name> as follows",
+    and that clause was going unread while the other checks were taught to
+    read theirs. S's text names no intrinsic, so there is nothing of this kind
+    to compare there and the sentence is checked for what it does state.
+
+    Which rule this is decides whether the clause is required. Treating an
+    absent clause as nothing to compare would skip R's comparison silently
+    whenever its text changed, which is the failure this series of fixes is
+    made of; the finding says which rule it is, so R demands the clause and
+    an R rationale without one is unreadable rather than agreed.
     """
     _, by_line, _, defines = ctx
     raw = finding.get("raw_name")
     wanted = raw or finding["intrinsic"]
+    named = re.search(r"implements (\S+) as follows", finding["rationale"])
+    if finding.get("rule", "").startswith("R.") and not named:
+        return None, "claim not parsed"
+    if named and named.group(1) != finding["intrinsic"]:
+        return False, ("claims %s, the finding is %s"
+                       % (named.group(1), finding["intrinsic"]))
     if not any(c.name == wanted for c in by_line.get(finding["line"], [])):
         return False, "no call to %s at this line" % wanted
     if raw and raw != finding["intrinsic"]:
@@ -254,7 +271,8 @@ def check_name_only(finding, ctx):
         if defines.get(raw) != finding["intrinsic"]:
             return False, ("%s is called here, but no single-call #define in "
                            "this file forwards it to %s" % (raw, finding["intrinsic"]))
-        return True, "call to %s, forwarded to %s by a local #define" % (raw, wanted)
+        return True, ("call to %s, forwarded to %s by a local #define"
+                      % (raw, finding["intrinsic"]))
     return True, "call to %s present" % wanted
 
 
@@ -269,6 +287,28 @@ def _written_inside(inner, outer):
     return outer.start < inner.start and inner.end <= outer.end
 
 
+def _producer_matches(finding, name, line):
+    """Whether the producer a rationale names is the finding's own.
+
+    Every rationale opens by naming the call the finding is about and the line
+    it sits on, and every checker located that call by the `intrinsic` and
+    `line` fields instead. A number or a name stated in the output and read by
+    nobody is not a claim anything holds: the sentence could name another
+    intrinsic at another line and the census still reported agreement. Four
+    checks had this, one at a time, each found after the previous was fixed.
+    """
+    # The rationale names the resolved intrinsic, which is what `intrinsic`
+    # carries; `raw_name` is the file-local spelling the source text uses, and
+    # that is what a lookup by name needs. VVenC's `_my_cmpgt_epi64` is both
+    # at once, and comparing against the spelling made three real findings
+    # disagree.
+    if name != finding["intrinsic"]:
+        return "claims %s, the finding is %s" % (name, finding["intrinsic"])
+    if line != finding["line"]:
+        return "claims line %d, the finding is at line %d" % (line, finding["line"])
+    return None
+
+
 def check_fusion(finding, ctx):
     """F: the multiply's result reaches the add the claim names.
 
@@ -277,12 +317,17 @@ def check_fusion(finding, ctx):
     written as the operand itself.
     """
     _, by_line, _, _ = ctx
-    match = re.search(r"at line (\d+) reaches (\S+) at line (\d+)", finding["rationale"])
+    match = re.search(r"(\S+) at line (\d+) reaches (\S+) at line (\d+)",
+                      finding["rationale"])
     if not match:
         return None, "claim not parsed"
-    add_name, add_line = match.group(2), int(match.group(3))
-    muls = [c for c in by_line.get(finding["line"], [])
-            if c.name == (finding.get("raw_name") or finding["intrinsic"])]
+    mul_name, mul_line, add_name, add_line = (match.group(1), int(match.group(2)),
+                                              match.group(3), int(match.group(4)))
+    wrong = _producer_matches(finding, mul_name, mul_line)
+    if wrong:
+        return False, wrong
+    spelling = finding.get("raw_name") or finding["intrinsic"]
+    muls = [c for c in by_line.get(mul_line, []) if c.name == spelling]
     if not muls:
         return False, "no multiply at this line"
     adds = [c for c in by_line.get(add_line, []) if c.name == add_name]
@@ -291,6 +336,12 @@ def check_fusion(finding, ctx):
     hop = re.search(r"through (\S+) at line (\d+)", finding["rationale"])
     hops = ([c for c in by_line.get(int(hop.group(2)), []) if c.name == hop.group(1)]
             if hop else [])
+    # A claimed hop is checked whether or not the direct relation also holds.
+    # Returning agreement from a direct branch first left a rationale free to
+    # name a widening conversion that is not there.
+    if hop and not hops:
+        return False, "no %s at line %s, which the claim names as the hop" % (
+            hop.group(1), hop.group(2))
 
     for mul in muls:
         if mul.target and any(_uses(a, mul.target) for a in adds):
@@ -311,37 +362,59 @@ def check_fusion(finding, ctx):
 def check_widening(finding, ctx):
     """W: mullo and mulhi share operands and both feed the unpack."""
     _, by_line, _, _ = ctx
+    # Three rationale forms, one claim about where the three calls are. The
+    # grade-C forms say "feed ... but ..." where the A form says "share
+    # operands and feed"; parsing only the latter reported the others
+    # unreadable and left their names and lines unchecked.
     match = re.search(
-        r"at line (\d+) and (\S+) at line (\d+) share operands and feed (\S+) at line (\d+)",
+        r"(\S+) at line (\d+) and (\S+) at line (\d+) "
+        r"(?:share operands and )?feed (\S+) at line (\d+)",
         finding["rationale"])
     if not match:
         return None, "claim not parsed"
-    hi_name, hi_line = match.group(2), int(match.group(3))
-    unpack_name, unpack_line = match.group(4), int(match.group(5))
-    los = [c for c in by_line.get(finding["line"], []) if c.name == finding["intrinsic"]]
+    lo_name, lo_line, hi_name, hi_line = (match.group(1), int(match.group(2)),
+                                          match.group(3), int(match.group(4)))
+    unpack_name, unpack_line = match.group(5), int(match.group(6))
+    wrong = _producer_matches(finding, lo_name, lo_line)
+    if wrong:
+        return False, wrong
+    shares = "share operands and feed" in finding["rationale"]
+    spelling = finding.get("raw_name") or finding["intrinsic"]
+    los = [c for c in by_line.get(lo_line, []) if c.name == spelling]
     his = [c for c in by_line.get(hi_line, []) if c.name == hi_name]
     unpacks = [c for c in by_line.get(unpack_line, []) if c.name == unpack_name]
     if not (los and his and unpacks):
         return False, "one of the three calls is not where the claim puts it"
     for lo in los:
         for hi in his:
-            if lo.args != hi.args:
+            # The A form claims the operands are shared; the two C forms claim
+            # only that both halves feed the consumer, which is the relation
+            # their own text asserts.
+            if shares and lo.args != hi.args:
                 continue
             for unpack in unpacks:
                 if _uses(unpack, lo.target) and _uses(unpack, hi.target):
-                    return True, "shared operands %s, both feed %s" % (lo.args, unpack_name)
-    return False, "operands differ, or the unpack does not take both results"
+                    return True, ("shared operands %s, both feed %s" % (lo.args, unpack_name)
+                                  if shares else "both halves feed %s" % unpack_name)
+    return False, ("operands differ, or the unpack does not take both results"
+                   if shares else "the consumer does not take both halves")
 
 
 def check_pipeline(finding, ctx):
     """P: the compare's result is consumed by the next call, nothing between."""
     calls, by_line, _, _ = ctx
-    match = re.search(r"is consumed by (\S+) at line (\d+)", finding["rationale"])
+    match = re.search(
+        r"(\S+) at line (\d+) is consumed by (\S+) at line (\d+)",
+        finding["rationale"])
     if not match:
         return None, "claim not parsed"
-    use_name, use_line = match.group(1), int(match.group(2))
-    cmps = [c for c in by_line.get(finding["line"], [])
-            if c.name == (finding.get("raw_name") or finding["intrinsic"])]
+    cmp_name, cmp_line = match.group(1), int(match.group(2))
+    use_name, use_line = match.group(3), int(match.group(4))
+    wrong = _producer_matches(finding, cmp_name, cmp_line)
+    if wrong:
+        return False, wrong
+    spelling = finding.get("raw_name") or finding["intrinsic"]
+    cmps = [c for c in by_line.get(cmp_line, []) if c.name == spelling]
     uses = [c for c in by_line.get(use_line, []) if c.name == use_name]
     if not (cmps and uses):
         return False, "compare or consumer is not where the claim puts it"
@@ -367,8 +440,9 @@ def check_insert_chain(finding, ctx):
     different chains however adjacent they are in the source.
     """
     calls, _, _, _ = ctx
-    match = re.search(r"(\d+) scalar inserts assemble (\S+) between lines (\d+) and (\d+)",
-                      finding["rationale"])
+    match = re.search(
+        r"(\d+) scalar insert operations assemble (\S+) between lines (\d+) and (\d+)",
+        finding["rationale"])
     if not match:
         return None, "claim not parsed"
     claimed, name, first, last = (int(match.group(1)), match.group(2),
@@ -385,34 +459,68 @@ def check_insert_chain(finding, ctx):
             runs[call.target] += 1
     if not runs:
         return False, "no inserts on %s in that span" % name
-    longest = max(runs.values())
     threshold = 3
-    if longest < threshold:
-        return False, ("claimed %d on %s, but they split across %s -- longest single "
-                       "target is %d, below the threshold of %d"
-                       % (claimed, name, dict(runs), longest, threshold))
+    # Everything below is about the target the claim names. Taking the longest
+    # run in the span instead let a span with two inserts on `dd[0]` and three
+    # on `dd[1]` satisfy a claim of two on `dd[0]`: the threshold was met by
+    # the other target's run, and `dd[0]` is not a chain the rule may report.
+    counted = runs.get(name)
+    if counted is None:
+        return False, ("claims %d on %s, which has no inserts of its own in that "
+                       "span; the span holds %s" % (claimed, name, dict(runs)))
+    if counted < threshold:
+        return False, ("claims %d on %s, which has %d inserts of its own, below "
+                       "the threshold of %d; the span holds %s"
+                       % (claimed, name, counted, threshold, dict(runs)))
+    # The claim is a number as well as a shape. Parsing it and returning
+    # agreement regardless left the count unchecked by the one check that
+    # reads it -- the same defect the set-build counts had.
+    if claimed != counted:
+        return False, ("claims %d inserts on %s, counted %d" % (claimed, name, counted))
     if len(runs) > 1:
-        return True, ("chain present on %s, though the claimed %d spans %s"
-                      % (max(runs, key=runs.get), claimed, dict(runs)))
-    return True, "%d inserts on %s" % (longest, next(iter(runs)))
+        return True, ("%d inserts on %s, though the span also holds %s"
+                      % (counted, name, dict(runs)))
+    return True, "%d inserts on %s" % (counted, name)
 
 
 def check_set_build(finding, ctx):
-    """M build: a set_epi* whose operands are runtime values, not literals."""
+    """M build: a set_epi* over runtime values, not literals and not a broadcast.
+
+    The broadcast half is the exclusion issue #74 added: one value named in
+    every lane is a `dup`, not an assembly of separate scalars. Equality is
+    textual here as it is in the rule, so this checks the same claim rather
+    than a stronger one.
+    """
     _, by_line, _, _ = ctx
     builds = [c for c in by_line.get(finding["line"], [])
               if c.name == (finding.get("raw_name") or finding["intrinsic"])]
     if not builds:
         return False, "no %s at this line" % finding["intrinsic"]
+    # The claim is read out of the rationale, so a prose change must surface
+    # here rather than quietly drop the cross-check: an unparsed claim is
+    # unreadable, not agreement.
+    claimed = re.search(
+        r"(\S+) assembles (\d+) runtime scalar argument\(s\) of (\d+)",
+        finding["rationale"])
+    if not claimed:
+        return None, "claim not parsed"
+    if claimed.group(1) != finding["intrinsic"]:
+        return False, ("claims %s, the finding is %s"
+                       % (claimed.group(1), finding["intrinsic"]))
     for build in builds:
         runtime = [a for a in build.args if not INT_LITERAL.match(a)]
-        if runtime:
-            claimed = re.search(r"assembles (\d+) runtime scalars", finding["rationale"])
-            if claimed and int(claimed.group(1)) != len(runtime):
-                return True, ("built from runtime scalars, though %s of the %s operands "
-                              "are literals" % (len(build.args) - len(runtime),
-                                                len(build.args)))
-            return True, "%d runtime operands" % len(runtime)
+        if not runtime:
+            continue
+        if len(set(build.args)) == 1:
+            return False, "every operand is the same expression -- a broadcast"
+        # A wrong count is a disagreement. This used to report the mismatch
+        # and return agreement anyway, which left the claim unchecked by the
+        # one check that reads it.
+        if (int(claimed.group(2)), int(claimed.group(3))) != (len(runtime), len(build.args)):
+            return False, ("claims %s runtime of %s, counted %d of %d"
+                           % (claimed.group(2), claimed.group(3),
+                              len(runtime), len(build.args)))
+        return True, "%d runtime of %d operands" % (len(runtime), len(build.args))
     return False, "every operand is a literal"
 
 

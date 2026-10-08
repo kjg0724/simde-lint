@@ -205,6 +205,165 @@ faults:
     replace: "                if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
 
+  - name: census-tests-the-threshold-against-another-target
+    issue: 74
+    why: >-
+      The chain threshold is about the target the claim names. Testing it
+      against the longest run in the span let two inserts on `dd[0]` pass
+      because `dd[1]` happened to have three, and `dd[0]` is not a chain the
+      rule may report. Found by review after the count comparison was added
+      beside it.
+    file: docs/precision/verify.py
+    find: "    if counted < threshold:"
+    replace: "    if max(runs.values()) < threshold:"
+    kills: "tests/test_precision_count_claims.py::test_a_claim_on_a_target_below_the_threshold_is_a_disagreement"
+
+  - name: census-skips-rule-rs-clause-when-it-is-absent
+    issue: 74
+    why: >-
+      Comparing the clause only when it parses loses the comparison silently
+      the next time R's text changes, which is how every defect in this
+      series behaved: the check was present, the claim was parsed, and the
+      verdict did not depend on it. R demands the clause; S has none.
+    file: docs/precision/verify.py
+    find: "    if finding.get(\"rule\", \"\").startswith(\"R.\") and not named:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_an_r_rationale_without_its_clause_is_unreadable"
+
+  - name: census-ignores-the-intrinsic-rule-r-names
+    issue: 74
+    why: >-
+      R's rationale names the intrinsic in "implements <name> as follows" and
+      `check_name_only` read none of its text, so the clause could name
+      another intrinsic entirely while the call lookup still found the call
+      that really is there. Found by review after the same hole was closed in
+      F, W, P and the set build.
+    file: docs/precision/verify.py
+    find: "    if named and named.group(1) != finding[\"intrinsic\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_redundant_claim_naming_another_intrinsic_is_a_disagreement"
+
+  - name: census-ignores-a-claims-producer-line
+    issue: 74
+    why: >-
+      Every rationale opens by naming the call the finding is about and the
+      line it sits on, and F, W, P and the set build all located that call by
+      the `intrinsic` and `line` fields instead, so the sentence was free to
+      name any line and still agree. Review found the four one at a time,
+      each after the previous was fixed.
+    file: docs/precision/verify.py
+    find: "    if line != finding[\"line\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_fusion_claim_naming_another_line_is_a_disagreement"
+
+  - name: census-ignores-a-claims-producer-name
+    issue: 74
+    why: >-
+      The other half of the same sentence. A rationale naming another
+      intrinsic entirely still agreed.
+    file: docs/precision/verify.py
+    find: "    if name != finding[\"intrinsic\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_pipeline_claim_naming_another_producer_is_a_disagreement"
+
+  - name: census-compares-a-claim-against-the-source-spelling
+    issue: 74
+    why: >-
+      The rationale names the resolved intrinsic; `raw_name` is the
+      file-local spelling the source uses, and the call lookup needs that
+      one. Comparing the claim against the spelling instead made three real
+      VVenC findings disagree, `_my_cmpgt_epi64` against the
+      `_mm_cmpgt_epi64` its rationale names.
+    file: docs/precision/verify.py
+    find: "    if name != finding[\"intrinsic\"]:"
+    replace: "    if name != (finding.get(\"raw_name\") or finding[\"intrinsic\"]):"
+    kills: "tests/test_precision_count_claims.py::test_a_macro_aliased_producer_is_compared_by_its_resolved_name"
+
+  - name: census-skips-a-claimed-hop-when-the-direct-path-holds
+    issue: 74
+    why: >-
+      `check_fusion` parses the optional hop and returned agreement from the
+      direct producer-to-add branches before examining it, so a rationale
+      could name a widening conversion that is not there.
+    file: docs/precision/verify.py
+    find: "    if hop and not hops:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_fusion_claim_naming_a_hop_that_is_absent_is_a_disagreement"
+
+  - name: census-reads-only-rule-w-grade-a-rationale
+    issue: 74
+    why: >-
+      Rule W has three rationale forms and the checker parsed one. The two
+      grade-C forms say "feed ... but ..." where the A form says "share
+      operands and feed", so those findings were reported unreadable and
+      their names and lines went unchecked.
+    file: docs/precision/verify.py
+    find: "        r\"(?:share operands and )?feed (\\S+) at line (\\d+)\","
+    replace: "        r\"share operands and feed (\\S+) at line (\\d+)\","
+    kills: "tests/test_precision_count_claims.py::test_a_widening_grade_c_claim_is_read_rather_than_skipped"
+
+  - name: census-ignores-the-set-claims-intrinsic-name
+    issue: 74
+    why: >-
+      The set-build rationale names the intrinsic it is about, and the check
+      read the two numbers after it without reading it.
+    file: docs/precision/verify.py
+    find: "    if claimed.group(1) != finding[\"intrinsic\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_set_claim_naming_another_intrinsic_is_a_disagreement"
+
+  - name: census-reads-the-insert-count-without-comparing-it
+    issue: 74
+    why: >-
+      `check_insert_chain` parses the number of inserts out of the rationale
+      and both of its agreement paths returned true regardless, so the one
+      check that reads that number could not reject a wrong one and a census
+      at 100% said nothing about it. Found by review after the same defect was
+      fixed on the set-build side; correct corpus output never reaches the
+      branch, which is why the test writes the rationale false on purpose.
+    file: docs/precision/verify.py
+    find: "    if claimed != counted:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_wrong_insert_count_is_a_disagreement"
+
+  - name: census-reads-the-runtime-count-without-comparing-it
+    issue: 74
+    why: >-
+      The same on the set-build side, where the original form reported the
+      mismatch in its explanation and returned agreement anyway -- an
+      explanation nothing reads is not a check.
+    file: docs/precision/verify.py
+    find: "        if (int(claimed.group(2)), int(claimed.group(3))) != (len(runtime), len(build.args)):"
+    replace: "        if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_wrong_runtime_count_is_a_disagreement"
+
+  - name: set-build-counts-arguments-as-runtime-values
+    issue: 74
+    why: >-
+      The rationale states how many of a call's arguments are runtime values.
+      Reporting the argument count instead says `_mm_set_epi64x(0, m5)`
+      assembles two, which is false, and the mismatch reached review because
+      the independent checker that reads the number reported it and returned
+      agreement anyway.
+    file: src/simde_lint/rules/memory.py
+    find: "            runtime = sum(1 for arg in call.args if not _is_integer_literal(arg.text))"
+    replace: "            runtime = len(call.args)"
+    kills: "tests/test_rule_memory.py::test_states_how_many_arguments_are_runtime_not_how_many_there_are"
+
+  - name: set-build-reports-a-broadcast
+    issue: 74
+    why: >-
+      `_mm_set_epi16(wT, wT, wT, wT, wT, wT, wT, wT)` names one value in every
+      lane. SIMDe compiles it to a single `dup` under Apple clang 21 and GCC
+      13.5, so there is no scalar assembly at the call site, and the chain of
+      lane inserts this rule used to suggest is nine instructions under GCC.
+      Fourteen findings were of this shape in VVenC and VVdeC, twelve of them
+      grade A. See docs/precision/cost-adjudication/.
+    file: src/simde_lint/rules/memory.py
+    find: "            if _is_a_broadcast(call.args):"
+    replace: "            if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[scalar_assembly.c]"
+
   - name: mask-initializer-taken-for-a-writable-array
     issue: null
     why: >-

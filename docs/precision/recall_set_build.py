@@ -6,13 +6,15 @@ and W turn on structure, so their ground truth was said to need judgement.
 
 That is true of three of the four mechanisms. `M.scalar_set_build` is the
 exception: its description is "`_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16`
-assembling a vector from runtime scalars, all-literal calls excluded as
-constant vectors". Both halves are decidable from the text of the call, so a
-ground truth can be enumerated here and compared.
+assembling a vector from runtime scalars, excluding calls whose arguments are
+all literals, which are constant vectors, and calls naming one expression in
+every lane, which are broadcasts". All three parts are decidable from the text
+of the call, so a ground truth can be enumerated here and compared.
 
 This file imports no `simde_lint`. It finds the calls with a regular
-expression and classifies each argument list by whether anything in it is not
-a literal, then prints the count a correct implementation must report.
+expression and classifies each argument list -- whether anything in it is not
+a literal, and whether every argument reads the same -- then prints the count
+a correct implementation must report.
 
     uv run python3 docs/precision/recall_set_build.py <root>...
 """
@@ -60,8 +62,22 @@ def _argument_text(text, start):
     return "".join(out)
 
 
+def _is_a_broadcast(args):
+    """Whether the argument list names one expression in every lane.
+
+    The rule's description excludes these: one value repeated is a `dup`, not
+    a vector assembled out of separate scalars. Equality is textual, as it is
+    in the description -- two spellings of one value are two arguments to both
+    of us. Splitting on commas is enough because a set call's arguments are
+    scalars; a comma inside one would be inside brackets, and none of the 124
+    call sites in these two trees has one.
+    """
+    parts = [" ".join(part.split()) for part in args.split(",")]
+    return len(parts) > 1 and len(set(parts)) == 1
+
+
 def enumerate_sites(roots):
-    every, runtime = 0, []
+    every, runtime, broadcast = 0, [], 0
     for root in roots:
         for base, _, files in os.walk(root):
             for name in sorted(files):
@@ -73,10 +89,14 @@ def enumerate_sites(roots):
                 for match in CALL.finditer(text):
                     every += 1
                     args = _argument_text(text, match.end() - 1)
-                    if not _is_literal_only(args):
-                        line = text.count("\n", 0, match.start()) + 1
-                        runtime.append((path, line))
-    return every, runtime
+                    if _is_literal_only(args):
+                        continue
+                    if _is_a_broadcast(args):
+                        broadcast += 1
+                        continue
+                    line = text.count("\n", 0, match.start()) + 1
+                    runtime.append((path, line))
+    return every, runtime, broadcast
 
 
 def main():
@@ -84,10 +104,11 @@ def main():
     if not roots:
         print(__doc__.strip().splitlines()[-1].strip())
         return 1
-    every, runtime = enumerate_sites(roots)
+    every, runtime, broadcast = enumerate_sites(roots)
     print("set_epi64x/32/16 call sites:        %d" % every)
     print("assembled from runtime scalars:     %d  <- enumerated population" % len(runtime))
-    print("all-literal (constant vectors):     %d" % (every - len(runtime)))
+    print("one value in every lane (dup):      %d" % broadcast)
+    print("all-literal (constant vectors):     %d" % (every - len(runtime) - broadcast))
     print()
     for name, count in Counter(os.path.basename(p) for p, _ in runtime).most_common():
         print("  %5d  %s" % (count, name))

@@ -564,13 +564,18 @@ def test_current_vvenc_aggregates_hold_at_the_pinned_revision():
         _corpus_drifted(f"checkout is {head[:12]}, figures were measured at {_PINNED['vvenc'][:12]}")
     findings, _, _ = analyze([VVENC_X86])
     assert _aggregate(findings) == {
-        "total": 634,
+        "total": 626,
         # F more than doubles, 135 to 279. VVenC's adaptive loop filter writes
         # its accumulator as `accum = _mm_add_epi32(accum, _mm_madd_epi16(..))`
         # throughout, and every one of those was invisible while rule F
         # required a named product.
         # F gains the twelve float pairs; VVenC's film-grain analysis
         # evaluates two Horner polynomials, which is what FMA is for.
-        "type": {"S": 164, "F": 306, "R": 106, "M": 23, "W": 31, "P": 4},
-        "evidence": {"A": 131, "B": 87, "C": 416},
+        #
+        # M drops 23 to 15: issue #74 excluded calls naming one expression in
+        # every lane, which `IntraPredX86.h` writes eight times as
+        # `_mm_set_epi16(wT, ..., wT)`. SIMDe compiles that to a single `dup`,
+        # so the mechanism is not there; seven of the eight were grade A.
+        "type": {"S": 164, "F": 306, "R": 106, "M": 15, "W": 31, "P": 4},
+        "evidence": {"A": 124, "B": 86, "C": 416},
     }

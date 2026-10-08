@@ -1,5 +1,133 @@
 # Changelog
 
+## 2.8.0 - 2026-10-08
+
+### Rule M reports structure and no longer reports a cost
+
+Issue #74 asked whether rule M's recorded per-element instruction counts hold
+against the SIMDe source. They do not, and the reason generalises: a count
+read off a header's idiom is not a count of instructions.
+
+The adjudication compiled each idiom at `-O2` and `-O3` with Apple clang 21
+and GCC 13.5 on aarch64 and counted the emitted function bodies
+(`docs/precision/cost-adjudication/` holds the sources and how to re-run
+them). Two findings decided it:
+
+- The set constructors' NEON branch writes each argument into a local array
+  and loads the vector from it. No measured case kept the array. clang folds
+  every argument into a lane load; GCC loads into FP registers and moves into
+  lanes. The recorded note described a trip through memory that neither
+  compiler performs.
+- An insert chain over scalars in memory compiles to the same instructions as
+  the lane-load chain that was offered as its replacement -- byte-identical in
+  both compilers for a four-lane `int32` chain. With the scalar already in a
+  register the chain is one instruction per lane and a lane load does not
+  apply at all.
+
+So `simde_insns`, `native_insns` and `suggestion` are withheld for every rule
+M entry. `docs/mechanisms.md` now states what a count means: emitted
+target-machine instructions for the complete matched idiom, and `unknown`
+wherever that depends on operand residence, on what the optimizer does with a
+local array, or on the compiler. `_mm_shuffle_epi8`'s 3 to 1 survives because
+its branch is a single expression whose three operations are all explicit.
+
+`_mm_insert_epi64`'s entry was also factually wrong: it said there was no
+lane-insert branch, citing `x86/sse4.1.h:1619`, which is inside the
+`SIMDE_BUG_GCC_94482` fallback body. The branch is a `vsetq_lane_s64` macro at
+line 1639. Its costs stay unknown for the reason above, not for the reason
+recorded.
+
+### A broadcast is not a vector assembled from scalars
+
+`_mm_set_epi16(wT, wT, wT, wT, wT, wT, wT, wT)` names one value in every lane.
+SIMDe compiles it to a single `dup` under both compilers measured, so there is
+no scalar assembly at that call site to report -- and the lane-insert chain
+the rule used to name is nine instructions under GCC, against the one SIMDe
+already emits. `M.scalar_set_build` now excludes calls whose arguments are all
+the same expression, alongside the all-literal exclusion it already had.
+Equality is textual, which is the test the rule can make; deciding it by value
+would need the propagation this rule deliberately does not do.
+
+Fourteen findings are withdrawn, twelve of them grade A: eight in VVenC
+(`IntraPredX86.h`) and six in the VVdeC holdout. VVenC's sweep goes 634 to
+626 and the holdout's 609 to 603; SVT-AV1 has no call site of this shape and
+does not move. VVdeC now reports no grade-A rule M finding at all.
+
+### Two figures that had gone stale
+
+The per-module table in `docs/verification.md` said re-running its commands
+reproduced every cell with no changes. It did not: `QuantX86.h` W read 4 and
+is 6, and `FGAX86.h` F read 0 and is 11, both since `v2.4.0` registered the
+float families. Only DepQuant's row is pinned by a test, which is why the
+other four went stale unnoticed. The same section recorded the VVenC sweep
+total as 614 while its own per-type and evidence rows both summed to 634.
+
+### The oracle's cost contract
+
+`costs_reported` used to mean "the expansion has a NEON branch". A branch
+establishes that native code exists, not that a count is readable -- SIMDe's
+set constructors have one and still have no derivable count. The test is now
+whether both counts are derivable for the complete idiom without assuming
+operand residence or optimizer behaviour, and the rule M rows move to
+`costs_withheld` under it. `output.costs_adjudicated_for_chains`, the known
+gap issue #74 was opened against, is closed by being answered rather than by
+being filled: the numbers it asked for are not derivable.
+
+### Tests
+
+**The set-build rationale now says how many arguments are runtime values**,
+not how many there are. `_mm_set_epi64x(0, m5)` assembles one, and the text
+said two.
+
+**The structural claim each rationale states is now read back and compared.**
+None of it was. Four rationale forms -- F's, W's, P's and the set build's --
+open by naming the call the finding is about and the line it sits on, and all
+four checks that parse that sentence located the call by the `intrinsic` and
+`line` fields instead, so a rationale could name another intrinsic at another
+line and the census still reported agreement. R names its intrinsic in a
+clause of its own, "implements <name> as follows", which went unread the same
+way; S's text names none, so there is nothing of this kind to compare there.
+The rest of each sentence -- the SIMDe version it quotes, the header line it
+cites, the prose explaining the mechanism -- is not checked here and is not
+claimed to be. The counts were the same: the insert count and the
+runtime-argument count were parsed and ignored, and the set-build check
+reported the mismatch in its own explanation before agreeing. Rule W's
+checker parsed one of three rationale forms, so its two grade-C forms were
+reported unreadable rather than checked. Rule F's optional hop was examined
+only after the direct branches had already agreed, so a rationale could name
+a widening conversion that is not there. And the insert check tested the
+rule's threshold against the longest run in the span rather than the claimed
+target's own, so two inserts on `dd[0]` passed whenever `dd[1]` had three.
+
+One distinction the fix needs: a rationale names the resolved intrinsic while
+the source text spells whatever a file-local `#define` calls it, so the claim
+is compared against `intrinsic` and the call is located by `raw_name`.
+Comparing against the spelling made three real VVenC findings disagree,
+`_my_cmpgt_epi64` against the `_mm_cmpgt_epi64` its own rationale names --
+which is the measurement that found the distinction.
+
+Correct corpus output cannot reach a rejection branch, so
+`tests/test_precision_count_claims.py` writes the rationale false on purpose:
+27 tests, with a mutation for each comparison. Review found these one at a
+time, each after the previous was fixed, which is the shape this project's
+review history keeps taking -- the assertion added to catch a defect is where
+the next one hides.
+
+`docs/precision/verify.py` reads the structural claim out of the rationale
+for the five rules whose text states one, so the rewording broke two
+parsers. One failed loudly -- 37 insert-chain
+findings became unreadable and the census said so -- and one failed silently:
+`check_set_build` fell back to agreeing without its count cross-check. It now
+returns unreadable when the claim does not parse, so the next prose change
+surfaces instead of quietly weakening the check. `recall_set_build.py`
+enumerates the broadcast exclusion too, independently; it and the tool agree
+site for site at 29 / 15 / 2.
+
+The fault catalogue grew from 28 to 41 mutations, and one guard was removed
+rather than kept: normalizing whitespace inside a broadcast's arguments could
+not be killed by any mutation, because the recorded argument text carries no
+surrounding whitespace in the first place.
+
 ## 2.7.0 - 2026-10-08
 
 ### Six grade-A findings were unsound, and one of them cost recall to fix

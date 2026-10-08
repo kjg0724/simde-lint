@@ -332,7 +332,7 @@ reduced to one "primary" type.
 | `W.mul16_widen_roundtrip` | W | `_mm_mullo_epi16` + `_mm_mulhi_epi16` over the same operands consumed by `_mm_unpacklo_epi16`/`_mm_unpackhi_epi16`, within one unit -- one finding per consuming unpack, so a pair rebuilding all eight lanes is two | {A, B} || Any other missing-widening-multiply shape (e.g. 32-bit lanes, cross-function operand flow) |
 | `F.mul_add_no_fuse` | F | `mullo`/`madd`/`mul_epi32`/`mul_ps` (128- and 256-bit) reaching an `add_epi16`/`add_epi32`/`add_epi64`/`add_ps` of matching element kind and lane width, directly, as its operand, or through one widening conversion hop | {A, B, C} || Widening-accumulate chains where the product itself has no x86 multiply intrinsic to anchor on (e.g. `_mm_cvtepi32_epi64` → `_mm_add_epi64` with no preceding multiply call) |
 | `M.scalar_insert_chain` | M | A same-target chain of `_mm_insert_epi16/epi32/epi64`/`_mm256_insert_epi16` at or above a configurable threshold (default 3) | {A, B} || The `_mm_cvtsi32_si128` + unpack variant of the same mechanism; stride-pointer loop forms |
-| `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (all-literal calls excluded as constant vectors, not scalar assembly) | {A, B} || The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
+| `M.scalar_set_build` | M | `_mm_set_epi64x`/`_mm_set_epi32`/`_mm_set_epi16` assembling a vector from runtime scalars (two exclusions: all-literal calls, which are constant vectors, and calls naming one expression in every lane, which are broadcasts) | {A, B} || The remaining `set`/`setr` families beyond these three; dataflow reasoning about where the scalars originally came from |
 | `P.cmp_immediate_use` | P | A `cmpgt_*`/`cmpeq_*` result (macro aliases included, e.g. VVenC's `_my_cmpgt_epi64`) consumed by the very next call in source order | {A} always || Anything beyond adjacency in source text -- source order is an explicit, documented approximation of scheduling order, not a claim about compiler output |
 
 Type M is the one taxonomy type with two implemented mechanisms in v1.
@@ -394,9 +394,15 @@ Cross-cutting limits that apply to every rule, not just one:
   in `knowledge/*.yaml` is read from the SIMDe source and cites the file and
   line it came from; nothing is guessed. Extending coverage means adding
   entries, not writing new matching logic -- see CONTRIBUTING.md.
-- **Counts are tied to SIMDe 0.8.4.** Every `simde_insns`/`native_insns`
-  figure was read from that version's expansion; a newer SIMDe release could
-  change the instruction count without changing whether the pattern exists.
+- **Counts are tied to SIMDe 0.8.4, and a count is withheld where it is not
+  derivable.** `simde_insns` and `native_insns` are emitted target-machine
+  instructions for the complete matched idiom. Where that depends on where an
+  operand lives, on what the optimizer does with a local array, or on which
+  compiler is used, the finding reports no count and names no replacement --
+  rule M is entirely in that state after issue #74, which measured the
+  recorded numbers against two compilers and found them not derivable (see
+  `docs/precision/cost-adjudication/`). A newer SIMDe release could change
+  what is derivable without changing whether a pattern exists.
 - **The tool has no ARM build awareness.** It reports x86 intrinsic call
   sites in whatever files it's pointed at -- it does not know whether a given
   file is actually compiled for the ARM/SIMDe path, an x86-native path, or
