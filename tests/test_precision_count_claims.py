@@ -189,7 +189,7 @@ def test_a_fusion_claim_naming_another_line_is_a_disagreement(tmp_path):
     module, ctx = _ctx(_module(), tmp_path, _FUSION, "fuse.c")
     ok, why = module.check_fusion(_fusion_claim(99), ctx)
     assert ok is False
-    assert "claims the multiply at line 99" in why
+    assert "claims line 99, the finding is at line 3" in why
 
 
 def test_a_fusion_claim_naming_its_own_line_agrees(tmp_path):
@@ -223,10 +223,138 @@ def test_a_widening_claim_naming_another_line_is_a_disagreement(tmp_path):
     module, ctx = _ctx(_module(), tmp_path, _WIDENING, "widen.c")
     ok, why = module.check_widening(_widening_claim(99), ctx)
     assert ok is False
-    assert "claims the low multiply at line 99" in why
+    assert "claims line 99, the finding is at line 3" in why
 
 
 def test_a_widening_claim_naming_its_own_line_agrees(tmp_path):
     module, ctx = _ctx(_module(), tmp_path, _WIDENING, "widen.c")
     ok, why = module.check_widening(_widening_claim(3), ctx)
     assert ok is True, why
+
+_PIPELINE = b"""
+void r(__m128i u, __m128i v) {
+    __m128i m = _mm_cmpgt_epi64(u, v);
+    __m128i s = _mm_blendv_epi8(u, v, m);
+    (void)s;
+}
+"""
+
+_ALIASED = b"""
+#define _my_cmpgt_epi64(a, b) _mm_cmpgt_epi64((a), (b))
+void t(__m128i u, __m128i v) {
+    __m128i m = _my_cmpgt_epi64(u, v);
+    __m128i s = _mm_blendv_epi8(u, v, m);
+    (void)s;
+}
+"""
+
+
+def _pipeline_claim(cmp_name="_mm_cmpgt_epi64", cmp_line=3, intrinsic=None, raw=None):
+    claim = {
+        "line": cmp_line if intrinsic is None else 4,
+        "intrinsic": intrinsic or "_mm_cmpgt_epi64",
+        "rationale": (
+            f"{cmp_name} at line {cmp_line} is consumed by _mm_blendv_epi8 at "
+            f"line {cmp_line + 1} with no independent work between them; source "
+            f"order approximates scheduling order (x86/sse4.2.h:1)"
+        ),
+    }
+    if raw:
+        claim["raw_name"] = raw
+    return claim
+
+
+def test_a_pipeline_claim_naming_another_producer_is_a_disagreement(tmp_path):
+    # P's rationale states the compare and its line, and the checker read
+    # only the consumer half of the sentence.
+    module, ctx = _ctx(_module(), tmp_path, _PIPELINE, "pipe.c")
+    ok, why = module.check_pipeline(_pipeline_claim(cmp_name="_mm_cmpeq_epi64"), ctx)
+    assert ok is False
+    assert "claims _mm_cmpeq_epi64" in why
+
+
+def test_a_pipeline_claim_naming_another_line_is_a_disagreement(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _PIPELINE, "pipe.c")
+    claim = _pipeline_claim()
+    claim["line"] = 9
+    ok, why = module.check_pipeline(claim, ctx)
+    assert ok is False
+    assert "claims line 3" in why
+
+
+def test_a_pipeline_claim_naming_its_own_producer_agrees(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _PIPELINE, "pipe.c")
+    ok, why = module.check_pipeline(_pipeline_claim(), ctx)
+    assert ok is True, why
+
+
+def test_a_macro_aliased_producer_is_compared_by_its_resolved_name(tmp_path):
+    # The rationale names the resolved intrinsic and the source text spells
+    # the file-local alias. Comparing the claim against the spelling made
+    # three real VVenC findings disagree; the lookup still needs the spelling.
+    module, ctx = _ctx(_module(), tmp_path, _ALIASED, "alias.c")
+    claim = _pipeline_claim(cmp_line=4)
+    claim["raw_name"] = "_my_cmpgt_epi64"
+    ok, why = module.check_pipeline(claim, ctx)
+    assert ok is True, why
+
+
+def test_a_fusion_claim_naming_another_producer_is_a_disagreement(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _FUSION, "fuse.c")
+    claim = _fusion_claim(3)
+    claim["rationale"] = claim["rationale"].replace(
+        "_mm_mullo_epi32 at line", "_mm_mullo_epi16 at line", 1)
+    ok, why = module.check_fusion(claim, ctx)
+    assert ok is False
+    assert "claims _mm_mullo_epi16" in why
+
+
+def test_a_fusion_claim_naming_a_hop_that_is_absent_is_a_disagreement(tmp_path):
+    # The hop is optional in the sentence and was examined only after the
+    # direct branches had already returned agreement.
+    module, ctx = _ctx(_module(), tmp_path, _FUSION, "fuse.c")
+    claim = _fusion_claim(3)
+    # The hop phrase the rule appends, with a line nothing is on.
+    claim["rationale"] = claim["rationale"].replace(
+        "at line 4;", "at line 4 through _mm_cvtepi16_epi32 at line 99;", 1)
+    ok, why = module.check_fusion(claim, ctx)
+    assert ok is False
+    assert "the hop" in why
+
+
+def test_a_widening_grade_c_claim_is_read_rather_than_skipped(tmp_path):
+    # The two C forms say "feed ... but ..." where the A form says "share
+    # operands and feed". Parsing only the A form reported the others
+    # unreadable, so their names and lines went unchecked.
+    module, ctx = _ctx(_module(), tmp_path, _WIDENING, "widen.c")
+    claim = _widening_claim(3)
+    claim["rationale"] = (
+        "_mm_mullo_epi16 at line 3 and _mm_mulhi_epi16 at line 4 feed "
+        "_mm_unpacklo_epi16 at line 5, but an operand is reassigned between "
+        "them, so the two halves are not two halves of one product"
+    )
+    ok, why = module.check_widening(claim, ctx)
+    assert ok is True, why
+    assert "both halves feed" in why
+
+
+def test_a_widening_grade_c_claim_naming_another_producer_is_a_disagreement(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _WIDENING, "widen.c")
+    claim = _widening_claim(3)
+    claim["rationale"] = (
+        "_mm_mullo_epi32 at line 3 and _mm_mulhi_epi16 at line 4 feed "
+        "_mm_unpacklo_epi16 at line 5, but an operand is reassigned between them"
+    )
+    ok, why = module.check_widening(claim, ctx)
+    assert ok is False
+    assert "claims _mm_mullo_epi32" in why
+
+
+def test_a_set_claim_naming_another_intrinsic_is_a_disagreement(tmp_path):
+    module, ctx = _ctx(_module(), tmp_path, _SET, "set.c")
+    claim = _set_claim(1, 2)
+    claim["rationale"] = claim["rationale"].replace("_mm_set_epi64x assembles",
+                                                    "_mm_set_epi32 assembles", 1)
+    ok, why = module.check_set_build(claim, ctx)
+    assert ok is False
+    assert "claims _mm_set_epi32" in why

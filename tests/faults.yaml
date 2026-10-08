@@ -218,26 +218,74 @@ faults:
     replace: "    if max(runs.values()) < threshold:"
     kills: "tests/test_precision_count_claims.py::test_a_claim_on_a_target_below_the_threshold_is_a_disagreement"
 
-  - name: census-ignores-the-fusion-claims-producer-line
+  - name: census-ignores-a-claims-producer-line
     issue: 74
     why: >-
-      `check_fusion` parses the multiply's line out of the rationale and then
-      located the multiply by `finding["line"]`, so the sentence was free to
-      name any line and still agree. The same number, stated and parsed and
-      never compared.
+      Every rationale opens by naming the call the finding is about and the
+      line it sits on, and F, W, P and the set build all located that call by
+      the `intrinsic` and `line` fields instead, so the sentence was free to
+      name any line and still agree. Review found the four one at a time,
+      each after the previous was fixed.
     file: docs/precision/verify.py
-    find: "    if mul_line != finding[\"line\"]:"
+    find: "    if line != finding[\"line\"]:"
     replace: "    if False:"
     kills: "tests/test_precision_count_claims.py::test_a_fusion_claim_naming_another_line_is_a_disagreement"
 
-  - name: census-ignores-the-widening-claims-producer-line
+  - name: census-ignores-a-claims-producer-name
     issue: 74
     why: >-
-      The same in `check_widening` for the low multiply's line.
+      The other half of the same sentence. A rationale naming another
+      intrinsic entirely still agreed.
     file: docs/precision/verify.py
-    find: "    if lo_line != finding[\"line\"]:"
+    find: "    if name != finding[\"intrinsic\"]:"
     replace: "    if False:"
-    kills: "tests/test_precision_count_claims.py::test_a_widening_claim_naming_another_line_is_a_disagreement"
+    kills: "tests/test_precision_count_claims.py::test_a_pipeline_claim_naming_another_producer_is_a_disagreement"
+
+  - name: census-compares-a-claim-against-the-source-spelling
+    issue: 74
+    why: >-
+      The rationale names the resolved intrinsic; `raw_name` is the
+      file-local spelling the source uses, and the call lookup needs that
+      one. Comparing the claim against the spelling instead made three real
+      VVenC findings disagree, `_my_cmpgt_epi64` against the
+      `_mm_cmpgt_epi64` its rationale names.
+    file: docs/precision/verify.py
+    find: "    if name != finding[\"intrinsic\"]:"
+    replace: "    if name != (finding.get(\"raw_name\") or finding[\"intrinsic\"]):"
+    kills: "tests/test_precision_count_claims.py::test_a_macro_aliased_producer_is_compared_by_its_resolved_name"
+
+  - name: census-skips-a-claimed-hop-when-the-direct-path-holds
+    issue: 74
+    why: >-
+      `check_fusion` parses the optional hop and returned agreement from the
+      direct producer-to-add branches before examining it, so a rationale
+      could name a widening conversion that is not there.
+    file: docs/precision/verify.py
+    find: "    if hop and not hops:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_fusion_claim_naming_a_hop_that_is_absent_is_a_disagreement"
+
+  - name: census-reads-only-rule-w-grade-a-rationale
+    issue: 74
+    why: >-
+      Rule W has three rationale forms and the checker parsed one. The two
+      grade-C forms say "feed ... but ..." where the A form says "share
+      operands and feed", so those findings were reported unreadable and
+      their names and lines went unchecked.
+    file: docs/precision/verify.py
+    find: "        r\"(?:share operands and )?feed (\\S+) at line (\\d+)\","
+    replace: "        r\"share operands and feed (\\S+) at line (\\d+)\","
+    kills: "tests/test_precision_count_claims.py::test_a_widening_grade_c_claim_is_read_rather_than_skipped"
+
+  - name: census-ignores-the-set-claims-intrinsic-name
+    issue: 74
+    why: >-
+      The set-build rationale names the intrinsic it is about, and the check
+      read the two numbers after it without reading it.
+    file: docs/precision/verify.py
+    find: "    if claimed.group(1) != finding[\"intrinsic\"]:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_set_claim_naming_another_intrinsic_is_a_disagreement"
 
   - name: census-reads-the-insert-count-without-comparing-it
     issue: 74
@@ -260,7 +308,7 @@ faults:
       mismatch in its explanation and returned agreement anyway -- an
       explanation nothing reads is not a check.
     file: docs/precision/verify.py
-    find: "        if (int(claimed.group(1)), int(claimed.group(2))) != (len(runtime), len(build.args)):"
+    find: "        if (int(claimed.group(2)), int(claimed.group(3))) != (len(runtime), len(build.args)):"
     replace: "        if False:"
     kills: "tests/test_precision_count_claims.py::test_a_wrong_runtime_count_is_a_disagreement"
 

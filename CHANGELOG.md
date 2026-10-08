@@ -79,22 +79,34 @@ being filled: the numbers it asked for are not derivable.
 not how many there are. `_mm_set_epi64x(0, m5)` assembles one, and the text
 said two.
 
-Four of the census's checks read a number out of the rationale and three went
-on to ignore it: the insert count, the runtime-argument count, and the
-producer's line in each of F and W. Parsing a number and returning agreement
-regardless leaves the only check that reads it unable to reject a wrong one,
-so a census at 100% said nothing about any of them; the set-build check even
-reported the mismatch in its own explanation before agreeing. The
-insert-chain check had a second form of it, testing the rule's threshold
-against the longest run in the span rather than the claimed target's own, so
-two inserts on `dd[0]` passed where `dd[1]` happened to have three.
+**Every name and number a rationale states is now read back and compared.**
+None of them was. Each rationale opens by naming the call the finding is
+about and the line it sits on, and all four checks that parse that sentence
+located the call by the `intrinsic` and `line` fields instead, so a rationale
+could name another intrinsic at another line and the census still reported
+agreement. The counts were the same: the insert count and the
+runtime-argument count were parsed and ignored, and the set-build check
+reported the mismatch in its own explanation before agreeing. Rule W's
+checker parsed one of three rationale forms, so its two grade-C forms were
+reported unreadable rather than checked. Rule F's optional hop was examined
+only after the direct branches had already agreed, so a rationale could name
+a widening conversion that is not there. And the insert check tested the
+rule's threshold against the longest run in the span rather than the claimed
+target's own, so two inserts on `dd[0]` passed whenever `dd[1]` had three.
 
-All four compare now. Correct corpus output cannot reach a rejection branch,
-so `tests/test_precision_count_claims.py` writes the rationale false on
-purpose -- thirteen tests, with a mutation for each comparison. Review found
-these one at a time, each after the previous was fixed, which is the shape
-this project's review history keeps taking: the assertion added to catch a
-defect is where the next one hides.
+One distinction the fix needs: a rationale names the resolved intrinsic while
+the source text spells whatever a file-local `#define` calls it, so the claim
+is compared against `intrinsic` and the call is located by `raw_name`.
+Comparing against the spelling made three real VVenC findings disagree,
+`_my_cmpgt_epi64` against the `_mm_cmpgt_epi64` its own rationale names --
+which is the measurement that found the distinction.
+
+Correct corpus output cannot reach a rejection branch, so
+`tests/test_precision_count_claims.py` writes the rationale false on purpose:
+22 tests, with a mutation for each comparison. Review found these one at a
+time, each after the previous was fixed, which is the shape this project's
+review history keeps taking -- the assertion added to catch a defect is where
+the next one hides.
 
 `docs/precision/verify.py` reads each finding's claim out of its rationale
 text, so the rewording broke two parsers. One failed loudly -- 37 insert-chain
@@ -105,7 +117,7 @@ surfaces instead of quietly weakening the check. `recall_set_build.py`
 enumerates the broadcast exclusion too, independently; it and the tool agree
 site for site at 29 / 15 / 2.
 
-The fault catalogue grew from 28 to 35 mutations, and one guard was removed
+The fault catalogue grew from 28 to 39 mutations, and one guard was removed
 rather than kept: normalizing whitespace inside a broadcast's arguments could
 not be killed by any mutation, because the recorded argument text carries no
 surrounding whitespace in the first place.
