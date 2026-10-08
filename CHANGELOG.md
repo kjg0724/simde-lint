@@ -1,5 +1,101 @@
 # Changelog
 
+## 2.7.0 - 2026-10-08
+
+### Six grade-A findings were unsound, and one of them cost recall to fix
+
+An outside audit of the whole project reported seven defects. Five were rule
+defects in W and S, each reproduced here by compiling the call and the
+instruction the rule proposes against SIMDe 0.8.4 on arm64 and comparing
+lanes, rather than by reading the tool's own output. A sixth, a conditional
+producer, and a seventh, a reversed consumer behind a macro, were found while
+fixing those.
+
+**Rule W establishes a round-trip by value, not by spelling.** The unpack's
+operands were compared as a set, so `_mm_unpacklo_epi16(hi, lo)` matched the
+positive pattern while rebuilding nothing: measured, the source yields
+`0x00060000` where the suggested `vmull_s16` yields `0x00000006`. Operands
+were also compared by name, so rebinding an input between the two multiplies
+left the match intact while the values diverged: source `65542`, replacement
+`6`. Both now withhold the finding's suggestion and counts and grade C with
+`unresolved`. The same reversal behind a file-local macro abstains, which is
+what `docs/mechanisms.md` already promised for a macro-resolved consumer and
+did not deliver.
+
+**A producer that may not have run no longer grades A.** `if (flag) lo =
+_mm_mullo_epi16(a, b);` before the unpack graded A, and executing it gives 6
+with the flag set and 1000 without, against 6 from the suggested
+instruction. `reaches_on_every_path` now sits above `on_a_common_path` in
+`rules/base.py`: a producer and consumer that can both run is not a producer
+that did run. W, F and P use it. Rule M does not -- its chains already
+require region equality and its scalar build is a single call -- and will
+only get it if a reproduction appears. P reports no transform, so it carries
+its own reason, `mechanism_path_conditional`, and grade C's documented meaning
+widens: a rule may be unable to confirm its premise as well as unable to
+confirm the action.
+
+**Rule S grades on the bytes a shuffle reads.** Three shapes were taken for
+those bytes and are not them: a writable array after its initializer
+(`mask[0] = 16` measured 42 against the unguarded instruction's 0), elements
+wider than a lane (`0x1000` in a `short` array read as byte 0), and a table
+inside arithmetic (`bias ^ *(__m128i*)mask` resolved to `mask`).
+
+### Grade A no longer rests on a wrapper macro's registration
+
+`knowledge/wrapper_macros.yaml` says where `DECLARE_ALIGNED` keeps its
+declarator. That was read as permission to take the initializer for the
+runtime bytes, which is the defect above with one more level of indirection,
+and the wrapper path had no `const` requirement at all. It has one now.
+
+**This costs recall, and the cost is reported rather than avoided.**
+SVT-AV1's `even_odd_mask_x` is declared `DECLARE_ALIGNED(16, uint8_t,
+even_odd_mask_x[8][16])` -- an initializer, no `const`. The three findings
+that resolved it move from A to C with `unresolved`: grade A S findings 35 to
+32, grade C 306 to 309, total unchanged, and no other field of any other
+finding in SVT-AV1, VVenC or VVdeC changed. The table has no visible write in
+the corpus, so no counterexample exists there; the deciding case is a fixture
+with the same wrapper and a write, and "no write found" would need
+whole-program write and alias analysis to mean anything. A `const` type
+argument still grades A.
+
+Three aggregate figures move with it: SVT-AV1 evidence `A 908, B 60, C 2441`
+where 2.6.0 reported `A 911, B 60, C 2438`. VVenC's 634 and VVdeC's 609 are
+unchanged in every field.
+
+### `DECLARE_ALIGNED_16` is registered and unreachable
+
+Measured while fixing the above: with no leading integer argument, tree-sitter
+reads `DECLARE_ALIGNED_16(const uint8_t, m[1][16]) = {...}` as a K&R function
+definition rather than an assignment, so the collector never sees it, in every
+spelling tried and inside a file as well as alone. No corpus uses the macro.
+The entry stays, with a test pinning what it does so it cannot read as
+working, and reaching this spelling is a separate change.
+
+### Four documentation claims the audit falsified
+
+`CONTRIBUTING.md` said no rule hardcodes a NEON suggestion and that rules
+change data only; `widening.py` holds `_UNPACK_SUGGESTION`, and S, F, M and P
+all match against module-level anchor sets, leaving R as the only data-only
+rule. `docs/mechanisms.md` said nothing was open against its abstention
+contract while W's macro gap was. `docs/precision/recall_widening.py` was
+presented as recall evidence while counting two of the audit's
+counterexamples as ordinary instances; it is a candidate enumeration and is
+labelled one. `docs/verification.md`'s 100% W recall table is withdrawn for
+the same reason.
+
+### Tests
+
+Grade declarations are now checked for equality rather than containment, so a
+declared grade no fixture reaches is a failure: W is `{A, B, C}`, F is
+`{A, C}` -- its B is structurally unreachable, since every widening conversion
+raises the product above the multiply's recorded accumulator width and the
+width check caps at C first -- and P is `{A, C}`. The fault catalogue grew
+from 10 to 20 mutations and the oracle corpus from 11 cases to 13. One
+assertion in
+`tests/test_verification.py` checked a literal this file writes rather than
+anything the tool emits; it runs rule W over its fixture now and reads the
+name back.
+
 ## 2.6.0 - 2026-10-06
 
 ### Punctuation, and a version string three tags shipped wrong
