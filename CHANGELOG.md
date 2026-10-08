@@ -77,9 +77,15 @@ being filled: the numbers it asked for are not derivable.
 
 **The set-build rationale now says how many arguments are runtime values**,
 not how many there are. `_mm_set_epi64x(0, m5)` assembles one, and the text
-said two. The number only ever appears in one place that checks it,
-`docs/precision/verify.py`, which detected the mismatch and returned
-agreement anyway; it rejects one now.
+said two.
+
+Both of the census's quantitative checks had the same shape of defect: they
+parsed the number out of the rationale and returned agreement regardless, so
+the only check that reads those numbers could not reject a wrong one and a
+census at 100% said nothing about them. The set-build check even reported the
+mismatch in its own explanation before agreeing. Both reject now, and
+`tests/test_precision_count_claims.py` writes a false rationale on purpose to
+reach the rejection branches, which correct corpus output never does.
 
 `docs/precision/verify.py` reads each finding's claim out of its rationale
 text, so the rewording broke two parsers. One failed loudly -- 37 insert-chain
@@ -90,7 +96,7 @@ surfaces instead of quietly weakening the check. `recall_set_build.py`
 enumerates the broadcast exclusion too, independently; it and the tool agree
 site for site at 29 / 15 / 2.
 
-The fault catalogue grew from 28 to 30 mutations, and one guard was removed
+The fault catalogue grew from 28 to 32 mutations, and one guard was removed
 rather than kept: normalizing whitespace inside a broadcast's arguments could
 not be killed by any mutation, because the recorded argument text carries no
 surrounding whitespace in the first place.

@@ -205,6 +205,31 @@ faults:
     replace: "                if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[nested_regions.c]"
 
+  - name: census-reads-the-insert-count-without-comparing-it
+    issue: 74
+    why: >-
+      `check_insert_chain` parses the number of inserts out of the rationale
+      and both of its agreement paths returned true regardless, so the one
+      check that reads that number could not reject a wrong one and a census
+      at 100% said nothing about it. Found by review after the same defect was
+      fixed on the set-build side; correct corpus output never reaches the
+      branch, which is why the test writes the rationale false on purpose.
+    file: docs/precision/verify.py
+    find: "    if claimed != counted:"
+    replace: "    if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_wrong_insert_count_is_a_disagreement"
+
+  - name: census-reads-the-runtime-count-without-comparing-it
+    issue: 74
+    why: >-
+      The same on the set-build side, where the original form reported the
+      mismatch in its explanation and returned agreement anyway -- an
+      explanation nothing reads is not a check.
+    file: docs/precision/verify.py
+    find: "        if (int(claimed.group(1)), int(claimed.group(2))) != (len(runtime), len(build.args)):"
+    replace: "        if False:"
+    kills: "tests/test_precision_count_claims.py::test_a_wrong_runtime_count_is_a_disagreement"
+
   - name: set-build-counts-arguments-as-runtime-values
     issue: 74
     why: >-

@@ -392,10 +392,20 @@ def check_insert_chain(finding, ctx):
         return False, ("claimed %d on %s, but they split across %s -- longest single "
                        "target is %d, below the threshold of %d"
                        % (claimed, name, dict(runs), longest, threshold))
+    # The claim is a number as well as a shape, and the number is about the
+    # target it names. Parsing it and returning agreement regardless left the
+    # count unchecked by the one check that reads it -- the same defect the
+    # set-build counts had.
+    counted = runs.get(name)
+    if counted is None:
+        return False, ("claims %d on %s, which has no inserts of its own in that "
+                       "span; the span holds %s" % (claimed, name, dict(runs)))
+    if claimed != counted:
+        return False, ("claims %d inserts on %s, counted %d" % (claimed, name, counted))
     if len(runs) > 1:
-        return True, ("chain present on %s, though the claimed %d spans %s"
-                      % (max(runs, key=runs.get), claimed, dict(runs)))
-    return True, "%d inserts on %s" % (longest, next(iter(runs)))
+        return True, ("%d inserts on %s, though the span also holds %s"
+                      % (counted, name, dict(runs)))
+    return True, "%d inserts on %s" % (counted, name)
 
 
 def check_set_build(finding, ctx):
