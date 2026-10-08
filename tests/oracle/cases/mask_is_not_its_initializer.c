@@ -1,4 +1,4 @@
-// Rule S grades on the mask bytes a shuffle actually reads. Four shapes make
+// Rule S grades on the mask bytes a shuffle actually reads. Five shapes make
 // an initializer look like those bytes and are not them. Every verdict here
 // was decided by compiling the call and the instruction the rule proposes and
 // comparing lanes: pshufb reads index 16 as lane 0 and returns the source
@@ -49,6 +49,16 @@ DECLARE_ALIGNED(16, const unsigned char, wrapped_and_const[16]) =
     {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 void a_wrapped_table_the_rule_can_establish(__m128i a) {
     __m128i r = _mm_shuffle_epi8(a, *(__m128i*)wrapped_and_const);
+    (void)r;
+}
+
+// An array of addresses. The element type is byte-sized and the pointer sits
+// in the declarator, so the type alone reads as a mask; the four initializer
+// values are four addresses occupying 32 bytes, not four of the sixteen lanes
+// the shuffle reads.
+alignas(16) const unsigned char *array_of_addresses[16] = {0, 1, 2, 3};
+void the_array_holds_addresses_not_bytes(__m128i a) {
+    __m128i r = _mm_shuffle_epi8(a, *(__m128i*)array_of_addresses);
     (void)r;
 }
 

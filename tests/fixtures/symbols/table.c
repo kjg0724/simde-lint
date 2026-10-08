@@ -23,6 +23,12 @@ DECLARE_ALIGNED(16, const unsigned short, wide_mask[1][8]) = {
 DECLARE_ALIGNED_16(const uint8_t, unreached_mask[1][16]) = {
     {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}};
 
+/* Byte-sized type, const, initialized with lane-shaped values, and an array
+   of addresses rather than of bytes -- in both spellings. */
+static const unsigned char *pointer_mask[16] = {0, 1, 2, 3};
+
+DECLARE_ALIGNED(16, const uint8_t *, wrapped_pointer_mask[16]) = {0, 1, 2, 3};
+
 UNREGISTERED_MACRO(16, const uint8_t, hidden_mask[16]) = {0, 1, 2, 3};
 
 static const unsigned char mixed_mask[4] = {0, 1, SOME_RUNTIME_CONSTANT, 3};

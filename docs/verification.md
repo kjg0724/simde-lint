@@ -291,8 +291,11 @@ measured lanes disagree: pshufb returns 42 at lane 0 where the suggested
 unguarded `vqtbl1q_u8` returns 0.
 
 `DECLARE_ALIGNED(16, const unsigned char, m[16])` still grades A, which the
-same fixture pins; verified by
-`test_the_symbol_index_carries_no_grade_a_finding_in_this_tree`.
+same fixture pins. The three call sites are named and their grade, reason and
+withdrawn suggestion checked by
+`test_the_wrapper_declared_table_does_not_reach_grade_a` in
+`tests/test_verification.py`, which fails with the const requirement mutated
+away.
 
 ### Full sweep
 

@@ -56,6 +56,20 @@ def test_parses_hex_lane_values():
     assert _index().lookup("sentinel_mask").rows[0] == (0xFF,) * 16
 
 
+def test_excludes_an_array_of_pointers_declared_plainly():
+    # The declaration's type field is `unsigned char` and the elements are
+    # addresses. Four pointers are not four lanes, and reading them as lanes
+    # resolved a mask whose bytes were never seen. The pointer lives in the
+    # declarator, so the type check cannot see it.
+    assert _index().lookup("pointer_mask") is None
+
+
+def test_excludes_an_array_of_pointers_behind_a_registered_wrapper_macro():
+    # The same shape through the macro form, where the `*` sits in the type
+    # argument instead.
+    assert _index().lookup("wrapped_pointer_mask") is None
+
+
 def test_ignores_unregistered_wrapper_macros():
     assert _index().lookup("hidden_mask") is None
 
@@ -95,7 +109,7 @@ def test_names_excludes_an_ambiguous_entry():
 
 def test_names_lists_every_resolvable_array():
     # hidden_mask (unregistered macro), mixed_mask (non-integer element),
-    # even_odd_mask_x (writable), wide_mask (wide elements) and unreached_mask
-    # (a registered macro the collector cannot see) never enter the index at
-    # all, so they are absent here too.
+    # even_odd_mask_x (writable), wide_mask (wide elements), unreached_mask
+    # (a registered macro the collector cannot see) and the two pointer
+    # arrays never enter the index at all, so they are absent here too.
     assert _index().names() == ["plain_mask", "sentinel_mask", "wrapped_mask"]

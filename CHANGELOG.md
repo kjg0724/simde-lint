@@ -62,6 +62,19 @@ Three aggregate figures move with it: SVT-AV1 evidence `A 908, B 60, C 2441`
 where 2.6.0 reported `A 911, B 60, C 2438`. VVenC's 634 and VVdeC's 609 are
 unchanged in every field.
 
+### Both declaration paths read past a pointer
+
+Reported by review of the above and reproduced through `build_symbol_index`:
+`static const unsigned char *m[16] = {0, 1, 2, 3}` was indexed as a mask. The
+declaration's type field says `unsigned char` and the pointer lives in the
+declarator, so the byte-size check never saw it; the four values are four
+addresses occupying 32 bytes and none of them is one of the sixteen lanes a
+shuffle reads. The wrapper path had the same hole in the other spelling,
+`DECLARE_ALIGNED(16, const uint8_t *, m[16])`, where the first const
+requirement deleted the `*` before comparing the type. Stripping a pointer is
+reading past it. Both paths reject any pointer under the declarator now, and
+no corpus finding changes: the hole was reachable and unreached.
+
 ### `DECLARE_ALIGNED_16` is registered and unreachable
 
 Measured while fixing the above: with no leading integer argument, tree-sitter
@@ -90,7 +103,7 @@ declared grade no fixture reaches is a failure: W is `{A, B, C}`, F is
 `{A, C}` -- its B is structurally unreachable, since every widening conversion
 raises the product above the multiply's recorded accumulator width and the
 width check caps at C first -- and P is `{A, C}`. The fault catalogue grew
-from 10 to 20 mutations and the oracle corpus from 11 cases to 13. One
+from 10 to 22 mutations and the oracle corpus from 11 cases to 13. One
 assertion in
 `tests/test_verification.py` checked a literal this file writes rather than
 anything the tool emits; it runs rule W over its fixture now and reads the

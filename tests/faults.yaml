@@ -218,6 +218,33 @@ faults:
     replace: "        if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
 
+  - name: plain-declaration-reads-past-a-pointer-declarator
+    issue: null
+    why: >-
+      `_byte_sized` reads the declaration's type field, which says
+      `unsigned char` for `static const unsigned char *m[16] = {0, 1, 2, 3}`
+      while the declarator makes the elements addresses. Those four values
+      occupy 32 bytes and none of them is one of the sixteen lanes a shuffle
+      reads, so the mask resolved to bytes the rule never saw. Reported by
+      review, reproduced through `build_symbol_index`.
+    file: src/simde_lint/symbols.py
+    find: "            if declarator is None or _declares_a_pointer(declarator):"
+    replace: "            if declarator is None:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: wrapper-type-argument-reads-past-an-asterisk
+    issue: null
+    why: >-
+      The wrapper path removed `*` from the type argument before comparing it
+      to the byte-sized set, so `DECLARE_ALIGNED(16, const uint8_t *, m[16])`
+      reduced to `const uint8_t` and was indexed. Stripping a pointer is
+      reading past it: the same defect as the plain path, in the spelling
+      where the `*` sits in the type rather than the declarator.
+    file: src/simde_lint/symbols.py
+    find: "    if \"*\" in kind or \"*\" in declarator:"
+    replace: "    kind, declarator = kind.replace(\"*\", \" \"), declarator\n    if False:"
+    kills: "tests/test_symbols.py::test_excludes_an_array_of_pointers_behind_a_registered_wrapper_macro"
+
   - name: wrapper-macro-registration-taken-for-immutability
     issue: null
     why: >-

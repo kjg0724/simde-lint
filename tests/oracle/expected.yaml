@@ -471,6 +471,7 @@ mask_is_not_its_initializer.c:
     - representation.mask_elements_wider_than_a_byte
     - representation.mask_inside_arithmetic
     - representation.mask_behind_a_wrapper_macro
+    - representation.mask_is_an_array_of_pointers
     - representation.width_128
     - representation.element_integer
     - representation.spelling_direct
@@ -542,7 +543,14 @@ mask_is_not_its_initializer.c:
       intrinsic: _mm_shuffle_epi8
       suggestion: vqtbl1q_u8
       costs: reported
-    - line: 59
+    - line: 61
+      type: S
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_shuffle_epi8
+      suggestion: null
+      native_insns: null
+    - line: 69
       type: S
       evidence: A
       intrinsic: _mm_shuffle_epi8

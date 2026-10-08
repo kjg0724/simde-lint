@@ -83,6 +83,9 @@ dimensions:
       mask_behind_a_wrapper_macro: the array is declared through a registered
         declaration macro, whose registration locates the declarator and says
         nothing about whether the storage changes
+      mask_is_an_array_of_pointers: the element type is byte-sized and the
+        declarator makes the elements addresses, so the initializer values
+        are not lanes
 
   claims:
     applies_to: [R, S, W, F, M, P]

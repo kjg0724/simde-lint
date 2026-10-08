@@ -146,6 +146,25 @@ def _is_const(decl: Node, source: bytes) -> bool:
     return "const" in head.split() and "volatile" not in head.split()
 
 
+def _declares_a_pointer(declarator: Node) -> bool:
+    """Whether the declarator puts a pointer between the type and the element.
+
+    `_byte_sized` reads the declaration's type field, and in
+    `static const unsigned char *m[16] = {0, 1, 2, 3}` that field is
+    `unsigned char` while the elements are pointers. Those four values are
+    four addresses, not four mask lanes, and reading them as lanes resolved a
+    mask whose bytes the rule never saw. Any pointer under the declarator
+    disqualifies it; whether the pointee is byte-sized is a different
+    question from what the array holds.
+    """
+    # iter_nodes is inclusive of its argument, so a declarator that is itself
+    # a pointer is caught by the same walk.
+    return any(
+        next(iter_nodes(declarator, kind), None) is not None
+        for kind in ("pointer_declarator", "abstract_pointer_declarator")
+    )
+
+
 def _collect_plain_declarations(root: Node, source: bytes, path: str, index: SymbolIndex) -> None:
     for decl in iter_nodes(root, "declaration"):
         if not _is_const(decl, source) or not _byte_sized(decl, source):
@@ -156,7 +175,10 @@ def _collect_plain_declarations(root: Node, source: bytes, path: str, index: Sym
             value = child.child_by_field_name("value")
             if value is None or value.type != "initializer_list":
                 continue
-            name = _declarator_name(node_text(child.child_by_field_name("declarator"), source))
+            declarator = child.child_by_field_name("declarator")
+            if declarator is None or _declares_a_pointer(declarator):
+                continue
+            name = _declarator_name(node_text(declarator, source))
             rows = _rows_from_initializer(value, source)
             if name and rows:
                 index.add(ConstantArray(name, f"{path}:{decl.start_point[0] + 1}", rows))
@@ -177,11 +199,17 @@ def _wrapper_declarator(arguments: Node, arg_index: int, source: bytes) -> str |
     wrapper contains a comma.
 
     The type is the argument before the declarator and has to satisfy the same
-    two requirements the plain path makes: byte-sized elements, and `const`
-    without `volatile`. Without the const requirement an initializer plus a
-    wrapper registration was enough for grade A. Measured on
+    three requirements the plain path makes: byte-sized elements, no pointer
+    between the type and the element, and `const` without `volatile`. Without
+    the const requirement an initializer plus a wrapper registration was
+    enough for grade A. Measured on
     `DECLARE_ALIGNED(16, uint8_t, m[16]) = {0..15}; m[0] = 16;` -- pshufb
     returns 42 at lane 0 where the suggested unguarded `vqtbl1q_u8` returns 0.
+
+    A `*` anywhere in either argument rejects the declaration rather than
+    being read past: `DECLARE_ALIGNED(16, const uint8_t *, m[16]) = {0, 1, 2,
+    3}` holds four addresses, and taking them for four mask lanes resolved a
+    mask the rule never read.
     """
     if arg_index < 1:
         return None
@@ -191,12 +219,15 @@ def _wrapper_declarator(arguments: Node, arg_index: int, source: bytes) -> str |
     parts = [part.strip() for part in text[1:-1].split(",")]
     if arg_index >= len(parts):
         return None
-    words = parts[arg_index - 1].replace("*", " ").split()
+    declarator, kind = parts[arg_index], parts[arg_index - 1]
+    if "*" in kind or "*" in declarator:
+        return None
+    words = kind.split()
     if "const" not in words or "volatile" in words:
         return None
     if " ".join(word for word in words if word != "const") not in _BYTE_ELEMENTS:
         return None
-    return parts[arg_index]
+    return declarator
 
 
 def _collect_wrapper_macro_declarations(

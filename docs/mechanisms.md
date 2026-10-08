@@ -156,9 +156,11 @@ them are not supported. A `simde_`-prefixed name resolved through
 
 ## Open against this contract
 
-One, named below. The two divergences this file was written with -- rule W
-reporting one finding where the unit is the consuming unpack (#66), and rule F
-reporting one for a product reaching two adds (#68) -- are closed.
+Nothing at present, and this section says that only because each item below
+was closed by a change with a test that fails without it. The two divergences
+this file was written with -- rule W reporting one finding where the unit is
+the consuming unpack (#66), and rule F reporting one for a product reaching
+two adds (#68) -- are closed.
 
 **Rule W did not abstain on a macro-resolved consumer**, which the section
 above states as applying to every rule. It does now. The gap was not academic:
@@ -169,11 +171,13 @@ used to make and the ordering test that replaced it. This section said
 "Nothing" while that held, which is the failure mode it exists to prevent --
 a contract whose status is asserted rather than checked.
 
-**Still open:** the wrapper-macro declaration path in `symbols.py` registers a
-table without establishing that its storage is immutable, so
-`DECLARE_ALIGNED(16, uint8_t, t[8][16])` -- not const, and extern -- backs
-grade-A S findings. The plain-declaration path requires `const`; this one does
-not, and closing the difference moves published figures.
+**The wrapper-macro declaration path did not establish that its storage is
+immutable**, so `DECLARE_ALIGNED(16, uint8_t, t[8][16])` -- not const --
+backed grade-A S findings while the plain-declaration path refused the same
+shape. It requires `const` now, and the difference cost three grade-A findings
+in SVT-AV1; `docs/verification.md` records the movement. Both paths also read
+past a pointer declarator, taking `const unsigned char *m[16] = {0, 1, 2, 3}`
+for four mask lanes when the four values are addresses; both reject it now.
 
 `docs/precision/recall_widening.py` was brought to the same unit in the same
 change. It had taken one consumer per pair, matching the implementation rather
