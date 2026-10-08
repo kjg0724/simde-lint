@@ -118,6 +118,44 @@ def test_an_unshadowed_byte_spelling_still_resolves():
     assert index.lookup("m").rows == ((0, 1, 2, 3),)
 
 
+def test_excludes_a_declaration_whose_const_a_define_removes():
+    # `#define const` leaves the declaration spelled immutable and its storage
+    # writable, which is the writable-array defect arriving by preprocessing
+    # rather than by a later assignment. Both paths read the qualifier off the
+    # source spelling, so both have to withdraw.
+    knowledge = load_knowledge()
+    source = (
+        b"#define const\n"
+        b"static const uint8_t plain[16] = {0, 1, 2, 3};\n"
+        b"DECLARE_ALIGNED(16, const uint8_t, wrapped[16]) = {0, 1, 2, 3};\n"
+    )
+    index = build_symbol_index([("a.c", source)], knowledge)
+    assert index.lookup("plain") is None
+    assert index.lookup("wrapped") is None
+
+
+def test_reports_each_shadowing_definition_it_acts_on():
+    # The scan is pooled across files, so one generated file can withdraw
+    # every mask in a tree. CMake writes a CMakeCCompilerId.c that defines
+    # `const` away, and a scan that includes one would resolve nothing while
+    # reporting a clean run.
+    knowledge = load_knowledge()
+    warnings: list[str] = []
+    index = build_symbol_index(
+        [
+            ("generated.c", b"#define const\n#define uint8_t uint8_t *\n"),
+            ("use.c", b"static const uint8_t m[16] = {0, 1, 2, 3};\n"),
+        ],
+        knowledge,
+        warnings,
+    )
+    assert index.lookup("m") is None
+    assert len(warnings) == 2
+    assert all("generated.c" in line for line in warnings)
+    assert any("`const`" in line for line in warnings)
+    assert any("`uint8_t`" in line for line in warnings)
+
+
 def test_ignores_unregistered_wrapper_macros():
     assert _index().lookup("hidden_mask") is None
 

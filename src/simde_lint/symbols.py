@@ -122,25 +122,39 @@ _BYTE_ELEMENTS = frozenset(
     }
 )
 
-# The individual words above, which is the granularity a `#define` works at.
+# The individual words above, which is the granularity a `#define` works at,
+# plus `const`, whose presence is what makes a declaration's initializer
+# readable as its runtime bytes. `volatile` is not here: the collectors accept
+# only a declaration spelled `const` and not `volatile`, and no definition of
+# `volatile` adds a qualifier to such a declaration, so a definition of it can
+# only cost recall.
 _BYTE_WORDS = frozenset(word for spelling in _BYTE_ELEMENTS for word in spelling.split())
+_SHADOWABLE = _BYTE_WORDS | {"const"}
 
 
-def _shadowed_byte_spellings(root: Node, source: bytes) -> set[str]:
-    """Byte-element keywords this file redefines with `#define`.
+def _shadowed_words(root: Node, source: bytes) -> set[str]:
+    """Words this file redefines with `#define` that a declaration's meaning rests on.
 
-    The collector reads the spelling as written, before preprocessing, so
+    The collectors read the spelling as written, before preprocessing.
     `#define uint8_t uint8_t *` leaves `static const uint8_t m[16]` looking
-    like an array of bytes while it declares an array of addresses. Rejecting
-    every spelling any scanned file redefines costs nothing unless such a
-    definition exists, and resolving these properly means preprocessing the
-    translation unit, which this tool does not do.
+    like an array of bytes while it declares an array of addresses, and
+    `#define const` leaves the same declaration looking immutable while its
+    storage is writable. Both produced grade-A evidence for bytes no rule had
+    established.
+
+    Resolving a definition rather than rejecting the spelling means
+    preprocessing the translation unit, which this tool does not do. The scan
+    also ignores preprocessor state and ordering, so an `#undef`, a definition
+    inside an inactive `#if`, or one written after the declaration it would
+    affect all reject conservatively, and a definition in a file outside the
+    scan remains invisible: this closes a reachable hole, not the general
+    question of what the preprocessor does to a spelling.
     """
     shadowed = set()
     for kind in ("preproc_def", "preproc_function_def"):
         for definition in iter_nodes(root, kind):
             name = node_text(definition.child_by_field_name("name"), source)
-            if name in _BYTE_WORDS:
+            if name in _SHADOWABLE:
                 shadowed.add(name)
     return shadowed
 
@@ -155,7 +169,7 @@ def _byte_sized(decl: Node, source: bytes, shadowed: Collection[str]) -> bool:
     return " ".join(words) in _BYTE_ELEMENTS
 
 
-def _is_const(decl: Node, source: bytes) -> bool:
+def _is_const(decl: Node, source: bytes, shadowed: Collection[str]) -> bool:
     """Whether the declaration says the storage does not change.
 
     An initializer is not a value. `unsigned char mask[16] = {0}` followed by
@@ -164,8 +178,11 @@ def _is_const(decl: Node, source: bytes) -> bool:
     pshufb returns lane 0 of the source where unguarded tbl returns zero.
     Writes are not tracked here, so `const` is the only claim available, and
     `volatile` withdraws it: the storage may change without a write this file
-    contains.
+    contains. A `#define` of either qualifier withdraws the claim too: the
+    spelling this reads is not what the compiler sees.
     """
+    if "const" in shadowed:
+        return False
     text = node_text(decl, source)
     head = text.split("=", 1)[0]
     return "const" in head.split() and "volatile" not in head.split()
@@ -194,7 +211,7 @@ def _collect_plain_declarations(
     root: Node, source: bytes, path: str, index: SymbolIndex, shadowed: Collection[str]
 ) -> None:
     for decl in iter_nodes(root, "declaration"):
-        if not _is_const(decl, source) or not _byte_sized(decl, source, shadowed):
+        if not _is_const(decl, source, shadowed) or not _byte_sized(decl, source, shadowed):
             continue
         for child in decl.named_children:
             if child.type != "init_declarator":
@@ -252,6 +269,9 @@ def _wrapper_declarator(
     if "*" in kind or "*" in declarator:
         return None
     words = kind.split()
+    # No separate qualifier check: a type argument that reaches the const
+    # requirement below contains the word, so a shadowed `const` is caught
+    # here. Measured -- a second check on the same case cannot be killed.
     if any(word in shadowed for word in words):
         return None
     if "const" not in words or "volatile" in words:
@@ -297,15 +317,27 @@ def _collect_wrapper_macro_declarations(
 
 
 def build_symbol_index(
-    files: Iterable[tuple[str, bytes]], knowledge: Knowledge
+    files: Iterable[tuple[str, bytes]],
+    knowledge: Knowledge,
+    warnings: list[str] | None = None,
 ) -> SymbolIndex:
-    # A `#define` in one file can shadow a byte keyword used in another, and
-    # which header a file includes is not known here, so the scan is pooled
-    # across every file rather than applied per file.
+    # A `#define` in one file can shadow a word a declaration in another file
+    # rests on, and which header a file includes is not known here, so the
+    # scan is pooled across every file rather than applied per file. The cost
+    # is real: a CMake-generated `CMakeCCompilerId.c` left in a tree defines
+    # both qualifiers, and scanning it withdraws every mask this index would
+    # otherwise resolve. That is why each one is reported rather than applied
+    # in silence -- a recall loss nothing announces reads as a clean run.
     parsed = [(path, source, parse_source(source).root_node) for path, source in files]
     shadowed: set[str] = set()
-    for _, source, root in parsed:
-        shadowed |= _shadowed_byte_spellings(root, source)
+    for path, source, root in parsed:
+        for word in sorted(_shadowed_words(root, source)):
+            if warnings is not None and word not in shadowed:
+                warnings.append(
+                    f"{path}: #define of `{word}` withdraws every mask whose "
+                    f"declaration is spelled with it; those grade C instead"
+                )
+            shadowed.add(word)
 
     index = SymbolIndex()
     for path, source, root in parsed:

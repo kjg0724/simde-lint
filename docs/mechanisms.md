@@ -181,11 +181,16 @@ in SVT-AV1; `docs/verification.md` records the movement.
 `const unsigned char *m[16] = {0, 1, 2, 3}` for four mask lanes when the four
 values are addresses, and the wrapper path did the same where the asterisk is
 in the type argument. Both reject any pointer under the declarator now. A
-pointer introduced by `#define uint8_t uint8_t *` is invisible to a collector
-that reads the spelling as written, so a byte keyword any scanned file
-redefines is rejected wherever it appears. Resolving such a definition rather
-than rejecting it means preprocessing the translation unit, which this tool
-does not do.
+pointer introduced by `#define uint8_t uint8_t *`, and a writable array left
+by `#define const`, are both invisible to a collector that reads the spelling
+as written, so a byte keyword or `const` that any scanned file redefines is
+rejected wherever it appears, and each definition acted on is reported.
+Resolving a definition rather than rejecting the spelling means preprocessing
+the translation unit, which this tool does not do. That bounds the claim: the
+scan ignores preprocessor state and ordering, so an `#undef`, an inactive
+`#if`, or a definition written after the declaration it would affect all
+reject conservatively, and a definition in a file outside the scan stays
+invisible.
 
 `docs/precision/recall_widening.py` was brought to the same unit in the same
 change. It had taken one consumer per pair, matching the implementation rather

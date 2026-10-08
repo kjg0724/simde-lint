@@ -166,9 +166,10 @@ def analyze(
     """Run the full pipeline and report what it found.
 
     The third return value is the list of warnings produced by an isolated
-    extraction or rule failure, or by a file tree-sitter could not fully
-    parse (empty on a clean run) -- callers that need to know whether the
-    analysis was complete, rather than merely non-crashing, check this
+    extraction or rule failure, by a file tree-sitter could not fully parse,
+    or by a `#define` that withdraws the symbol index's reading of a
+    declaration (empty on a clean run) -- callers that need to know whether
+    the analysis was complete, rather than merely non-crashing, check this
     rather than inferring it from stderr output.
 
     A parse error is a warning, not a skip. tree-sitter recovers and the
@@ -190,7 +191,7 @@ def analyze(
     sources = read_sources(paths, exclude, errors)
 
     ctx = Context(
-        symbols=build_symbol_index(sources, knowledge),
+        symbols=build_symbol_index(sources, knowledge, errors),
         knowledge=knowledge,
         config=resolved_config,
     )

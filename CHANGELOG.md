@@ -75,12 +75,26 @@ requirement deleted the `*` before comparing the type, and again where the
 asterisk sits on the declarator side of the comma. Stripping a pointer is
 reading past it. Both paths reject any pointer under the declarator now.
 
-A pointer can also arrive by preprocessing: under `#define uint8_t uint8_t *`
-the spelling the collector reads still says `uint8_t`. A byte keyword that any
-scanned file redefines is rejected wherever it appears, which is pooled across
-the files given because which header a file includes is not known here.
-Resolving the definition instead would mean preprocessing the translation
-unit.
+Two things can also arrive by preprocessing. Under
+`#define uint8_t uint8_t *` the spelling the collector reads still says
+`uint8_t`; under `#define const` the declaration still reads as immutable
+while its storage is writable, which is the writable-array defect above
+arriving from the preprocessor instead of from a later assignment. A byte
+keyword or `const` that any scanned file redefines is rejected wherever it
+appears, pooled across the files given because which header a file includes is
+not known here. `volatile` is deliberately not scanned: the collectors accept
+only a declaration spelled `const` and not `volatile`, and no definition of
+`volatile` adds a qualifier to such a declaration.
+
+Pooling costs real recall, so each definition acted on is reported on stderr
+rather than applied in silence -- CMake leaves a generated
+`CMakeCCompilerId.c` that defines `const` away, and a scan including one would
+resolve no mask at all while otherwise reading as a clean run. None of the
+three corpora contains such a definition inside its scanned scope, and none of
+the three scans emits the warning. Resolving a definition instead of rejecting
+the spelling would mean preprocessing the translation unit, and the scan
+ignores preprocessor state and ordering, so an `#undef`, an inactive `#if` or
+a later definition all reject conservatively.
 
 No corpus finding changes for any of this: the holes were reachable and
 unreached. No corpus redefines a byte keyword, and the figures above are
@@ -114,7 +128,7 @@ declared grade no fixture reaches is a failure: W is `{A, B, C}`, F is
 `{A, C}` -- its B is structurally unreachable, since every widening conversion
 raises the product above the multiply's recorded accumulator width and the
 width check caps at C first -- and P is `{A, C}`. The fault catalogue grew
-from 10 to 25 mutations and the oracle corpus from 11 cases to 13. One
+from 10 to 27 mutations and the oracle corpus from 11 cases to 13. One
 assertion in
 `tests/test_verification.py` checked a literal this file writes rather than
 anything the tool emits; it runs rule W over its fixture now and reads the

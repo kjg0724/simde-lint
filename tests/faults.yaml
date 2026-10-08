@@ -214,9 +214,34 @@ faults:
       available. Measured: pshufb returns the source byte at lane 0 where
       unguarded tbl returns zero.
     file: src/simde_lint/symbols.py
-    find: "        if not _is_const(decl, source) or not _byte_sized(decl, source, shadowed):"
+    find: "        if not _is_const(decl, source, shadowed) or not _byte_sized(decl, source, shadowed):"
     replace: "        if False:"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[mask_is_not_its_initializer.c]"
+
+  - name: qualifier-read-as-written-when-a-define-removes-it
+    issue: null
+    why: >-
+      `#define const` leaves `static const uint8_t m[16] = {0, 1, 2, 3}`
+      spelled immutable while its storage is writable, so the initializer was
+      taken for the bytes a shuffle reads -- the writable-array defect
+      arriving by preprocessing instead of by a later assignment. Reported by
+      review and reproduced through `build_symbol_index`.
+    file: src/simde_lint/symbols.py
+    find: "    if \"const\" in shadowed:\n        return False"
+    replace: "    if False:\n        return False"
+    kills: "tests/test_symbols.py::test_excludes_a_declaration_whose_const_a_define_removes"
+
+  - name: shadowing-is-applied-without-being-reported
+    issue: null
+    why: >-
+      Pooling the scan across files means one CMake-generated
+      `CMakeCCompilerId.c` withdraws every mask in a tree. Applying that in
+      silence makes a run that resolved nothing read like a clean one, which
+      is the failure the parse warnings already exist to prevent.
+    file: src/simde_lint/symbols.py
+    find: "            if warnings is not None and word not in shadowed:"
+    replace: "            if False:"
+    kills: "tests/test_symbols.py::test_reports_each_shadowing_definition_it_acts_on"
 
   - name: byte-spelling-read-as-written-when-a-define-redefines-it
     issue: null
