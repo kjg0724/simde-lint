@@ -108,6 +108,33 @@ def _grep_count(root: Path, needle: str) -> int:
     return len(result.stdout.splitlines())
 
 
+def _run_widening_over_its_positive_fixture() -> list:
+    """W's findings on its own positive fixture, for reading back the name.
+
+    This file otherwise needs no fixtures, but W is the one rule whose
+    reported intrinsic is a literal rather than a matched anchor, so the
+    only way to check that literal is to make the rule emit it.
+    """
+    from simde_lint.extract import extract_units
+    from simde_lint.rules import ALL_RULES, validate_config
+    from simde_lint.rules.base import Context
+    from simde_lint.rules.widening import WideningRule
+    from simde_lint.symbols import build_symbol_index
+
+    path = Path(__file__).parent / "fixtures" / "rules" / "widening_positive.c"
+    source = path.read_bytes()
+    knowledge = load_knowledge()
+    ctx = Context(
+        symbols=build_symbol_index([(str(path), source)], knowledge),
+        knowledge=knowledge,
+        config=validate_config({}, ALL_RULES),
+    )
+    out = []
+    for unit in extract_units(str(path), source, knowledge):
+        out.extend(WideningRule().match(unit, ctx))
+    return out
+
+
 def _recognized_intrinsic_names() -> set[str]:
     """Every name the knowledge tables treat as an x86 intrinsic.
 
@@ -168,10 +195,17 @@ def test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize()
     field, and nothing else would notice. Checking the sets directly needs no
     corpus and fails the moment that stops holding.
 
-    `WideningRule` is excluded deliberately -- it writes a literal
-    `_mm_mullo_epi16` rather than a matched name -- and that literal is
-    asserted here too, since a typo in it is the same defect by another
-    route.
+    `WideningRule` has no anchor set to compare: it writes a literal
+    `_mm_mullo_epi16` rather than reporting a matched name. So for W the
+    containment is established the only way it can be -- by running the rule
+    and reading the name it actually emitted.
+
+    Asserting the literal here instead did not work, and said it did. The
+    assertion was `"_mm_mullo_epi16" in recognized`, which tests the string
+    written in *this file*; a typo in the rule's own literal left it passing.
+    Verified by replacing both literals in `widening.py` with
+    `_mm_NOT_A_REAL_INTRINSIC`, at which point the rule emitted an
+    unrecognized name and this test still went green.
     """
     recognized = _recognized_intrinsic_names()
     anchors = {
@@ -183,8 +217,11 @@ def test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize()
         assert names, rule_id
         assert names <= recognized, f"{rule_id}: {sorted(names - recognized)}"
 
-    # Rule W reports a fixed name; it has no anchor set to check.
-    assert "_mm_mullo_epi16" in recognized
+    # W, by execution: the name it puts in the field, not the name this file
+    # writes. A positive fixture is the only way to see that name at all.
+    emitted = {f.intrinsic for f in _run_widening_over_its_positive_fixture()}
+    assert emitted, "the fixture must make W report something to check"
+    assert emitted <= recognized, f"W emitted {sorted(emitted - recognized)}"
 
 
 @requires_svt

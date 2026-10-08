@@ -439,6 +439,61 @@ hop_and_guard.c:
       suggestion: null
       native_insns: null
 
+widening_value_identity.c:
+  covers:
+    - value_flow.operand_rebound_between_producers
+    - value_flow.consumer_operands_reversed
+    - value_flow.consumer_reversed_behind_a_macro
+    - representation.width_128
+    - representation.element_integer
+    - representation.spelling_direct
+    - representation.spelling_macro
+    - claims.grade_a
+    - claims.grade_c_unresolved
+    - output.costs_reported
+    - output.no_replacement_named
+  why: >-
+    A round-trip is a claim about values. Rule W established it from spelling:
+    the pair had to share operand text and the unpack had to name both
+    results, with the unpack's argument order discarded and the operands
+    unchecked for rebinding. Three shapes satisfy that and are not
+    round-trips, and each was decided here by compiling the function and the
+    instruction the tool proposes and comparing lanes -- not by reading the
+    tool.
+
+    Reversed halves rebuild nothing: with every lane a=2, b=3 the source gives
+    0x00060000 and `vmull_s16` gives 0x00000006. The same reversal behind a
+    `#define` records the call site's arguments in the order a check would
+    want while the body swaps them, which is why `docs/mechanisms.md` abstains
+    on a macro-resolved consumer -- a contract W did not honour. Neither is an
+    instance, so neither is a finding.
+
+    The rebound operand is different in kind. A mullo and a mulhi do feed one
+    unpack, so the mechanism is present and the observation stands; what
+    cannot be claimed is that one widening multiply reproduces it, because the
+    halves came from different inputs. The source gives 65542 where the
+    instruction gives 6 on the old inputs and 98301 on the new ones, so the
+    replacement is withdrawn and the grade drops to C, the way rule S
+    withdraws a guard it cannot establish rather than dropping the finding
+    with it.
+  findings:
+    - line: 33
+      type: W
+      evidence: C
+      reason: unresolved
+      intrinsic: _mm_mullo_epi16
+      suggestion: null
+      simde_insns: null
+      native_insns: null
+      costs: withheld
+      rationale_includes: reassigned between them
+    - line: 42
+      type: W
+      evidence: A
+      intrinsic: _mm_mullo_epi16
+      suggestion: vmull_s16
+      costs: reported
+
 consumer_choice.c:
   covers:
     - control.exclusive_arms

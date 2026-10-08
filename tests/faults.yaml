@@ -128,3 +128,54 @@ faults:
     find: "            if not on_a_common_path(lo, unpack):\n"
     replace: "            if False:\n"
     kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[consumer_choice.c]"
+
+  - name: widening-reports-an-unrecognized-intrinsic
+    issue: null
+    why: >-
+      Rule W writes its reported name as a literal rather than reporting a
+      matched anchor, so a typo in it would put a spelling no knowledge table
+      carries into every W finding. The assertion that claimed to catch this
+      checked the literal written in the test file instead of the one the rule
+      emits, and stayed green through exactly this mutation.
+    file: src/simde_lint/rules/widening.py
+    find: "_REPORTED = \"_mm_mullo_epi16\""
+    replace: "_REPORTED = \"_mm_NOT_A_REAL_INTRINSIC\""
+    kills: "tests/test_verification.py::test_no_rule_can_report_an_intrinsic_the_knowledge_tables_do_not_recognize"
+
+  - name: widening-matches-the-unpack-by-membership
+    issue: null
+    why: >-
+      The consumer was chosen with `{arg.text for arg in unpack.args}`, a set,
+      so the halves could arrive in either order. Reversed they rebuild
+      nothing: 0x00060000 against the instruction's 0x00000006, compiled and
+      run against SIMDe 0.8.4.
+    file: src/simde_lint/rules/widening.py
+    find: "            if len(texts) == 2 and texts[0] == lo_var and texts[1] == hi_var:"
+    replace: "            if lo_var in texts and hi_var in texts:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
+
+  - name: widening-reads-a-macro-resolved-consumer
+    issue: null
+    why: >-
+      `docs/mechanisms.md` states that a macro-resolved consumer is abstained
+      from, because its recorded arguments are the call site's own with no
+      mapping through the body. W did not do it, so `#define REV(x, y)
+      _mm_unpacklo_epi16((y), (x))` invoked as `REV(lo, hi)` passed an
+      ordering check while the body reversed the halves.
+    file: src/simde_lint/rules/widening.py
+    find: "            if unpack.is_macro_alias:"
+    replace: "            if False:"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
+
+  - name: widening-compares-operand-spelling-not-value
+    issue: null
+    why: >-
+      `_operand_key` compares the operands' text, so an input rebound between
+      the two multiplies left the pair looking shared. The halves then belong
+      to different products: the source gives 65542 where the instruction
+      gives 6 or 98301 depending on which inputs it reads.
+    file: src/simde_lint/rules/widening.py
+    find: "                    stable=_operands_stable_between(unit, lo, hi),"
+    replace: "                    stable=True,"
+    kills: "tests/test_oracle.py::test_the_tool_agrees_with_the_hand_decided_expectation[widening_value_identity.c]"
+
