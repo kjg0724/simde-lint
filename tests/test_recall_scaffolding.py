@@ -418,24 +418,24 @@ def test_the_holdout_enumeration_matches_the_published_figures():
         "parse_failure_anchors": 167,
         "anchors_with_a_prospective_relation": 264,
         # Every searched pair, negatives included: the grammar's denominator.
-        "prospective_relations": 916,
-        "admitted": 75,
-        # One add belongs to one multiply, so 14 of the 75 are attributed to
-        # an earlier anchor and 61 are the unit's own count.
-        "not_attributed_to_this_anchor": 14,
-        # 468 of these are `parse_error`, which was not applied as an
+        "prospective_relations": 912,
+        "admitted": 73,
+        # One add belongs to one multiply, so 13 of the 73 are attributed to
+        # an earlier anchor and 60 are the unit's own count.
+        "not_attributed_to_this_anchor": 13,
+        # 466 of these are `parse_error`, which was not applied as an
         # exclusion at all until review caught it: the relations were being
         # published as admitted from functions the parser could not read.
-        "excluded": 550,
+        "excluded": 548,
         "negatives": 291,
         "adjudicable_anchors": 148,
         "adjudicable_anchors_with_a_relation": 112,
-        "admitted_on_adjudicable_anchors": 75,
+        "admitted_on_adjudicable_anchors": 73,
         # The one-conversion stratum's population is zero on this corpus, so
         # recall for it is not estimable rather than zero.
-        "strata": {"direct": 75},
+        "strata": {"direct": 73},
         "exclusions_by_reason": {
-            "parse_error": 468,
+            "parse_error": 466,
             "rebound_between": 73,
             "control_between": 9,
         },
@@ -478,12 +478,24 @@ def test_the_holdout_enumeration_matches_the_published_figures():
     assert summary["M"]["candidate_anchors"] == 0
 
 
-#: The one admitted relation `docs/verification.md` adjudicates a
-#: non-instance. Clause 2's nesting is transitive, so the first product of
-#: `_mm256_add_epi32(vsum, _mm256_add_epi32(madd(..), madd(..)))` reaches both
-#: adds; only the inner one is a fusion opportunity, because the outer add's
-#: operands are `vsum` and a sum.
-_NON_INSTANCE_CONSUMER_SUFFIX = "InterpolationFilterX86.h:724:18"
+#: The nested-add shape the adjudication rejected and the grammar then
+#: stopped admitting: clause 2's nesting means a direct argument, so a
+#: product no longer reaches an add whose own operand is another add's sum.
+#: `docs/verification.md` records the judgement and the correction.
+_NESTED_OUTER_ADD = "InterpolationFilterX86.h:724:18"
+
+
+@_requires_holdout
+def test_the_nested_outer_add_is_no_longer_a_relation():
+    module = _load("enumerate")
+    anchors = module.over([_holdout_scope()], ["F"])
+    consumers = {
+        record.consumer
+        for anchor in anchors["F"]
+        for record in anchor.records
+        if record.verdict == "admitted"
+    }
+    assert not any(c.endswith(_NESTED_OUTER_ADD) for c in consumers)
 
 
 @_requires_holdout
@@ -493,8 +505,8 @@ def test_the_tool_reports_every_adjudicated_instance():
     The adjudication is recorded in `docs/verification.md`. This checks the
     other half of the comparison, that the tool reports each instance, keyed
     on rule, file and the anchor's line **with multiplicity** -- one line can
-    hold several anchors, and matching as a set hid a real divergence until
-    the counts were compared.
+    hold several anchors, and matching as a set hid the nested-add divergence
+    until the counts were compared.
     """
     from simde_lint.analyze import analyze
 
@@ -510,7 +522,6 @@ def test_the_tool_reports_every_adjudicated_instance():
     )
 
     needed = Counter()
-    non_instances = 0
     for rule, found in anchors.items():
         for anchor in found:
             if anchor.parse_failed:
@@ -518,14 +529,106 @@ def test_the_tool_reports_every_adjudicated_instance():
             for record in anchor.records:
                 if record.verdict != "admitted" or not record.owns_the_consumer:
                     continue
-                if record.consumer.endswith(_NON_INSTANCE_CONSUMER_SUFFIX):
-                    non_instances += 1
-                    continue
                 path, line, _column = record.anchor.rsplit(":", 2)
                 needed[(rule, str(Path(path)), int(line))] += 1
 
-    assert non_instances == 1, "the adjudicated non-instance is no longer there"
     assert sum(needed.values()) == 66
     short = {key: (count, reported[key]) for key, count in needed.items()
              if reported[key] < count}
     assert short == {}
+
+
+def test_p_classifies_an_indirect_callee_and_a_macro_spelled_one(syntax, tables):
+    """P's slot takes any call, and its three non-recognized outcomes.
+
+    Each was unreachable at review: `_calls` discarded non-identifier callees
+    so `indirect_callee` could not fire, `recognized(None)` raised on one, and
+    `enumerate_p` never consulted the macro classifier it was handed.
+    """
+    module = _load("enumerate")
+    cases = {
+        b"""
+#define MUL16(a, b) _mm_mullo_epi16((a), (b))
+void f(__m128i a, __m128i b, void (*fp)(__m128i)) {
+    __m128i m = _mm_cmpgt_epi32(a, b);
+    MUL16(m, b);
+}
+""": "macro_spelled",
+        b"""
+void f(__m128i a, __m128i b) {
+    __m128i m = _mm_cmpgt_epi32(a, b);
+    scramble(m);
+}
+""": "unrecognized_consumer",
+        b"""
+void f(__m128i a, __m128i b, __m128i (*fp)(__m128i)) {
+    __m128i m = _mm_cmpgt_epi32(a, b);
+    (*fp)(m);
+}
+""": "indirect_callee",
+    }
+    for source, expected in cases.items():
+        root = syntax.parse(source).root_node
+        index = syntax.index_preorder(root)
+        calls = []
+        for node in syntax.walk(root):
+            if node.type != "call_expression":
+                continue
+            function = node.child_by_field_name("function")
+            name = (
+                syntax.normalized(function, source)
+                if function is not None and function.type == "identifier"
+                else None
+            )
+            calls.append(
+                module.Call(
+                    node=node,
+                    name=name,
+                    position=syntax.Position(node.start_byte, node.end_byte, index[node.id]),
+                    where=f"x.c:{node.start_point[0] + 1}:{node.start_point[1] + 1}",
+                )
+            )
+        calls.sort(key=lambda c: c.position)
+        calls = [c for c in calls if syntax.enclosing_function(c.node) is not None]
+        definitions = module._macro_definitions(source, root)
+        found = module.enumerate_p(source, calls, definitions)
+        reasons = [r.reason for a in found for r in a.records]
+        assert reasons == [expected], (expected, reasons)
+
+
+def test_m_requires_its_first_insert_to_consume_the_run_lvalue(syntax):
+    """`v = _mm_insert_epi16(w, ...)` starts no run over `v`.
+
+    Admitting it made a length-three run out of one insert into another
+    vector followed by two into this one.
+    """
+    module = _load("enumerate")
+    source = b"""
+void f(__m128i v, __m128i w, int x, int y, int z) {
+    v = _mm_insert_epi16(w, x, 0);
+    v = _mm_insert_epi16(v, y, 1);
+    v = _mm_insert_epi16(v, z, 2);
+    (void)v;
+}
+"""
+    root = syntax.parse(source).root_node
+    index = syntax.index_preorder(root)
+    calls = []
+    for node in syntax.walk(root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        calls.append(
+            module.Call(
+                node=node,
+                name=syntax.normalized(function, source) if function is not None else None,
+                position=syntax.Position(node.start_byte, node.end_byte, index[node.id]),
+                where=f"x.c:{node.start_point[0] + 1}:{node.start_point[1] + 1}",
+            )
+        )
+    calls.sort(key=lambda c: c.position)
+    found = module.enumerate_m(source, calls)
+    admitted = [r for a in found for r in a.records if r.verdict == "admitted"]
+    # The run over `v` is the two inserts that consume it, below the
+    # threshold of three, so nothing is admitted.
+    assert admitted == []

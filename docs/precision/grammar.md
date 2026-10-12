@@ -85,8 +85,22 @@ of the following.
    - **binding**: the producer is the right-hand side of an assignment, or the
      initializer of a declaration, whose declared identifier appears as an
      argument of the consumer;
-   - **nesting**: the producer's call expression is a descendant of the
-     consumer's argument list.
+   - **nesting**: the producer's call expression is a **direct argument** of
+     the consumer, after the stripping reduction below.
+
+   Direct, not an arbitrary descendant. A transitive reading admitted
+   `_mm256_add_epi32(vsum, _mm256_add_epi32(madd(..), madd(..)))` as a product
+   reaching the *outer* add, whose operands are `vsum` and a sum -- and there
+   is no multiply-accumulate to apply to a sum, so that is a shape outside the
+   rule's contract rather than a relation with something uncertain about it.
+   The same reading admitted `add(acc, helper(mul(a, b)))`, where a call this
+   grammar knows nothing about sits between. Composition through a registered
+   widening conversion still works, because each of its two edges is a direct
+   argument.
+
+   A path through any other call is therefore a **negative**, not an
+   exclusion: nothing is blocking a relation, there is no relation of the kind
+   the rule describes.
 
    A value that travels any other way -- through memory, through another
    function, through a reference parameter, across a function boundary -- is
@@ -335,15 +349,17 @@ the add or nested in it -- so the mixed cases need no separate wording. Then:
 - a **one-conversion** path exists per `C` lying between them, when no further
   F widening conversion lies on either of its two edges.
 
-Clause 2's nesting is transitive -- any descendant of the consumer's argument
-list reaches the consumer -- so without the direct path's exclusion
-`_mm_add_epi32(acc, _mm_cvtepi16_epi32(_mm_mullo_epi16(a, b)))` would admit a
-"direct" edge as well as the conversion path, land in the zero-conversion
-stratum, and two nested conversions would evade the more-than-one rule
-entirely. Enumerating the two concrete shapes instead of defining "between"
-uniformly missed a third: `p = _mm_mullo_epi16(a, b);` then
-`_mm_add_epi32(acc, _mm_cvtepi16_epi32(p))`, where the anchor binds into the
-conversion and the conversion nests in the add.
+The direct path's "no conversion between" clause is what keeps
+`_mm_add_epi32(acc, _mm_cvtepi16_epi32(_mm_mullo_epi16(a, b)))` out of the
+zero-conversion stratum. Under clause 2's earlier transitive nesting it was
+also what kept two nested conversions from evading the more-than-one rule;
+clause 2 now admits only a direct argument, which rules that out on its own,
+and the clause stays because the composition of two binding edges can still
+put a conversion between the endpoints. Enumerating the two concrete shapes
+instead of defining "between" uniformly missed a third:
+`p = _mm_mullo_epi16(a, b);` then `_mm_add_epi32(acc, _mm_cvtepi16_epi32(p))`,
+where the anchor binds into the conversion and the conversion nests in the
+add.
 
 The rest of the policy is fixed here because it changes the admitted,
 exclusion and stratum counts.

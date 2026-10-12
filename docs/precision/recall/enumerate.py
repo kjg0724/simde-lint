@@ -273,22 +273,40 @@ def enumerate_f(source, calls, definitions=None) -> list[Anchor]:
 
 
 def _f_relation(anchor, add, conversions, source) -> Record:
-    between = _between_conversions(anchor, add, conversions, source)
-    direct = _reaches(anchor, add, source)
-    reasons = set()
+    """One (anchor, add) pair, under the grammar's path policy.
 
-    if not between and direct.admitted:
+    A pair is admitted if any of its paths is; it is excluded only when no
+    path is admitted, and the primary reason then comes from every rejected
+    path rather than from the direct one alone. An earlier version collected
+    only the direct path's reasons, so a pair the conversion search put in
+    the population could come back a negative when a conversion edge was in
+    fact blocked.
+    """
+    direct = _reaches(anchor, add, source)
+    if direct.admitted:
         return Record("F", anchor.where, add.where, "admitted", stratum="direct")
 
+    reasons = set(direct.reasons)
     admitted_conversions = []
-    for conversion in between:
-        # No further conversion on either edge, or the path is not a
-        # one-conversion path and the pair is outside rule F's contract.
-        if _between_conversions(anchor, conversion, conversions, source):
+    for conversion in conversions:
+        if not (_in_search_scope(anchor, conversion) and _in_search_scope(conversion, add)):
             continue
-        if _between_conversions(conversion, add, conversions, source):
+        first = _reaches(anchor, conversion, source)
+        second = _reaches(conversion, add, source)
+        if first.admitted and second.admitted:
+            # No further conversion on either edge, or this is not a
+            # one-conversion path and the pair is outside rule F's contract.
+            if _between_conversions(anchor, conversion, conversions, source):
+                continue
+            if _between_conversions(conversion, add, conversions, source):
+                continue
+            admitted_conversions.append(conversion.name)
             continue
-        admitted_conversions.append(conversion.name)
+        # A rejected path's reasons count: this is a path the search put in
+        # the population, and something observable stopped it.
+        if first.admitted or second.admitted:
+            reasons |= set(first.reasons) | set(second.reasons)
+
     if admitted_conversions:
         return Record(
             "F",
@@ -298,11 +316,7 @@ def _f_relation(anchor, add, conversions, source) -> Record:
             stratum="one_conversion",
             conversions=sorted(set(admitted_conversions)),
         )
-
-    reasons |= set(direct.reasons)
     if not reasons:
-        # No path and nothing observable blocking one: a negative, which the
-        # grammar records as no record at all.
         return Record("F", anchor.where, add.where, "negative")
     return Record("F", anchor.where, add.where, "excluded",
                   reason=primary(reasons), reasons=sorted(reasons))
@@ -393,6 +407,12 @@ def enumerate_m(source, calls, definitions=None) -> list[Anchor]:
             continue
         lvalue = _assigned_lvalue(anchor, source)
         if lvalue is None:
+            continue
+        # The run's first insert has to consume the lvalue too, not only be
+        # assigned to it: `v = _mm_insert_epi16(w, x, 0)` starts no run over
+        # `v`, and admitting it made a length-three run out of one insert into
+        # a different vector followed by two into this one.
+        if _first_argument(anchor, source) != lvalue:
             continue
         run, blocked = _build_run(anchor, lvalue, inserts, source)
         for call in run:
@@ -563,13 +583,23 @@ def enumerate_p(source, calls, definitions=None) -> list[Anchor]:
             )
             anchors.append(record)
             continue
-        if not recognized(following.name):
+        if not following.direct:
             record.records.append(
                 Record("P", anchor.where, following.where, "excluded",
-                       reason="unrecognized_consumer", reasons=["unrecognized_consumer"])
+                       reason="indirect_callee", reasons=["indirect_callee"])
             )
             anchors.append(record)
             continue
+        if not recognized(following.name):
+            spelled = (definitions or {}).get(following.name)
+            reason = spelled or "unrecognized_consumer"
+            record.records.append(
+                Record("P", anchor.where, following.where, "excluded",
+                       reason=reason, reasons=[reason])
+            )
+            anchors.append(record)
+            continue
+
         relation = _reaches(anchor, following, source)
         if relation.admitted:
             record.records.append(Record("P", anchor.where, following.where, "admitted"))

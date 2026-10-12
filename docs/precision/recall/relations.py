@@ -114,11 +114,26 @@ def _names_identifier(consumer, identifier: str, source: bytes) -> bool:
 
 
 def is_nested_in(producer, consumer) -> bool:
-    """Whether the producer sits inside the consumer's argument list."""
+    """Whether the producer is a direct argument of the consumer.
+
+    Direct, not an arbitrary descendant. A transitive reading admitted
+    `_mm256_add_epi32(vsum, _mm256_add_epi32(madd(..), madd(..)))` as a
+    product reaching the *outer* add, whose operands are `vsum` and a sum --
+    there is no multiply-accumulate to apply to a sum, so that path is
+    outside the rule's contract rather than an uncertain one. The same
+    reading admitted `add(acc, helper(mul(a, b)))`. Composition through a
+    registered widening conversion still works, because each of its two
+    edges is a direct argument.
+    """
     arguments = consumer.child_by_field_name("arguments")
     if arguments is None:
         return False
-    return arguments.start_byte <= producer.start_byte and producer.end_byte <= arguments.end_byte
+    for argument in arguments.named_children:
+        if argument.type == "comment":
+            continue
+        if strip_wrappers(argument).id == producer.id:
+            return True
+    return False
 
 
 def _unevaluated(node) -> bool:
