@@ -403,8 +403,13 @@ several records, and `parse_error` in its enclosing function produces one per
 triple rather than one per function. Where more than one reason applies the
 primary reason is the first that matches in the order the table lists, and the
 record carries the full set alongside it, so that changing the precedence does
-not silently rewrite history. The anchor is identified by file and line, the
-prospective consumer by file and line.
+not silently rewrite history. The anchor is identified by file, line and
+column, and the prospective consumer the same way. **Not by file and line
+alone**: VVdeC writes
+`vsum = _mm256_add_epi32(vsum, _mm256_add_epi32(_mm256_madd_epi16(..), _mm256_madd_epi16(..)))`
+on one line, which is two anchors and two consumers sharing one spelling, so
+99 distinct pairs collapsed into fewer records and one add appeared to be
+owned by two anchors at once.
 
 **An anchor whose search yields no prospective consumer is a negative** and
 gets no record. **A call with no enclosing function is not an anchor** -- not

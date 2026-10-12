@@ -235,6 +235,15 @@ def edge(producer, consumer, source: bytes) -> Edge:
         # consumer, so there is no edge and nothing observable blocking one.
         return Edge(None, None, frozenset(reasons))
 
+    if consumer_statement.start_byte < producer_statement.start_byte:
+        # A producer reaches a consumer, which means it comes first. Without
+        # this the sibling and binding tests alone accepted an edge backwards
+        # in time -- `_statements_between` normalizes the order -- and the
+        # "lies between" test built on it then reported an earlier accumulate
+        # as lying between a later multiply and its own add, on twelve
+        # holdout relations.
+        return Edge(None, None, frozenset(reasons))
+
     identifier = _declared_identifier(producer_statement, producer, source)
     if identifier is None or not _names_identifier(consumer, identifier, source):
         return Edge(None, None, frozenset(reasons))

@@ -41,6 +41,7 @@ from syntax import (  # noqa: E402
     walk,
 )
 from tables import (  # noqa: E402
+    BY_VALUE,
     F_ADDS,
     F_MULTIPLIES,
     F_WIDENING,
@@ -58,16 +59,28 @@ SUFFIXES = (".h", ".hpp", ".c", ".cc", ".cpp")
 
 @dataclass
 class Record:
-    """One (rule, anchor, prospective consumer) triple, per the grammar."""
+    """One (rule, anchor, prospective consumer) triple, per the grammar.
+
+    Every pair the prospective search yields gets one of these. `verdict` is
+    `admitted`, `excluded` or `negative`: a negative is a searched pair with
+    no edge and nothing observably blocking one, which the grammar counts in
+    the prospective population and not among the exclusions.
+    """
 
     rule: str
     anchor: str
     consumer: str
-    verdict: str  # "admitted", "excluded", or "superseded_by_earlier_anchor"
+    verdict: str  # "admitted", "excluded" or "negative"
     # Whether the anchor's enclosing function parses. The grammar does not
     # adjudicate an anchor in a function containing an ERROR or MISSING node,
     # so adjudication reads this to know what is in its slice.
     adjudicable: bool = True
+    # Whether this anchor is the one the rule's unit attributes the finding
+    # to, by the grammar's position key. For F, one add belongs to one
+    # multiply; the grammar adjudicates the add first and attributes
+    # afterwards, so this records which anchor *would* own it and the
+    # adjudication applies that. It is not a verdict.
+    owns_the_consumer: bool = True
     reason: str | None = None
     reasons: list = field(default_factory=list)
     stratum: str | None = None
@@ -82,25 +95,36 @@ class Anchor:
     where: str
     parse_failed: bool = False
     records: list = field(default_factory=list)
+    # The grammar's position key. Carried on the anchor rather than looked up
+    # by `where`, which is file and line and is shared by two calls written
+    # on one line: keying by it made both of them compare equal to an add's
+    # owner, so 68 relations claimed ownership of 60 adds.
+    position: Position | None = None
 
     @property
     def admitted(self):
         return [r for r in self.records if r.verdict == "admitted"]
 
-    @property
-    def negative(self) -> bool:
-        return not self.records
-
 
 @dataclass
 class Call:
     node: object
-    name: str
+    name: str | None  # None when the callee is not an identifier
     position: Position
     where: str
 
+    @property
+    def direct(self) -> bool:
+        return self.name is not None
+
 
 def _calls(path: Path):
+    """Every call expression, whether or not its callee is an identifier.
+
+    P's slot is "the next call, whatever it is", so an indirect call has to
+    be able to fill it -- discarding non-identifier callees here made
+    `indirect_callee` unreachable, which is a reason the grammar defines.
+    """
     source = path.read_bytes()
     root = parse(source).root_node
     index = index_preorder(root)
@@ -109,18 +133,76 @@ def _calls(path: Path):
         if node.type != "call_expression":
             continue
         function = node.child_by_field_name("function")
-        if function is None or function.type != "identifier":
-            continue
+        name = (
+            normalized(function, source)
+            if function is not None and function.type == "identifier"
+            else None
+        )
         found.append(
             Call(
                 node=node,
-                name=normalized(function, source),
+                name=name,
                 position=Position(node.start_byte, node.end_byte, index[node.id]),
-                where=f"{path}:{node.start_point[0] + 1}",
+                # Line and column, not line alone: VVdeC writes
+                # `vsum = _mm256_add_epi32(vsum, _mm256_add_epi32(
+                # _mm256_madd_epi16(..), _mm256_madd_epi16(..)))` on one
+                # line, so two anchors and two consumers shared a single
+                # spelling and 99 distinct pairs collapsed into fewer
+                # records -- which made one add look owned twice.
+                where=f"{path}:{node.start_point[0] + 1}:{node.start_point[1] + 1}",
             )
         )
     found.sort(key=lambda c: c.position)
     return source, root, found
+
+
+def _macro_definitions(source: bytes, root) -> dict:
+    """Same-file `#define` names, and whether the grammar can pin the spelling.
+
+    Returns a name to verdict map: `macro_spelled` where there is exactly one
+    unconditional definition, no `#undef` of the name anywhere, and the
+    replacement text contains a frozen-table name; `macro_ambiguous` where
+    there are several, or one inside a conditional, or an `#undef`.
+    """
+    counts: dict = {}
+    conditional: set = set()
+    undefined: set = set()
+    bodies: dict = {}
+    for node in walk(root):
+        if node.type in ("preproc_def", "preproc_function_def"):
+            name_node = node.child_by_field_name("name")
+            if name_node is None:
+                continue
+            name = normalized(name_node, source)
+            counts[name] = counts.get(name, 0) + 1
+            bodies.setdefault(name, []).append(normalized(node, source))
+            ancestor = node.parent
+            while ancestor is not None:
+                if ancestor.type.startswith("preproc_if") or ancestor.type.startswith(
+                    "preproc_ifdef"
+                ):
+                    conditional.add(name)
+                    break
+                ancestor = ancestor.parent
+        elif node.type == "preproc_call":
+            directive = node.child_by_field_name("directive")
+            argument = node.child_by_field_name("argument")
+            if directive is not None and normalized(directive, source) == "#undef":
+                if argument is not None:
+                    undefined.add(normalized(argument, source).strip())
+
+    verdicts = {}
+    for name, count in counts.items():
+        if count > 1 or name in conditional or name in undefined:
+            verdicts[name] = "macro_ambiguous"
+            continue
+        body = bodies[name][0]
+        if any(known in body for known in BY_VALUE):
+            verdicts[name] = "macro_spelled"
+        # A definition whose body names no intrinsic is not a macro-spelled
+        # participant and not ambiguous either: it is an unrelated macro, and
+        # a call to it is `unrecognized_consumer` like any other.
+    return verdicts
 
 
 def _in_same_function(first, second) -> bool:
@@ -175,18 +257,18 @@ def _between_conversions(anchor, add, conversions, source):
     return found
 
 
-def enumerate_f(source, calls) -> list[Anchor]:
+def enumerate_f(source, calls, definitions=None) -> list[Anchor]:
     adds = [c for c in calls if c.name in F_ADDS]
     conversions = [c for c in calls if c.name in F_WIDENING]
     anchors = []
     for anchor in (c for c in calls if c.name in F_MULTIPLIES):
-        record = Anchor("F", anchor.where, _parse_failed(anchor))
+        record = Anchor("F", anchor.where, _parse_failed(anchor), position=anchor.position)
         for add in adds:
             if not _in_search_scope(anchor, add):
                 continue
             record.records.append(_f_relation(anchor, add, conversions, source))
         anchors.append(record)
-    _apply_first_claim(anchors)
+    _attribute_adds(anchors)
     return anchors
 
 
@@ -226,33 +308,39 @@ def _f_relation(anchor, add, conversions, source) -> Record:
                   reason=primary(reasons), reasons=sorted(reasons))
 
 
-def _apply_first_claim(anchors) -> None:
-    """One add belongs to one multiply: the earliest reaching anchor owns it.
+def _attribute_adds(anchors) -> None:
+    """Which anchor the rule's unit attributes each add to.
 
     `docs/mechanisms.md` makes the add the counting unit, so where several
-    multiplies reach one add the earliest-positioned anchor owns the finding
-    and the rest are admitted non-instances. Attribution is syntactic and runs
-    before adjudication; which of the admitted relations is an instance is a
-    judgement made once per add, afterwards.
+    multiplies reach one add, one of them owns the finding. The grammar
+    adjudicates the add first and attributes afterwards, so this is not a
+    verdict: it records which anchor *would* own it, and the adjudication
+    applies that once it has judged the add. An earlier version wrote
+    `superseded_by_earlier_anchor` as a verdict here, which attributed before
+    adjudicating and left undefined the case of an earliest anchor judged a
+    non-instance.
+
+    Ordering is the grammar's position key -- start byte, end byte, pre-order
+    index. An earlier version compared the `file:line` strings, which orders
+    `file:100` before `file:99`.
     """
-    owners: dict[str, str] = {}
+    owners: dict[str, Position] = {}
     for anchor in anchors:
         for record in anchor.admitted:
             current = owners.get(record.consumer)
-            if current is None or anchor.where < current:
-                owners[record.consumer] = anchor.where
+            if current is None or anchor.position < current:
+                owners[record.consumer] = anchor.position
     for anchor in anchors:
         for record in anchor.admitted:
-            if owners[record.consumer] != anchor.where:
-                record.verdict = "superseded_by_earlier_anchor"
+            record.owns_the_consumer = owners[record.consumer] == anchor.position
 
 
-def enumerate_w(source, calls) -> list[Anchor]:
+def enumerate_w(source, calls, definitions=None) -> list[Anchor]:
     partners = [c for c in calls if c.name == W_PARTNER]
     unpacks = [c for c in calls if c.name in W_CONSUMERS]
     anchors = []
     for anchor in (c for c in calls if c.name == W_PRODUCER):
-        record = Anchor("W", anchor.where, _parse_failed(anchor))
+        record = Anchor("W", anchor.where, _parse_failed(anchor), position=anchor.position)
         anchor_args = _argument_text(anchor, source)
         for unpack in unpacks:
             if not _in_search_scope(anchor, unpack):
@@ -274,10 +362,14 @@ def _w_relation(anchor, anchor_args, unpack, partners, source) -> Record:
     low = _reaches(anchor, unpack, source)
     reasons |= set(low.reasons)
     for partner in partners:
-        # A `mulhi` in another block is not this pair's partner, it is an
-        # unrelated call, and collecting its reasons put `not_siblings` at the
-        # head of 17 holdout records whose real reason was something else.
-        if not _in_search_scope(partner, unpack) and not _in_search_scope(anchor, partner):
+        # The partner stands in the same relation to the consuming unpack
+        # that the anchor does. A `mulhi` in another block is not this pair's
+        # partner but an unrelated call, and collecting its reasons put
+        # `not_siblings` at the head of 17 holdout records whose real reason
+        # was something else. An earlier version accepted a partner that
+        # failed this test as long as the anchor reached the partner, which
+        # let the same misleading reason back in.
+        if not _in_search_scope(partner, unpack):
             continue
         if _argument_text(partner, source) != anchor_args:
             continue
@@ -291,7 +383,7 @@ def _w_relation(anchor, anchor_args, unpack, partners, source) -> Record:
                   reason=primary(reasons), reasons=sorted(reasons))
 
 
-def enumerate_m(source, calls) -> list[Anchor]:
+def enumerate_m(source, calls, definitions=None) -> list[Anchor]:
     """Runs of inserts on one lvalue, per the grammar's run construction."""
     inserts = [c for c in calls if c.name in M_INSERTS]
     claimed: set[int] = set()
@@ -305,7 +397,7 @@ def enumerate_m(source, calls) -> list[Anchor]:
         run, blocked = _build_run(anchor, lvalue, inserts, source)
         for call in run:
             claimed.add(call.node.id)
-        record = Anchor("M", anchor.where, _parse_failed(anchor))
+        record = Anchor("M", anchor.where, _parse_failed(anchor), position=anchor.position)
         if len(run) >= M_THRESHOLD:
             record.records.append(
                 Record("M", anchor.where, run[-1].where, "admitted")
@@ -321,6 +413,14 @@ def enumerate_m(source, calls) -> list[Anchor]:
 
 
 def _assigned_lvalue(call, source) -> str | None:
+    """The lvalue an insert is assigned to, per the grammar's M anchor rule.
+
+    Assignments only. A declaration initializer is not an M anchor: the
+    grammar says a run-initial insert is "the right-hand side of an
+    assignment", and `v = _mm_insert_epi16(v, ...)` is the shape, since the
+    first argument has to be the same lvalue. An earlier version accepted
+    initializers too, which admitted anchors the grammar does not define.
+    """
     body = enclosing_body(call.node)
     if body is None:
         return None
@@ -328,17 +428,21 @@ def _assigned_lvalue(call, source) -> str | None:
     if statement is None:
         return None
     for node in walk(statement):
-        if node.type == "assignment_expression":
-            right = node.child_by_field_name("right")
-            left = node.child_by_field_name("left")
-            if right is not None and left is not None and strip_wrappers(right).id == call.node.id:
-                return normalized(left, source)
-        if node.type == "init_declarator":
-            value = node.child_by_field_name("value")
-            declarator = node.child_by_field_name("declarator")
-            if value is not None and declarator is not None and strip_wrappers(value).id == call.node.id:
-                return normalized(declarator, source)
+        if node.type != "assignment_expression":
+            continue
+        right = node.child_by_field_name("right")
+        left = node.child_by_field_name("left")
+        if right is not None and left is not None and strip_wrappers(right).id == call.node.id:
+            return normalized(left, source)
     return None
+
+
+def _first_argument(call, source) -> str | None:
+    arguments = call.node.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    named = [c for c in arguments.named_children if c.type != "comment"]
+    return normalized(strip_wrappers(named[0]), source) if named else None
 
 
 def _build_run(anchor, lvalue, inserts, source):
@@ -383,9 +487,28 @@ def _build_run(anchor, lvalue, inserts, source):
             return run, None
         candidates = by_statement.get(child.id, [])
         extension = next(
-            (c for c in candidates if _assigned_lvalue(c, source) == lvalue), None
+            (
+                c for c in candidates
+                # The grammar requires both: assigned to the run's lvalue,
+                # and taking that same lvalue as its first argument. An
+                # earlier version checked only the assignment, which would
+                # have joined `v = _mm_insert_epi16(w, ...)` to a run over
+                # `v` -- a different vector being built, not a continuation.
+                if _assigned_lvalue(c, source) == lvalue
+                and _first_argument(c, source) == lvalue
+            ),
+            None,
         )
         if extension is not None:
+            blocking = edge(run[-1].node, extension.node, source)
+            if not blocking.admitted and blocking.reasons:
+                # Clauses 4 to 7, applied through the same relation function
+                # the other rules use rather than through a partial copy of
+                # it: the earlier version checked control statements and
+                # reassignment by hand and never applied shadowing,
+                # intervening calls, address-taking, unevaluated contexts or
+                # conditional operands at all.
+                return run, (extension, set(blocking.reasons))
             run.append(extension)
             continue
         if _assigns_lvalue_without_insert(child, lvalue, source):
@@ -423,12 +546,12 @@ def _next_insert_on(lvalue, children, after, by_statement, source):
     return None
 
 
-def enumerate_p(source, calls) -> list[Anchor]:
+def enumerate_p(source, calls, definitions=None) -> list[Anchor]:
     anchors = []
     for index, anchor in enumerate(calls):
         if anchor.name not in P_COMPARES:
             continue
-        record = Anchor("P", anchor.where, _parse_failed(anchor))
+        record = Anchor("P", anchor.where, _parse_failed(anchor), position=anchor.position)
         following = _next_call_in_function(calls, index, anchor)
         if following is None:
             anchors.append(record)
@@ -488,21 +611,51 @@ ENUMERATORS = {
 
 def over(roots, rules):
     anchors = {rule: [] for rule in rules}
-    for root in roots:
-        for path in sorted(Path(root).rglob("*")):
+    for directory in roots:
+        for path in sorted(Path(directory).rglob("*")):
             if path.suffix not in SUFFIXES or not path.is_file():
                 continue
-            source, _, calls = _calls(path)
+            source, root, calls = _calls(path)
             calls = [c for c in calls if enclosing_function(c.node) is not None]
+            definitions = _macro_definitions(source, root)
             for rule in rules:
-                anchors[rule].extend(ENUMERATORS[rule](source, calls))
+                found = ENUMERATORS[rule](source, calls, definitions)
+                _apply_parse_error(found)
+                anchors[rule].extend(found)
     return anchors
+
+
+def _apply_parse_error(found) -> None:
+    """`parse_error` joins every prospective relation of a failing anchor.
+
+    The grammar makes it an exclusion with one record per triple, and it sits
+    last in the precedence order, so a relation blocked for another reason
+    keeps that reason as its primary and carries this one alongside. An
+    admitted relation in such a function becomes excluded: the grammar does
+    not adjudicate an anchor whose function the parser could not read, and
+    counting the relation as admitted would have published it as part of a
+    slice it is not in.
+    """
+    for anchor in found:
+        if not anchor.parse_failed:
+            continue
+        for record in anchor.records:
+            reasons = set(record.reasons) | {"parse_error"}
+            record.reasons = sorted(reasons)
+            record.reason = primary(reasons)
+            record.verdict = "excluded"
+            record.stratum = None
 
 
 def summarize(anchors):
     out = {}
     for rule, found in anchors.items():
-        real = [r for a in found for r in a.records if r.verdict != "negative"]
+        # Every pair the search yielded is a prospective relation, which is
+        # what the grammar says. An earlier version dropped the negatives
+        # from the totals, so the printed prospective count was exactly
+        # admitted plus excluded and was not the denominator the text
+        # declares.
+        every = [r for a in found for r in a.records]
         out[rule] = {
             "candidate_anchors": len(found),
             "parse_failure_anchors": sum(1 for a in found if a.parse_failed),
@@ -510,27 +663,27 @@ def summarize(anchors):
             # which is the whole corpus's list and truthy for every anchor,
             # and reported more anchors with a relation than there were
             # relations.
-            "anchors_with_a_prospective_relation": sum(
-                1 for a in found
-                if any(r.verdict != "negative" for r in a.records)
+            "anchors_with_a_prospective_relation": sum(1 for a in found if a.records),
+            "prospective_relations": len(every),
+            "admitted": sum(1 for r in every if r.verdict == "admitted"),
+            "not_attributed_to_this_anchor": sum(
+                1 for r in every if r.verdict == "admitted" and not r.owns_the_consumer
             ),
-            "prospective_relations": len(real),
-            "admitted": sum(1 for r in real if r.verdict == "admitted"),
-            "superseded": sum(1 for r in real if r.verdict == "superseded_by_earlier_anchor"),
-            "excluded": sum(1 for r in real if r.verdict == "excluded"),
+            "excluded": sum(1 for r in every if r.verdict == "excluded"),
+            "negatives": sum(1 for r in every if r.verdict == "negative"),
             "adjudicable_anchors": sum(1 for a in found if not a.parse_failed),
             "adjudicable_anchors_with_a_relation": sum(
-                1 for a in found
-                if not a.parse_failed
-                and any(r.verdict != "negative" for r in a.records)
+                1 for a in found if not a.parse_failed and a.records
             ),
             "admitted_on_adjudicable_anchors": sum(
                 1 for a in found if not a.parse_failed
                 for r in a.records if r.verdict == "admitted"
             ),
-            "strata": dict(Counter(r.stratum for r in real if r.verdict == "admitted" and r.stratum)),
+            "strata": dict(
+                Counter(r.stratum for r in every if r.verdict == "admitted" and r.stratum)
+            ),
             "exclusions_by_reason": dict(
-                Counter(r.reason for r in real if r.verdict == "excluded")
+                Counter(r.reason for r in every if r.verdict == "excluded")
             ),
         }
     return out

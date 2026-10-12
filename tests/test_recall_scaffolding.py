@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -407,71 +408,93 @@ def test_the_holdout_enumeration_matches_the_published_figures():
     Pinned so that a change to any clause of the grammar, or to any
     enumerator, shows up as a failure rather than as a document that has
     quietly stopped describing the code. Every number here was measured, and
-    the ones that moved during development moved for reasons the grammar
-    records.
+    the ones that moved during development moved for reasons the grammar or
+    the code records.
     """
     module = _load("enumerate")
     summary = module.summarize(module.over([_holdout_scope()], ["F", "W", "P", "M"]))
     assert summary["F"] == {
         "candidate_anchors": 315,
         "parse_failure_anchors": 167,
-        "anchors_with_a_prospective_relation": 205,
-        "prospective_relations": 280,
-        "admitted": 186,
-        "superseded": 12,
-        "excluded": 82,
+        "anchors_with_a_prospective_relation": 264,
+        # Every searched pair, negatives included: the grammar's denominator.
+        "prospective_relations": 916,
+        "admitted": 75,
+        # One add belongs to one multiply, so 14 of the 75 are attributed to
+        # an earlier anchor and 61 are the unit's own count.
+        "not_attributed_to_this_anchor": 14,
+        # 468 of these are `parse_error`, which was not applied as an
+        # exclusion at all until review caught it: the relations were being
+        # published as admitted from functions the parser could not read.
+        "excluded": 550,
+        "negatives": 291,
         "adjudicable_anchors": 148,
-        "adjudicable_anchors_with_a_relation": 80,
-        "admitted_on_adjudicable_anchors": 68,
+        "adjudicable_anchors_with_a_relation": 112,
+        "admitted_on_adjudicable_anchors": 75,
         # The one-conversion stratum's population is zero on this corpus, so
         # recall for it is not estimable rather than zero.
-        "strata": {"direct": 186},
-        "exclusions_by_reason": {"rebound_between": 73, "control_between": 9},
+        "strata": {"direct": 75},
+        "exclusions_by_reason": {
+            "parse_error": 468,
+            "rebound_between": 73,
+            "control_between": 9,
+        },
     }
     assert summary["W"] == {
         "candidate_anchors": 29,
         "parse_failure_anchors": 21,
         "anchors_with_a_prospective_relation": 9,
-        "prospective_relations": 30,
-        # 18, not 9: without the by-value allowlist the high half of every
-        # eight-lane rebuild was excluded, because the `unpacklo` between the
-        # anchor and the `unpackhi` passes the binding to a call.
-        "admitted": 18,
-        "superseded": 0,
-        "excluded": 12,
+        "prospective_relations": 32,
+        # 4, not 9 and not 18: the by-value allowlist admits the high half of
+        # every eight-lane rebuild, and `parse_error` then excludes the ones
+        # in functions the parser could not read.
+        "admitted": 4,
+        "not_attributed_to_this_anchor": 0,
+        "excluded": 26,
+        "negatives": 2,
         "adjudicable_anchors": 8,
         "adjudicable_anchors_with_a_relation": 2,
         "admitted_on_adjudicable_anchors": 4,
         "strata": {},
-        "exclusions_by_reason": {"rebound_between": 12},
+        "exclusions_by_reason": {"parse_error": 14, "rebound_between": 12},
     }
     assert summary["P"] == {
         "candidate_anchors": 14,
         "parse_failure_anchors": 3,
-        "anchors_with_a_prospective_relation": 2,
-        "prospective_relations": 2,
+        "anchors_with_a_prospective_relation": 14,
+        "prospective_relations": 14,
         "admitted": 2,
-        "superseded": 0,
-        "excluded": 0,
+        "not_attributed_to_this_anchor": 0,
+        "excluded": 3,
+        "negatives": 9,
         "adjudicable_anchors": 11,
-        "adjudicable_anchors_with_a_relation": 2,
+        "adjudicable_anchors_with_a_relation": 11,
         "admitted_on_adjudicable_anchors": 2,
         "strata": {},
-        "exclusions_by_reason": {},
+        "exclusions_by_reason": {"parse_error": 3},
     }
     # Not measurable rather than zero recall: the frozen M insert family has
     # no candidate anchor in this corpus at all.
     assert summary["M"]["candidate_anchors"] == 0
 
 
+#: The one admitted relation `docs/verification.md` adjudicates a
+#: non-instance. Clause 2's nesting is transitive, so the first product of
+#: `_mm256_add_epi32(vsum, _mm256_add_epi32(madd(..), madd(..)))` reaches both
+#: adds; only the inner one is a fusion opportunity, because the outer add's
+#: operands are `vsum` and a sum.
+_NON_INSTANCE_CONSUMER_SUFFIX = "InterpolationFilterX86.h:724:18"
+
+
 @_requires_holdout
 def test_the_tool_reports_every_adjudicated_instance():
-    """The recall claim itself: 68 of 68, 4 of 4, 2 of 2.
+    """The recall claim itself: 60 of 60, 4 of 4, 2 of 2.
 
-    The adjudication is recorded in `docs/verification.md` -- all 74 admitted
-    relations on adjudicable anchors were judged instances by reading the
-    source. This checks the other half of the comparison, that the tool
-    reports each of them, keyed on rule, file and the anchor's line.
+    The adjudication is recorded in `docs/verification.md`. This checks the
+    other half of the comparison, that the tool reports each instance, keyed
+    on rule, file and the anchor's line **with multiplicity** -- one line can
+    hold several anchors, and matching as a set hid a real divergence until
+    the counts were compared.
     """
     from simde_lint.analyze import analyze
 
@@ -480,21 +503,29 @@ def test_the_tool_reports_every_adjudicated_instance():
     anchors = module.over([scope], ["F", "W", "P"])
 
     findings, _, _ = analyze([scope])
-    reported = {
+    reported = Counter(
         (f.type, str(Path(f.file)), f.line)
         for f in findings
         if f.rule in ("F.mul_add_no_fuse", "W.mul16_widen_roundtrip", "P.cmp_immediate_use")
-    }
+    )
 
-    missed = []
+    needed = Counter()
+    non_instances = 0
     for rule, found in anchors.items():
         for anchor in found:
             if anchor.parse_failed:
                 continue
             for record in anchor.records:
-                if record.verdict != "admitted":
+                if record.verdict != "admitted" or not record.owns_the_consumer:
                     continue
-                path, line = record.anchor.rsplit(":", 1)
-                if (rule, str(Path(path)), int(line)) not in reported:
-                    missed.append(record.anchor)
-    assert missed == []
+                if record.consumer.endswith(_NON_INSTANCE_CONSUMER_SUFFIX):
+                    non_instances += 1
+                    continue
+                path, line, _column = record.anchor.rsplit(":", 2)
+                needed[(rule, str(Path(path)), int(line))] += 1
+
+    assert non_instances == 1, "the adjudicated non-instance is no longer there"
+    assert sum(needed.values()) == 66
+    short = {key: (count, reported[key]) for key, count in needed.items()
+             if reported[key] < count}
+    assert short == {}
