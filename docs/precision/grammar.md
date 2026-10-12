@@ -282,9 +282,24 @@ F, W or P; M does not use binding identity for its chain but lvalue equality,
 which is a different test and does accept those forms.
 
 **F's paths, and which one decides the record.** One (anchor, add) pair can
-have several paths: the direct one, and one per F widening conversion `C` for
-which `anchor -> C` and `C -> add` are both admitted edges. The policy is
-fixed here because it changes the admitted, exclusion and stratum counts.
+have several paths. They are defined by what lies between the endpoints, not
+by generic reachability:
+
+- the **direct** path exists when the anchor reaches the add by clause 2 with
+  **no F widening conversion call between them** -- no conversion of which the
+  anchor is a descendant and which is itself a descendant of the add's
+  arguments, and none binding the anchor's value into the add;
+- a **one-conversion** path exists per F widening conversion `C` such that
+  `anchor -> C` and `C -> add` are both admitted edges and no further F
+  widening conversion lies on either edge.
+
+Clause 2's nesting is transitive -- any descendant of the consumer's argument
+list reaches the consumer -- so without that first exclusion
+`_mm_add_epi32(acc, _mm_cvtepi16_epi32(_mm_mullo_epi16(a, b)))` would admit a
+"direct" edge as well as the conversion path, land in the zero-conversion
+stratum, and two nested conversions would evade the more-than-one rule
+entirely. The policy is fixed here because it changes the admitted, exclusion
+and stratum counts.
 
 - The pair is **admitted** if at least one of its paths is admitted. One
   rejected path does not exclude a pair another path reaches.

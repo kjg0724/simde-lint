@@ -19,7 +19,7 @@ _PARSER = Parser(Language(tree_sitter_cpp.language()))
 
 #: Expression wrappers the grammar's stripping reduction removes.
 _WRAPPERS = ("parenthesized_expression", "cast_expression")
-_CAST_OPERATORS = ("static_cast", "reinterpret_cast", "const_cast")
+_CAST_OPERATORS = frozenset({"static_cast", "reinterpret_cast", "const_cast"})
 
 #: Statements that end a straight-line sequence under clause 3.
 CONTROL = frozenset({
@@ -127,11 +127,38 @@ def strip_wrappers(node):
                 return current
             current = value
             continue
-        if current.type in _CAST_OPERATORS or (
-            current.type == "template_function" and current.text[:6] in (b"static", b"reinte")
-        ):
-            return current
+        unwrapped = _cpp_cast_operand(current)
+        if unwrapped is not None:
+            current = unwrapped
+            continue
         return current
+
+
+def _cpp_cast_operand(node):
+    """The operand of `static_cast<T>(x)` and its two siblings, or None.
+
+    tree-sitter spells these as a `call_expression` whose `function` is a
+    `template_function` -- identifier plus template argument list -- so the
+    earlier version, which looked for a node type named after the cast,
+    could never reach them and returned the outer call unchanged. The exact
+    identifier is compared rather than a prefix, so a function the codebase
+    happens to call `static_cast_helper` is not mistaken for a cast.
+    """
+    if node.type != "call_expression":
+        return None
+    function = node.child_by_field_name("function")
+    if function is None or function.type != "template_function":
+        return None
+    name = function.child_by_field_name("name")
+    if name is None or name.type != "identifier":
+        return None
+    if name.text.decode("utf-8", errors="replace") not in _CAST_OPERATORS:
+        return None
+    arguments = node.child_by_field_name("arguments")
+    if arguments is None:
+        return None
+    operands = [c for c in arguments.named_children if c.type != "comment"]
+    return operands[0] if len(operands) == 1 else None
 
 
 def enclosing(node, types) -> object | None:

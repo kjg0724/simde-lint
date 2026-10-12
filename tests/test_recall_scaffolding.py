@@ -174,19 +174,43 @@ def test_the_position_key_is_total_for_equal_starts(syntax):
     assert a < b and a < c and not (b < a)
 
 
-def test_strip_wrappers_reduces_parentheses_and_casts(syntax):
-    for text, expected in [
-        (b"__m128i r = (_mm_add_epi32(a, b));", "call_expression"),
-        (b"__m128i r = (__m128i)_mm_add_epi32(a, b);", "call_expression"),
-        (b"__m128i r = ((_mm_add_epi32(a, b)));", "call_expression"),
-    ]:
-        source = b"void f(__m128i a, __m128i b) { " + text + b" (void)r; }"
-        root = syntax.parse(source).root_node
-        declarator = next(
-            n for n in syntax.walk(root) if n.type == "init_declarator"
-        )
-        value = declarator.child_by_field_name("value")
-        assert syntax.strip_wrappers(value).type == expected, text
+@pytest.mark.parametrize(
+    "text",
+    [
+        b"__m128i r = (_mm_add_epi32(a, b));",
+        b"__m128i r = ((_mm_add_epi32(a, b)));",
+        b"__m128i r = (__m128i)_mm_add_epi32(a, b);",
+        b"__m128i r = static_cast<__m128i>(_mm_add_epi32(a, b));",
+        b"__m128i r = reinterpret_cast<__m128i>(_mm_add_epi32(a, b));",
+        b"__m128i r = const_cast<__m128i&>(_mm_add_epi32(a, b));",
+        b"__m128i r = static_cast<__m128i>((_mm_add_epi32(a, b)));",
+    ],
+)
+def test_strip_wrappers_reduces_parentheses_and_every_promised_cast(syntax, text):
+    # The three C++ casts parse as a call expression whose function is a
+    # `template_function`, so an earlier version looking for a node type named
+    # after the cast could never reach them and returned the outer call.
+    source = b"void f(__m128i a, __m128i b) { " + text + b" (void)r; }"
+    root = syntax.parse(source).root_node
+    declarator = next(n for n in syntax.walk(root) if n.type == "init_declarator")
+    value = declarator.child_by_field_name("value")
+    reduced = syntax.strip_wrappers(value)
+    assert reduced.type == "call_expression"
+    name = reduced.child_by_field_name("function")
+    assert syntax.normalized(name, source) == "_mm_add_epi32"
+
+
+def test_strip_wrappers_does_not_mistake_a_similarly_named_function(syntax):
+    # The identifier is compared exactly, so a codebase helper whose name
+    # begins like a cast is not unwrapped.
+    source = (
+        b"void f(__m128i a, __m128i b) { "
+        b"__m128i r = static_cast_helper<__m128i>(_mm_add_epi32(a, b)); (void)r; }"
+    )
+    root = syntax.parse(source).root_node
+    declarator = next(n for n in syntax.walk(root) if n.type == "init_declarator")
+    value = declarator.child_by_field_name("value")
+    assert syntax.strip_wrappers(value).id == value.id
 
 
 def test_strip_wrappers_leaves_a_proper_subexpression_alone(syntax):
