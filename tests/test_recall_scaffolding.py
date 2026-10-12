@@ -635,3 +635,86 @@ void f(__m128i v, __m128i w, int x, int y, int z) {
     # The run over `v` is the two inserts that consume it, below the
     # threshold of three, so nothing is admitted.
     assert admitted == []
+
+
+#: What `docs/verification.md` publishes for the `v2.3.5` comparison: of the
+#: 66 instances this grammar identifies, that tag reports 41. Pinned as a
+#: breakdown rather than a total so that a change to any one cause shows up
+#: as that cause and not as a moved number.
+_V235_NOT_REPORTED = {
+    "operand_not_named": 19,
+    "add_epi16_unregistered": 3,
+    "w_unit_was_one_pair": 2,
+    "mullo_epi16_256_unregistered": 1,
+}
+
+_V235_MULTIPLIES = frozenset({
+    "_mm_mullo_epi32", "_mm_mullo_epi16", "_mm_madd_epi16", "_mm_mul_epi32",
+    "_mm256_mullo_epi32", "_mm256_madd_epi16", "_mm256_mul_epi32",
+})
+_V235_ADDS = frozenset({
+    "_mm_add_epi32", "_mm256_add_epi32", "_mm_add_epi64", "_mm256_add_epi64",
+})
+
+
+@_requires_holdout
+def test_the_recall_evidence_does_not_transfer_to_the_v2_3_x_line():
+    """The attribution behind `docs/verification.md`'s `v2.3.5` breakdown.
+
+    **What this checks**: that each of the 66 instances falls to the one
+    cause the document assigns it, computed from the enumeration and from
+    `v2.3.5`'s registered sets transcribed here.
+
+    **What it does not check**: that `v2.3.5` reports 41 of them. That number
+    came from running the tag -- the document carries the command -- and this
+    test would pass even if the tag behaved differently, because it
+    re-derives the attribution rather than calling that version. It is a pin
+    on the breakdown, not on the figure.
+
+    It computes no recall figure for `v2.3.5` either. That would need a
+    grammar transcribed from its own rule descriptions and fixed before
+    measuring, which is a different artifact with a smaller candidate
+    population.
+    """
+    relations = _load("relations")
+    module = _load("enumerate")
+    scope = _holdout_scope()
+    anchors = module.over([scope], ["F", "W", "P"])
+
+    calls_by_file: dict = {}
+    causes: Counter = Counter()
+    instances = 0
+    for rule, found in anchors.items():
+        for anchor in found:
+            if anchor.parse_failed:
+                continue
+            for record in anchor.records:
+                if record.verdict != "admitted" or not record.owns_the_consumer:
+                    continue
+                instances += 1
+                path, _line, _column = record.anchor.rsplit(":", 2)
+                if path not in calls_by_file:
+                    calls_by_file[path] = module._calls(Path(path))[2]
+                calls = calls_by_file[path]
+                producer = next((c for c in calls if c.where == record.anchor), None)
+                consumer = next((c for c in calls if c.where == record.consumer), None)
+                assert producer is not None and consumer is not None, record.anchor
+                if rule == "W":
+                    # One finding per pair there, two per rebuild here, so
+                    # each rebuild's high half has no counterpart.
+                    if consumer.name == "_mm_unpackhi_epi16":
+                        causes["w_unit_was_one_pair"] += 1
+                    continue
+                if rule != "F":
+                    continue
+                if producer.name not in _V235_MULTIPLIES:
+                    causes["mullo_epi16_256_unregistered"] += 1
+                elif consumer.name not in _V235_ADDS:
+                    causes["add_epi16_unregistered"] += 1
+                elif relations.is_nested_in(producer.node, consumer.node):
+                    causes["operand_not_named"] += 1
+
+    assert instances == 66
+    assert dict(causes) == _V235_NOT_REPORTED
+    assert sum(causes.values()) == 25
+
