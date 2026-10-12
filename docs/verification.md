@@ -571,8 +571,15 @@ and is 11, both from the float families rule F and rule W registered in
 `test_depquant_reports_the_types_its_source_can_carry` in
 `tests/test_verification.py` pins DepQuant's row directly: R 40, S 22, P 3,
 W/F/M 0. Nothing pins the other four rows, which is why a reader should take
-them as measured at the version this document ships with rather than as a
-standing claim. (R was 26 before v1.1 added `_mm_loadu_si64` to
+them as measured at the version this document ships with -- `2.9.0` -- rather
+than as a standing claim.
+
+**The `v2.3.x` line has different values here, and they are correct there.**
+`QuantX86.h` W is 4 and `FGAX86.h` F is 0 at `v2.3.5`, because that line
+predates the float families. Work citing a `v2.3.x` tag should read its
+figures from that tag and not from this table: the two are separate lineages,
+and `v2.3.3` and `v2.3.4` were tagged after `v2.4.0` with lower numbers, so
+version order does not tell a reader which behaviour a tag has. (R was 26 before v1.1 added `_mm_loadu_si64` to
 `knowledge/redundant.yaml`; DepQuant carries 14 call sites of it, all of
 them in the `+40` here.)
 
@@ -1475,6 +1482,56 @@ So:
   recall percentage is reported. SVT-AV1 has 37 `M.scalar_insert_chain`
   findings and could be measured, but that is a tuning corpus and would not
   be holdout recall.
+
+**This evidence is specific to this lineage, measured.** The enumerators'
+frozen tables and the units they count in were transcribed from the rules as
+`2.9.0` describes them, so the comparison is with `2.9.0`'s tool. Run against
+`v2.3.5` instead -- the enumeration from this tree, the findings from that
+tag -- the same 66 instances come back 41 reported and 25 not:
+
+```
+$ git worktree add --detach /tmp/v235 v2.3.5
+$ (cd /tmp/v235 && uv run simde-lint \
+      "$SIMDE_LINT_VVDEC/source/Lib/CommonLib/x86" --format json) > /tmp/v235.json
+$ uv run python3 docs/precision/recall/enumerate.py \
+      "$SIMDE_LINT_VVDEC/source/Lib/CommonLib/x86" --records > /tmp/records.json
+$ uv run python3 - <<'EOF'
+import collections, json
+rules = ("F.mul_add_no_fuse", "W.mul16_widen_roundtrip", "P.cmp_immediate_use")
+tagged = collections.Counter(
+    (f["type"], f["file"], f["line"])
+    for f in json.load(open("/tmp/v235.json"))["findings"] if f["rule"] in rules)
+wanted = collections.Counter()
+for r in json.load(open("/tmp/records.json")):
+    if r["verdict"] == "admitted" and r["adjudicable"] and r["owns_the_consumer"]:
+        path, line, _column = r["anchor"].rsplit(":", 2)
+        wanted[(r["rule"], path, int(line))] += 1
+short = sum(max(0, n - tagged[k]) for k, n in wanted.items())
+print(f"instances {sum(wanted.values())}, reported {sum(wanted.values()) - short}, "
+      f"not reported {short}")
+EOF
+instances 66, reported 41, not reported 25
+```
+
+`v2.3.5` reports 516 findings on this corpus against `2.9.0`'s 603 --
+`F 77` against `161`, `W 9` against `18`, `M 8` against `2`, `R`, `S` and `P`
+unchanged -- and matching the 66 instances against its output line by line
+gives:
+
+| not reported at `v2.3.5` | n |
+|---|---:|
+| the product written as the add's operand, which rule F then required to be named | 19 |
+| `_mm_add_epi16` not registered until the 16-lane adds were added | 3 |
+| rule W counted one finding per `mullo`/`mulhi` pair, not per consuming unpack (#66) | 2 |
+| `_mm256_mullo_epi16` not registered | 1 |
+
+None of those is a defect in `v2.3.5`. Three are families or a form the rule
+did not claim to cover then, and one is a change to what a finding counts.
+**But 41 of 66 is not `v2.3.5`'s recall either**, and must not be published as
+one: a recall figure for that tag needs a grammar transcribed from *its* rule
+descriptions and fixed before measuring, which is a different artifact with a
+smaller candidate population. Work citing a `v2.3.x` tag should not cite this
+figure.
 
 **What a figure of 66 of 66 is worth.** It says that where the grammar can
 see a relation at all, the tool sees the same ones -- and the grammar can see
