@@ -426,8 +426,8 @@ def test_the_holdout_enumeration_matches_the_published_figures():
         # 466 of these are `parse_error`, which was not applied as an
         # exclusion at all until review caught it: the relations were being
         # published as admitted from functions the parser could not read.
-        "excluded": 548,
-        "negatives": 291,
+        "excluded": 549,
+        "negatives": 290,
         "adjudicable_anchors": 148,
         "adjudicable_anchors_with_a_relation": 112,
         "admitted_on_adjudicable_anchors": 73,
@@ -436,7 +436,10 @@ def test_the_holdout_enumeration_matches_the_published_figures():
         "strata": {"direct": 73},
         "exclusions_by_reason": {
             "parse_error": 466,
-            "rebound_between": 73,
+            # 74, not 73: the last of them is a pair whose conversion path
+            # had both edges separately blocked, which the first version of
+            # the reason merge discarded.
+            "rebound_between": 74,
             "control_between": 9,
         },
     }

@@ -302,10 +302,11 @@ def _f_relation(anchor, add, conversions, source) -> Record:
                 continue
             admitted_conversions.append(conversion.name)
             continue
-        # A rejected path's reasons count: this is a path the search put in
-        # the population, and something observable stopped it.
-        if first.admitted or second.admitted:
-            reasons |= set(first.reasons) | set(second.reasons)
+        # Every rejected path's reasons count, whether or not either of its
+        # edges was admitted. Merging only when one was discarded the case of
+        # two separately blocked edges -- a rebinding on each -- and let the
+        # pair come back a negative with both reasons observable.
+        reasons |= set(first.reasons) | set(second.reasons)
 
     if admitted_conversions:
         return Record(

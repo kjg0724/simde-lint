@@ -1394,8 +1394,8 @@ $ uv run python3 docs/precision/recall/enumerate.py \
 | prospective relations | 912 | 32 | 14 | 0 |
 | admitted | 73 | 4 | 2 | 0 |
 | not attributed to this anchor | 13 | 0 | 0 | 0 |
-| excluded | 548 | 26 | 3 | 0 |
-| negatives | 291 | 2 | 9 | 0 |
+| excluded | 549 | 26 | 3 | 0 |
+| negatives | 290 | 2 | 9 | 0 |
 
 A **negative** is a searched pair with no relation and nothing observably
 blocking one -- two calls that simply have nothing to do with each other. It
@@ -1405,7 +1405,7 @@ work: one add belongs to one multiply, so where several products reach one
 add the relation whose anchor comes first by the grammar's position key is
 the one the finding is attributed to.
 
-F's exclusions are `parse_error` 466, `rebound_between` 73 and
+F's exclusions are `parse_error` 466, `rebound_between` 74 and
 `control_between` 9; W's are `parse_error` 14 and `rebound_between` 12; P's
 are `parse_error` 3. F's admitted relations are all direct: the
 one-conversion stratum's **population is zero** on this corpus, so recall for
@@ -1483,16 +1483,16 @@ rule. These are relations spelled plainly enough for two independent readings
 to agree, which is a selection toward the easy cases and not a random sample
 of the mechanism. The three reasons the grammar cannot see more are measured
 rather than asserted: a function the parser cannot read (167 of F's 315
-anchors, 466 of its 548 exclusions), a binding reassigned between the
-producer and the consumer (73), and a control statement between them (9).
+anchors, 466 of its 549 exclusions), a binding reassigned between the
+producer and the consumer (74), and a control statement between them (9).
 None is evidence about the rules. The first is the shared-parser overlap
 Section 5 records, and the second and third are the reaching-definition
 question the grammar declines to answer -- the same question the rules answer
 with `reaches_on_every_path`, which is why an enumerator that answered it
 would not be independent.
 
-Six defects the dry runs forced, all before any figure here was published,
-and all recorded in the grammar or the code that has them:
+Ten defects the dry runs and review forced, all before any figure here was
+published, and all recorded in the grammar or in the code that had them:
 
 - The prospective search looked through the whole enclosing function and let
   the sibling clause exclude the rest, which is quadratic in function size:
@@ -1512,7 +1512,10 @@ and all recorded in the grammar or the code that has them:
   into another vector followed by two into this one counted as a run of three.
 - F collected the reasons of its direct path only, so a pair the conversion
   search had put in the population could come back a negative when a
-  conversion edge was in fact blocked.
+  conversion edge was in fact blocked; and the first fix merged them only
+  when one edge was admitted, which still discarded a path whose two edges
+  were separately blocked. One holdout relation is an exclusion rather than
+  a negative because of it.
 - Clause 2's nesting was transitive, which admitted a product as reaching an
   add whose own operand was another add's sum.
 - Ownership of an add was keyed by `file:line`, which two calls on one line
