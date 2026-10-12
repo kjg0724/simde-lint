@@ -151,10 +151,14 @@ published figure it invalidates.
 - **P compares** -- `_mm_cmpeq_epi32`, `_mm_cmpeq_epi64`, `_mm_cmpgt_epi8`,
   `_mm_cmpgt_epi16`, `_mm_cmpgt_epi32`, `_mm_cmpgt_epi64`,
   `_mm256_cmpgt_epi32`, `_mm256_cmpgt_epi64`.
-- **Recognized**, for P's ordering only -- the union of every set above with
-  `_mm_shuffle_epi8` and `_mm256_shuffle_epi8` (rule S), and `_mm_loadu_si32`,
-  `_mm_loadu_si64`, `_mm_loadl_epi64`, `_mm_cvtsi32_si128` and
-  `_mm_cvtsi64_si128` (rule R).
+- **Recognized**, for P's ordering only -- any call whose callee identifier
+  begins with `_mm_`, `_mm256_` or `_mm512_`. Not the union of the tables
+  above: rule P's own notion of a recognized call is every intrinsic call,
+  and a narrower set would have made the enumeration diverge from the rule by
+  construction. `_mm_blendv_epi8` consumes a compare in VVenC and is in no
+  rule's family, and an enumerator that called it unrecognized would have
+  excluded a relation the rule reports. The test is a prefix on the spelling,
+  which needs no table and reads nothing from the tool.
 
 **No kind or width compatibility table is needed.** Element kind and lane
 width decide the grade rule F assigns, not whether it reports: a mismatch caps
@@ -201,8 +205,8 @@ primary reason. An anchor for which the search yields nothing is a
 
 | Rule | Candidate anchor | Prospective consumer search | Relation |
 |---|---|---|---|
-| `F.mul_add_no_fuse` | each call to an F multiply | every call to an F add in the anchor's enclosing function that either **starts after** the anchor's call expression or **contains** it; and every F add in the same relation to each F widening conversion the anchor is nested in or binds into | admitted when the anchor reaches the add over a path of zero or one widening conversion, each edge satisfying clauses 2 to 7 |
-| `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | every call to `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` in the enclosing function that starts after the anchor or contains it | admitted when a `_mm_mulhi_epi16` exists whose argument list's normalized text equals the anchor's, and both reach that one unpack with every edge satisfying clauses 2 to 7; one unpack is one relation |
+| `F.mul_add_no_fuse` | each call to an F multiply | every call to an F add that **contains** the anchor, or whose statement is a **later direct sibling** of the anchor's statement in the same compound statement; and every F add in the same relation to each F widening conversion the anchor is nested in or binds into | admitted when the anchor reaches the add over a path of zero or one widening conversion, each edge satisfying clauses 2 to 7 |
+| `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | every call to `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` that contains the anchor, or whose statement is a later direct sibling of the anchor's | admitted when a `_mm_mulhi_epi16` exists whose argument list's normalized text equals the anchor's, and both reach that one unpack with every edge satisfying clauses 2 to 7; one unpack is one relation |
 | `M.scalar_insert_chain` | each **run-initial** insert: a call to an M insert that is the right-hand side of an assignment and is not the admitted successor of an earlier insert in a run | one slot per would-be extension, identified by that insert's file and line, taken in order | the run is admitted when its length is at least **3** |
 | `P.cmp_immediate_use` | each call to a P compare | exactly one slot: the call with the next start position after the anchor's within the enclosing function, **whatever it is** -- a recognized call, a detectably macro-spelled call, an unrecognized call, or an indirect call | admitted when that call is recognized and satisfies clauses 2 to 7 with respect to the anchor |
 
@@ -210,7 +214,30 @@ primary reason. An anchor for which the search yields nothing is a
 alone would have excluded the nesting relation clause 2 admits:
 `_mm_add_epi32(acc, _mm_madd_epi16(a, b))` has the add starting before the
 multiply, so "every later add" would never find it. Both directions are
-searched -- after, or containing.
+searched -- containing, or a later sibling.
+
+**The sibling requirement is part of the search, not an exclusion**, for F
+and W. An earlier version searched the whole enclosing function and let
+clause 3 exclude the pairs that were not siblings. That is quadratic in
+function size, and the first dry run over the holdout produced 1117 of F's
+1397 prospective relations and 69 of W's 82 as `not_siblings` -- pairs of
+calls in different blocks of one function, which are not blocked relations
+but unrelated calls. Nothing is observably stopping them, so by the
+positively-observable rule they were never exclusions. They are now outside
+the search population: neither exclusions nor negatives. `not_siblings`
+remains a reason only where a participant is a descendant of the other's
+compound statement, which the search cannot filter out in advance.
+
+That correction dropped 1117 F pairs and 69 W pairs from the dry run. It is a
+pre-adjudication grammar correction and not a changed result: no recall figure
+had been produced, let alone published. The count of dropped pairs is recorded
+here once rather than reported as a metric, which would carry the same
+function-size noise under another heading.
+
+**P's search is deliberately broad** and unchanged: its single slot is the
+next call whatever it is, because the rule's premise is about adjacency among
+recognized calls rather than about a binding. M's run semantics are unchanged
+for the same reason: a run is built along one lvalue, not searched for.
 
 **Prospective relations are unique (anchor, consumer) pairs.** F's second
 search arm overlaps its first, since an add after a conversion is also an add

@@ -41,18 +41,25 @@ P_COMPARES = frozenset({
     "_mm256_cmpgt_epi32", "_mm256_cmpgt_epi64",
 })
 
-# Rule S's and rule R's families enter only through `RECOGNIZED`, which is
-# what P's "next recognized call" is ordered over.
+# Rule S's and rule R's families, transcribed for completeness. Nothing here
+# orders over them: `recognized` below is a prefix test, not a union.
 S_SHUFFLES = frozenset({"_mm_shuffle_epi8", "_mm256_shuffle_epi8"})
 R_PARTIAL_LOADS = frozenset({
     "_mm_loadu_si32", "_mm_loadu_si64", "_mm_loadl_epi64",
     "_mm_cvtsi32_si128", "_mm_cvtsi64_si128",
 })
 
-RECOGNIZED = frozenset(
-    F_MULTIPLIES | F_ADDS | F_WIDENING | {W_PRODUCER, W_PARTNER}
-    | W_CONSUMERS | M_INSERTS | P_COMPARES | S_SHUFFLES | R_PARTIAL_LOADS
-)
+#: Rule P orders over every recognized call, and its own notion of one is
+#: every intrinsic call rather than every call in a registered family. A
+#: narrower set would make the enumeration diverge from the rule by
+#: construction: `_mm_blendv_epi8` consumes a compare in VVenC and belongs to
+#: no family, so calling it unrecognized would exclude a relation the rule
+#: reports. The test is a prefix on the spelling, which reads no table.
+_INTRINSIC_PREFIXES = ("_mm_", "_mm256_", "_mm512_")
+
+
+def recognized(name: str) -> bool:
+    return name.startswith(_INTRINSIC_PREFIXES)
 
 # The rule's documented default, taken as a constant. Reading the tool's
 # configuration for it would make the enumerator agree with the tool by
