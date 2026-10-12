@@ -153,11 +153,12 @@ published figure it invalidates.
   `_mm_loadu_si64`, `_mm_loadl_epi64`, `_mm_cvtsi32_si128` and
   `_mm_cvtsi64_si128` (rule R).
 
-**No kind or width compatibility table is needed.** Rule F reports a relation
-between any registered multiply and any registered add; element kind and lane
-width decide the grade it assigns, not whether it reports. Eligibility here is
-the relation alone, and a kind or width mismatch is an admitted relation whose
-adjudication records the mismatch.
+**No kind or width compatibility table is needed.** Element kind and lane
+width decide the grade rule F assigns, not whether it reports: a mismatch caps
+the finding at C and keeps it. So eligibility here is the structural relation
+alone, and a mismatch is an admitted relation whose adjudication records it.
+What does limit the count is the unit -- one add, one finding -- which the
+first-claim rule below encodes.
 
 ### Normalized text, and what equality means
 
@@ -193,28 +194,52 @@ primary reason. An anchor for which the search yields nothing is a
 
 | Rule | Candidate anchor | Prospective consumer search | Relation |
 |---|---|---|---|
-| `F.mul_add_no_fuse` | each call to an F multiply | every call to an F add whose call expression starts after the anchor's, within the anchor's enclosing function; and for each F widening conversion the anchor is nested in or binds into, every F add starting after that conversion | admitted when the anchor reaches the add over a path of zero or one widening conversion, each edge satisfying clauses 2 to 7 |
-| `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | every call to `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` starting after the anchor, within the enclosing function | admitted when a `_mm_mulhi_epi16` exists whose argument list's normalized text equals the anchor's, and both reach that one unpack with every edge satisfying clauses 2 to 7; one unpack is one relation |
-| `M.scalar_insert_chain` | each **run-initial** insert: a call to an M insert that is the right-hand side of an assignment and is not the admitted successor of an earlier insert in a run | the run, constructed below | admitted when the run's length is at least **3** |
-| `P.cmp_immediate_use` | each call to a P compare | exactly one: the recognized call with the next start position after the anchor's, within the enclosing function | admitted when that call satisfies clauses 2 to 7 with respect to the anchor |
+| `F.mul_add_no_fuse` | each call to an F multiply | every call to an F add in the anchor's enclosing function that either **starts after** the anchor's call expression or **contains** it; and every F add in the same relation to each F widening conversion the anchor is nested in or binds into | admitted when the anchor reaches the add over a path of zero or one widening conversion, each edge satisfying clauses 2 to 7 |
+| `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | every call to `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` in the enclosing function that starts after the anchor or contains it | admitted when a `_mm_mulhi_epi16` exists whose argument list's normalized text equals the anchor's, and both reach that one unpack with every edge satisfying clauses 2 to 7; one unpack is one relation |
+| `M.scalar_insert_chain` | each **run-initial** insert: a call to an M insert that is the right-hand side of an assignment and is not the admitted successor of an earlier insert in a run | one slot per would-be extension, identified by that insert's file and line, taken in order | the run is admitted when its length is at least **3** |
+| `P.cmp_immediate_use` | each call to a P compare | exactly one slot: the call with the next start position after the anchor's within the enclosing function, **whatever it is** -- a recognized call, a macro-spelled call, or an indirect call | admitted when that call is recognized and satisfies clauses 2 to 7 with respect to the anchor |
+
+**A consumer containing the anchor is in the search.** A start-position test
+alone would have excluded the nesting relation clause 2 admits:
+`_mm_add_epi32(acc, _mm_madd_epi16(a, b))` has the add starting before the
+multiply, so "every later add" would never find it. Both directions are
+searched -- after, or containing.
+
+**Prospective relations are unique (anchor, consumer) pairs.** F's second
+search arm overlaps its first, since an add after a conversion is also an add
+after the anchor. The pair is the unit, so the overlap collapses to one
+record, and the path -- direct or through which conversion -- is recorded
+beside it rather than multiplying the pairs.
+
+**One add belongs to one multiply.** `docs/mechanisms.md` makes the add the
+counting unit: "two products reaching one add is one finding". So where more
+than one F multiply reaches the same add, the relation whose anchor starts
+first is the instance and the others are **admitted non-instances**, recorded
+as `superseded_by_earlier_anchor`. That is a syntactic test the enumerator
+applies -- which anchor starts first -- not a judgement, and it is taken from
+the rule's published unit rather than from its code.
 
 **M's run construction.** From a run-initial insert, the run extends to the
 next statement that is a sibling per clause 3, is an assignment whose
 left-hand side is lvalue-equal to the run's, and whose right-hand side is an M
-insert whose first argument is identifier-identical to that lvalue. Extension
-stops at the first statement that is not that. The threshold is 3, the rule's
-documented default, taken as a constant rather than read from the tool's
-configuration. A run of 1 or 2 is a negative.
+insert whose first argument is identifier-identical to that lvalue. The
+threshold is 3, the rule's documented default, taken as a constant rather than
+read from the tool's configuration. A run of 1 or 2 is a negative.
 
-**P's ordering.** Recognized calls are ordered by the start position of their
-call expressions, nested calls included. Measured against the parser this
-enumerator uses: in `outer(inner())` the enclosing call expression starts at
-`outer` and the argument call starts later, at `inner`, so start-position
-order is the enclosing call and then the nested one, and an enclosing call is
-never "next" after a compare nested in its own arguments. Two call
-expressions with **equal** start positions are ineligible and recorded as
-`ambiguous_order` -- a tie-breaker fixed in advance rather than an ordering
-invented when one is met.
+Two ways an extension can fail, and they are not the same record. A next
+statement that is simply not an insert on the same lvalue **terminates the
+run** and produces no exclusion: there was nothing there to exclude. A next
+statement that *is* such an insert but is blocked by clauses 3 to 7 produces
+**one exclusion record**, with that insert as the prospective consumer, and
+terminates the run. The run's own identity, where it is admitted, is its last
+insert's file and line.
+
+**The binding identifier.** For a declaration it is the declared name. For an
+assignment -- which declares nothing -- it is the left-hand side only when
+that is a plain identifier. An assignment to any other lvalue (`dd[0]`, `*p`,
+`s.m`) establishes no binding identifier and so admits no binding relation for
+F, W or P; M does not use binding identity for its chain but lvalue equality,
+which is a different test and does accept those forms.
 
 **F's strata.** Zero-conversion and one-conversion paths are reported
 separately. A path of more than one conversion is outside rule F's own
@@ -239,9 +264,10 @@ is a macro-spelled participant the text shows.
 
 | Reason | Clause | Positively observed as |
 |---|---|---|
-| `macro_spelled` | 1 | the callee identifier of a prospective participant has **exactly one** `#define` in the same file, that definition is outside every `#if`/`#ifdef`, the file has no `#undef` of the name, and the replacement text contains a name from a frozen table |
-| `macro_ambiguous` | 1 | that identifier has more than one `#define` in the file, or a definition inside a conditional, or an `#undef` -- the honest record for a spelling this grammar cannot pin |
-| `indirect_callee` | 1 | a prospective consumer slot is filled by a call expression whose callee is not an identifier. An indirect call filling no slot of any identified anchor is not counted at all |
+| `macro_spelled` | 1, P only | P's single slot is filled by a call whose callee identifier has **exactly one** `#define` in the same file, outside every `#if`/`#ifdef`, with no `#undef` of the name anywhere in it, and whose replacement text contains a name from a frozen table |
+| `macro_ambiguous` | 1, P only | P's slot is filled by a call whose callee has more than one `#define`, or a definition inside a conditional, or an `#undef` -- the honest record for a spelling this grammar cannot pin |
+| `unrecognized_consumer` | 1, P only | P's slot is filled by a call to a name in no frozen table and with no `#define` in the file. Not the same as a macro: the next call is simply something else |
+| `indirect_callee` | 1, P only | P's slot is filled by a call expression whose callee is not an identifier |
 | `control_between` | 3 | a control, jump or `throw` statement between two sibling participants |
 | `not_siblings` | 3 | the two participants' nearest enclosing compound statements are different nodes |
 | `rebound_between` | 4 | an assignment, compound assignment, `++` or `--` whose target's normalized text equals the binding's, in a statement between them |
@@ -271,8 +297,11 @@ population this grammar describes, and saying so is more honest than counting
 it.
 
 A conforming enumerator reports, per rule and per corpus: candidate anchors
-seen, prospective relations, relations admitted, relations adjudicated as
-instances, negatives, and exclusions by primary reason.
+seen, prospective relations, relations admitted, relations admitted but
+`superseded_by_earlier_anchor`, relations adjudicated as instances, negatives,
+and exclusions by primary reason. The superseded count is separate from both
+the instances and the exclusions: the relation is there and the grammar admits
+it, and what the rule's unit says is that another anchor owns the finding.
 
 ## What may be published, by coverage
 
@@ -280,7 +309,12 @@ Coverage is **adjudicated anchors over candidate anchors**, per rule and per
 corpus. Both count anchors, never relations: F and W can admit several
 relations per anchor, so a relation numerator over an anchor denominator could
 exceed 100%. An anchor counts as adjudicated when every prospective relation
-it generates has been either admitted and judged or excluded. These thresholds
+it generates has been either admitted and judged or excluded. An anchor that
+generates **no** prospective relation is adjudicated vacuously and counts,
+which would let a corpus of trivial negatives report high coverage -- so the
+figure is published twice: over all candidate anchors, and over the anchors
+that generate at least one prospective relation. Neither number hides the
+other. These thresholds
 are fixed here, before any coverage figure has been measured, so that the form
 of the claim is not chosen to suit the number.
 
@@ -299,6 +333,13 @@ recall." It cannot support a general recall claim.
 
 Stated here rather than discovered later:
 
+- **A macro-spelled participant is invisible to F, W and M.** Their searches
+  select calls by frozen name, so a participant spelled through a `#define`
+  never fills a slot and never becomes an exclusion -- it is simply not seen,
+  and the anchor reads as a negative. Only P's search has a slot that any call
+  can fill, which is why the macro and indirect reasons are P's alone. An
+  enumerator cannot count what its own search cannot reach, and saying so is
+  the alternative to a reason that looks countable and is not.
 - **It is not the taxonomy.** The grammar is over the intrinsic families each
   rule registers. A shape in the paper's taxonomy that no rule registers is
   invisible to the tool and to an enumerator built from the rule's own
