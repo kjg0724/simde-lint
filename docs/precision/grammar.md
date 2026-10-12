@@ -282,24 +282,31 @@ F, W or P; M does not use binding identity for its chain but lvalue equality,
 which is a different test and does accept those forms.
 
 **F's paths, and which one decides the record.** One (anchor, add) pair can
-have several paths. They are defined by what lies between the endpoints, not
-by generic reachability:
+have several paths, defined by what lies between the endpoints rather than by
+generic reachability.
 
-- the **direct** path exists when the anchor reaches the add by clause 2 with
-  **no F widening conversion call between them** -- no conversion of which the
-  anchor is a descendant and which is itself a descendant of the add's
-  arguments, and none binding the anchor's value into the add;
-- a **one-conversion** path exists per F widening conversion `C` such that
-  `anchor -> C` and `C -> add` are both admitted edges and no further F
-  widening conversion lies on either edge.
+An F widening conversion `C` **lies between** the anchor and the add when
+`anchor -> C` and `C -> add` are both clause-2 edges. One definition for every
+combination -- the anchor binding into `C` or nested in it, `C` binding into
+the add or nested in it -- so the mixed cases need no separate wording. Then:
+
+- the **direct** path exists when the anchor reaches the add by clause 2 and
+  **no** F widening conversion lies between them;
+- a **one-conversion** path exists per `C` lying between them, when no further
+  F widening conversion lies on either of its two edges.
 
 Clause 2's nesting is transitive -- any descendant of the consumer's argument
-list reaches the consumer -- so without that first exclusion
+list reaches the consumer -- so without the direct path's exclusion
 `_mm_add_epi32(acc, _mm_cvtepi16_epi32(_mm_mullo_epi16(a, b)))` would admit a
 "direct" edge as well as the conversion path, land in the zero-conversion
 stratum, and two nested conversions would evade the more-than-one rule
-entirely. The policy is fixed here because it changes the admitted, exclusion
-and stratum counts.
+entirely. Enumerating the two concrete shapes instead of defining "between"
+uniformly missed a third: `p = _mm_mullo_epi16(a, b);` then
+`_mm_add_epi32(acc, _mm_cvtepi16_epi32(p))`, where the anchor binds into the
+conversion and the conversion nests in the add.
+
+The rest of the policy is fixed here because it changes the admitted,
+exclusion and stratum counts.
 
 - The pair is **admitted** if at least one of its paths is admitted. One
   rejected path does not exclude a pair another path reaches.
