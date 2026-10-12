@@ -1,5 +1,74 @@
 # Changelog
 
+## 2.9.0 - 2026-10-12
+
+No rule changed and no finding moved. This release adds evidence, and the
+figures it adds are citable, which is why it has a version.
+
+### Recall over a declared grammar
+
+Issue #75 asked for recall evidence on the four rules whose mechanisms are
+relations between call sites rather than call sites themselves, and it asked
+for the grammar first -- an enumerator that reads "I could not parse this" as
+"there is nothing here" reports a figure that flatters itself, and an
+exclusion list written after the results is a list of whatever made the
+numbers agree.
+
+`docs/precision/grammar.md` is that grammar, written before any enumerator
+existed and before any figure from one had been seen. It says which relations
+an enumerator may claim to have enumerated completely; counts a blocked
+relation as excluded with a reason rather than scoring it as a negative; and
+fixes, before any coverage figure existed, what may be published at each
+level of coverage. `docs/precision/recall/` implements it in four enumerators
+that import no `simde_lint`, checked by matching import statements rather
+than promised.
+
+On the VVdeC holdout, every admitted relation on an adjudicable anchor was
+judged by reading the source before comparing with the tool. All 66 are
+instances of the mechanism their rule names, and the tool reports all 66: F
+60 of 60, W 4 of 4, P 2 of 2.
+
+What that is worth is published with it. Coverage is 47.0% of F's candidate
+anchors, 27.6% of W's and 78.6% of P's, so only P's figure carries a
+percentage; F's and W's are labelled as the eligible syntactic slice and
+explicitly do not estimate corpus recall. `M.scalar_insert_chain` is not
+measurable on the holdout at all -- zero candidate anchors there -- and rule
+F's one-conversion stratum is empty, so its recall is not estimable rather
+than zero.
+
+The three reasons the grammar cannot see more are measured rather than
+asserted: 466 of F's 549 exclusions are a function the parser cannot read,
+74 are a binding reassigned between producer and consumer, and 9 a control
+statement between them. The last two are the reaching-definition question an
+independent enumerator must decline, since answering it is what the rules do.
+And 66 of 66 is a selection toward relations spelled plainly enough for two
+independent readings to agree, which the document says rather than leaving to
+the reader.
+
+### The holdout was never in CI
+
+The corpus job supplies SVT-AV1 and VVenC with `SIMDE_LINT_REQUIRE_CORPUS=1`
+precisely so that a green run cannot mean "the checkouts were absent". The
+VVdeC holdout was not among them, so the figures `docs/verification.md`
+publishes for it had been verified on a developer machine only. The job
+clones it at the pinned revision now and runs the new tests too, with the
+same drift check the others have.
+
+### Ten defects the dry runs and review forced
+
+All before any figure here was published, and six of them changed a number
+that would have been. They are listed in `docs/verification.md` beside the
+figures, because an account of how a measurement was corrected belongs with
+the measurement: a quadratic prospective search, a clause that removed the
+high half of every eight-lane rebuild, `parse_error` never applied as an
+exclusion, three of rule P's four classifications unreachable, rule M's first
+insert not having to consume its own run lvalue, a reason merge that
+discarded a path with both edges blocked, ownership keyed by a `file:line`
+that two calls on one line share, an edge accepted backwards in time,
+transitive nesting admitting a product as reaching an add whose operand was
+another add's sum, and `enclosing_body(x) is body` false for every call
+because tree-sitter hands out a fresh wrapper on each access.
+
 ## 2.8.0 - 2026-10-08
 
 ### Rule M reports structure and no longer reports a cost
