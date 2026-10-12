@@ -111,9 +111,22 @@ of the following.
 4. **Not rebound or possibly rebound between them.** For a binding relation,
    no statement between producer and consumer may assign to the binding,
    apply a compound assignment or an increment to it, take its address, or
-   pass it to any call by pointer or by non-const reference. The last is the
-   conservative half: whether such a call mutates it is not decidable here, so
-   the relation is excluded rather than assumed intact.
+   pass it to a call that is not on the by-value allowlist. The last is the
+   conservative half: whether an arbitrary call mutates its argument needs
+   overload resolution, which this grammar does not do, so the relation is
+   excluded rather than assumed intact.
+
+   **The by-value allowlist** is a set of x86 intrinsic names whose every
+   vector parameter is passed by value, which their signatures fix. It is
+   kept separate from the family tables, which answer a different question,
+   so that a table maintained for one purpose does not quietly acquire a
+   second meaning. Measured reason for it: VVdeC writes the eight-lane
+   rebuild as a `mullo`/`mulhi` pair feeding `unpacklo` and then `unpackhi`,
+   which is two findings under the rule's unit, and without the allowlist the
+   second was excluded every time -- the `unpacklo` between them passes the
+   binding to a call. Nine of W's thirty prospective relations on the
+   holdout, all the high half of a rebuild, so the grammar would have
+   measured only W's low-half findings.
 
 5. **In an evaluated context.** Neither participant is inside `sizeof`,
    `decltype`, `noexcept`, `alignof`, a `requires` clause, or a `static_assert`
@@ -375,7 +388,7 @@ is a macro-spelled participant the text shows.
 | `control_between` | 3 | a control, jump or `throw` statement between two sibling participants |
 | `not_siblings` | 3 | the two participants' nearest enclosing compound statements are different nodes |
 | `rebound_between` | 4 | an assignment, compound assignment, `++` or `--` whose target's normalized text equals the binding's, in a statement between them |
-| `passed_to_a_call_between` | 4 | the binding's identifier as the operand of a unary `&`, or anywhere inside any call expression's argument list, in a statement between them. Purely syntactic and deliberately conservative: whether such a call mutates it needs overload resolution, which this grammar does not do, so the relation is excluded rather than assumed intact |
+| `passed_to_a_call_between` | 4 | the binding's identifier as the operand of a unary `&`, or inside the argument list of an intervening call whose callee is **not** on the by-value allowlist |
 | `shadowed_between` | 4 | a declaration of the binding's identifier in a statement between them |
 | `unevaluated_context` | 5 | a participant descended from a `sizeof`, `decltype`, `noexcept`, `alignof`, `requires` or `static_assert` node |
 | `conditional_operand` | 5 | a participant descended from a conditional expression's consequence or alternative, or from the right operand of `&&` or `||`, that the other participant is not also descended from |
@@ -413,7 +426,11 @@ Coverage is **adjudicated anchors over candidate anchors**, per rule and per
 corpus. Both count anchors, never relations: F and W can admit several
 relations per anchor, so a relation numerator over an anchor denominator could
 exceed 100%. An anchor counts as adjudicated when every prospective relation
-it generates has been either admitted and judged or excluded. An anchor that
+it generates has been either admitted and judged or excluded. The second
+figure's numerator is the **intersection**: adjudicable anchors that generate
+at least one prospective relation, over all anchors that generate at least
+one. Not all adjudicable anchors over that denominator, which would print
+`11/2` where the answer is `2/2`. An anchor that
 generates **no** prospective relation is adjudicated vacuously and counts,
 which would let a corpus of trivial negatives report high coverage -- so the
 figure is published twice: over all candidate anchors, and over the anchors

@@ -30,6 +30,7 @@ from syntax import (
     strip_wrappers,
     walk,
 )
+from tables import BY_VALUE
 
 #: The reasons in the order the grammar's exclusion table lists them, which is
 #: the precedence a record's primary reason is chosen by.
@@ -180,11 +181,19 @@ def _mutates(statement, identifier: str, source: bytes) -> set[str]:
             arguments = node.child_by_field_name("arguments")
             if arguments is None:
                 continue
-            if any(
+            if not any(
                 normalized(inner, source) == identifier
                 for inner in walk(arguments)
                 if inner.type == "identifier"
             ):
+                continue
+            # A call on the by-value allowlist cannot mutate what it is
+            # handed, so it does not block the relation. Anything else does:
+            # whether it mutates needs overload resolution, which this
+            # grammar does not do.
+            function = node.child_by_field_name("function")
+            callee = normalized(function, source) if function is not None else None
+            if callee not in BY_VALUE:
                 reasons.add("passed_to_a_call_between")
         elif node.type in ("declaration", "init_declarator"):
             declarator = node.child_by_field_name("declarator")

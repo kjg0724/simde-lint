@@ -26,9 +26,14 @@ _GRAMMAR = _ROOT / "docs" / "precision" / "grammar.md"
 
 
 def _load(name):
-    spec = importlib.util.spec_from_file_location(f"recall_{name}", _RECALL / f"{name}.py")
+    # The modules import each other by bare name, the way the enumerator's
+    # entry point runs them, so the directory goes on the path rather than
+    # the package becoming importable as part of the tool.
+    if str(_RECALL) not in sys.path:
+        sys.path.insert(0, str(_RECALL))
+    spec = importlib.util.spec_from_file_location(name, _RECALL / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -271,3 +276,77 @@ def test_has_parse_error_sees_an_error_node(syntax):
     assert syntax.has_parse_error(syntax.parse(broken).root_node)
     clean = b"void f(__m128i a, __m128i b) { __m128i r = _mm_add_epi32(a, b); (void)r; }\n"
     assert not syntax.has_parse_error(syntax.parse(clean).root_node)
+
+
+@pytest.fixture(scope="module")
+def relations():
+    _load("tables")
+    return _load("relations")
+
+
+_REBUILD = b"""
+void f(__m128i x8top, __m128i wt8) {
+    __m128i tmplo8 = _mm_mullo_epi16(x8top, wt8);
+    __m128i tmphi8 = _mm_mulhi_epi16(x8top, wt8);
+    __m128i toplo8 = _mm_unpacklo_epi16(tmplo8, tmphi8);
+    __m128i tophi8 = _mm_unpackhi_epi16(tmplo8, tmphi8);
+    (void)toplo8; (void)tophi8;
+}
+"""
+
+_UNKNOWN_CALL_BETWEEN = b"""
+void f(__m128i x8top, __m128i wt8) {
+    __m128i tmplo8 = _mm_mullo_epi16(x8top, wt8);
+    __m128i tmphi8 = _mm_mulhi_epi16(x8top, wt8);
+    scramble(tmplo8);
+    __m128i tophi8 = _mm_unpackhi_epi16(tmplo8, tmphi8);
+    (void)tophi8;
+}
+"""
+
+
+def _edge_between(syntax, relations, source, producer_name, consumer_name):
+    root = syntax.parse(source).root_node
+    calls = {}
+    for node in syntax.walk(root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "identifier":
+            continue
+        calls.setdefault(syntax.normalized(function, source), node)
+    return relations.edge(calls[producer_name], calls[consumer_name], source)
+
+
+def test_an_intervening_intrinsic_call_does_not_block_the_relation(syntax, relations):
+    # The canonical eight-lane rebuild: `unpacklo` sits between the `mullo`
+    # and the `unpackhi` and passes the binding to a call. The rule's unit is
+    # one consuming unpack, so this shape is two findings, and without the
+    # by-value allowlist the second was excluded every time -- nine of W's
+    # thirty prospective relations on the holdout, all the high half.
+    edge = _edge_between(
+        syntax, relations, _REBUILD, "_mm_mullo_epi16", "_mm_unpackhi_epi16"
+    )
+    assert edge.admitted, sorted(edge.reasons)
+    assert edge.kind == "binding"
+
+
+def test_an_intervening_unknown_call_still_blocks_the_relation(syntax, relations):
+    # Anything not on the allowlist still excludes: whether it mutates its
+    # argument needs overload resolution, which the grammar does not do.
+    edge = _edge_between(
+        syntax, relations, _UNKNOWN_CALL_BETWEEN, "_mm_mullo_epi16", "_mm_unpackhi_epi16"
+    )
+    assert not edge.admitted
+    assert "passed_to_a_call_between" in edge.reasons
+
+
+def test_the_by_value_list_is_separate_from_the_family_tables(tables):
+    # It holds the same names today and answers a different question: the
+    # families say what anchors and consumes, this says what cannot mutate an
+    # argument. Relying on one for the other would give a table maintained
+    # for one purpose a second meaning nobody checks when it changes.
+    assert tables.BY_VALUE is not tables.F_MULTIPLIES
+    assert tables.F_MULTIPLIES <= tables.BY_VALUE
+    assert tables.W_CONSUMERS <= tables.BY_VALUE
+    assert "scramble" not in tables.BY_VALUE

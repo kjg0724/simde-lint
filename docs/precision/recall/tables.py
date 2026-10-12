@@ -65,3 +65,25 @@ def recognized(name: str) -> bool:
 # configuration for it would make the enumerator agree with the tool by
 # construction on the one number that decides whether a run is a finding.
 M_THRESHOLD = 3
+
+#: Calls that cannot mutate an argument, because every vector parameter of
+#: every name here is passed by value. That is fixed by the x86 intrinsic
+#: signatures, not inferred from any corpus.
+#:
+#: This list exists for clause 4 and nothing else. It happens to hold the same
+#: names as the family tables, and it is kept separate on purpose: the
+#: families answer "is this an anchor or a consumer", and relying on them for
+#: a by-value guarantee would give a table maintained for one question a
+#: second meaning nobody checks when it changes.
+#:
+#: Why it is needed, measured: VVdeC writes the eight-lane rebuild as a
+#: `mullo`/`mulhi` pair feeding `unpacklo` and then `unpackhi`. The rule's
+#: unit is one consuming unpack, so that is two findings, and without this
+#: list the second was excluded every time -- the `unpacklo` on the line
+#: between passes the binding to a call, and clause 4 excludes rather than
+#: deciding whether the call mutates it. Nine of W's thirty prospective
+#: relations on the holdout, all of them the high half of a rebuild.
+BY_VALUE = frozenset(
+    F_MULTIPLIES | F_ADDS | F_WIDENING | {W_PRODUCER, W_PARTNER}
+    | W_CONSUMERS | M_INSERTS | P_COMPARES | S_SHUFFLES | R_PARTIAL_LOADS
+)
