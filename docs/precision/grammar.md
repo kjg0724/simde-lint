@@ -40,8 +40,8 @@ publishes the agreement.
 
 ## What an enumerator over this grammar may claim
 
-**Complete enumeration of the eligible syntactic candidates**, and nothing
-stronger. Not ground truth, and not exact recall: which eligible relations are
+**Complete enumeration of the eligible syntactic candidates as the frozen
+tables and the per-rule searches below define them**, and nothing stronger. Not ground truth, and not exact recall: which eligible relations are
 instances of a mechanism is adjudicated by hand (see "The adjudication is a
 judgement"). The automatic half enumerates; the judgement half decides.
 
@@ -61,8 +61,11 @@ It uses `tree_sitter_cpp`, the same parser the tool uses. That is a disclosed
 shared dependency, not independence: a construct the parser mishandles is
 mishandled for both at once, which is the failure Section 5 of
 `docs/verification.md` records for `ERROR` nodes. A conforming enumerator
-reports its own parse failures as exclusions so that this overlap is visible
-in the figures rather than assumed away.
+reports its own parse failures as exclusions so that part of this overlap is
+visible. Only part: `parse_error` counts errors in functions that contain an
+identified anchor, and a failure severe enough to stop an anchor being
+identified at all leaves no record anywhere. That residue is not measured by
+this grammar and is not claimed to be.
 
 ## The grammar
 
@@ -122,30 +125,100 @@ of the following.
    text matching: a registered name inside a comment or a literal is not a
    call expression and is not a candidate.
 
-### Per-rule candidate anchors and relation shapes
+### Frozen name tables
 
-The "candidate" population is the denominator of every figure, so each rule
-states its own.
+An enumerator reads no table from the tool. These sets are transcribed here by
+hand, from the rules' own descriptions, and frozen: an enumerator either
+embeds them or reads them from its own data file. If the tool registers a new
+family these do not change until this file is edited, and the edit says which
+published figure it invalidates.
 
-| Rule | Candidate anchor | Relation the grammar admits |
-|---|---|---|
-| `F.mul_add_no_fuse` | each call to a registered multiply family (`mullo_epi16/epi32`, `madd_epi16`, `mul_epi32`, `mul_ps`, 128 and 256 bit) | anchor to an `add` of matching element kind and lane width, by a path of **zero or one** registered widening conversion, each edge satisfying clauses 2-6 |
-| `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | the `mulhi_epi16` over operands equal as written, and the `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` consuming both, each edge satisfying clauses 2-6; one consuming unpack is one relation |
-| `M.scalar_insert_chain` | each call to a registered insert family | the next insert bound to the same lvalue as written, clauses 3-6 applying to each adjacent pair; a run of them is one relation |
-| `P.cmp_immediate_use` | each call to a registered compare family | the **next recognized call** in source order, where "recognized" means a call whose callee identifier is a registered intrinsic of any rule, and where both are siblings per clause 3 |
+- **F multiplies** -- `_mm_mullo_epi16`, `_mm_mullo_epi32`, `_mm_madd_epi16`,
+  `_mm_mul_epi32`, `_mm_mul_ps`, `_mm256_mullo_epi16`, `_mm256_mullo_epi32`,
+  `_mm256_madd_epi16`, `_mm256_mul_epi32`, `_mm256_mul_ps`.
+- **F adds** -- `_mm_add_epi16`, `_mm_add_epi32`, `_mm_add_epi64`,
+  `_mm_add_ps`, `_mm256_add_epi16`, `_mm256_add_epi32`, `_mm256_add_epi64`,
+  `_mm256_add_ps`.
+- **F widening conversions** -- `_mm_cvtepi16_epi32`, `_mm_cvtepi32_epi64`,
+  `_mm256_cvtepi16_epi32`, `_mm256_cvtepi32_epi64`.
+- **W** -- producer `_mm_mullo_epi16`, partner `_mm_mulhi_epi16`, consumers
+  `_mm_unpacklo_epi16` and `_mm_unpackhi_epi16`.
+- **M inserts** -- `_mm_insert_epi16`, `_mm_insert_epi32`, `_mm_insert_epi64`,
+  `_mm256_insert_epi16`, `_mm256_insert_epi32`, `_mm256_insert_epi64`.
+- **P compares** -- `_mm_cmpeq_epi32`, `_mm_cmpeq_epi64`, `_mm_cmpgt_epi8`,
+  `_mm_cmpgt_epi16`, `_mm_cmpgt_epi32`, `_mm_cmpgt_epi64`,
+  `_mm256_cmpgt_epi32`, `_mm256_cmpgt_epi64`.
+- **Recognized**, for P's ordering only -- the union of every set above with
+  `_mm_shuffle_epi8` and `_mm256_shuffle_epi8` (rule S), and `_mm_loadu_si32`,
+  `_mm_loadu_si64`, `_mm_loadl_epi64`, `_mm_cvtsi32_si128` and
+  `_mm_cvtsi64_si128` (rule R).
 
-**F's one-hop path is inside the grammar**, being two applications of clause
-2, and the direct and one-hop strata are reported separately. A path of more
-than one conversion is outside rule F's own contract, so it is a **negative**
-with respect to F and not a grammar exclusion.
+**No kind or width compatibility table is needed.** Rule F reports a relation
+between any registered multiply and any registered add; element kind and lane
+width decide the grade it assigns, not whether it reports. Eligibility here is
+the relation alone, and a kind or width mismatch is an admitted relation whose
+adjudication records the mismatch.
 
-**P's ordering is defined here** because "the next recognized call" needs one.
-Recognized calls are ordered by the start position of their call expressions,
-nested calls included, so a call written inside another's arguments precedes
-the enclosing call's own position only if its start position is earlier --
-which, for an argument, it is not. The consumer is the recognized call with
-the next start position after the anchor's, and the relation is excluded if
-that call is not a sibling of the anchor per clause 3.
+### Normalized text, and what equality means
+
+Wherever this file says two pieces of source are equal, it means their
+**normalized text** is equal byte for byte: the parse-tree text of the node
+with comment nodes removed and every run of whitespace replaced by one space,
+trimmed. Nothing else is normalized -- no case folding, no parenthesis
+removal, no reordering.
+
+**Stripping.** Where a clause asks whether a call expression "is" an
+expression, the expression is first reduced by removing enclosing parentheses
+and any cast whose operand is the remainder -- a C-style cast, a
+`static_cast`, a `reinterpret_cast`, a `const_cast`. The call "is" the
+expression when the reduction yields exactly that call expression. A call that
+survives as a proper sub-expression of the reduction is not a binding; it may
+be a nesting relation with respect to the enclosing call.
+
+**Identifier identity.** A binding's declared identifier matches an argument
+when their normalized texts are equal **and** no declaration of that
+identifier appears between the two statements. A declaration between them is
+the `shadowed_between` exclusion, not a resolution attempt.
+
+**Lvalue equality**, for M, is normalized-text equality of the assignment's
+left-hand side: `dd[0]` and `dd[1]` differ, `dd [0]` and `dd[0]` do not.
+
+### Per-rule anchors, prospective consumers, and relations
+
+The **prospective consumer search** is defined per rule and runs **before**
+clauses 1 to 7. It fixes the denominator: every (anchor, prospective consumer)
+pair is a prospective relation, and each is then admitted or excluded with one
+primary reason. An anchor for which the search yields nothing is a
+**negative**, not an exclusion.
+
+| Rule | Candidate anchor | Prospective consumer search | Relation |
+|---|---|---|---|
+| `F.mul_add_no_fuse` | each call to an F multiply | every call to an F add whose call expression starts after the anchor's, within the anchor's enclosing function; and for each F widening conversion the anchor is nested in or binds into, every F add starting after that conversion | admitted when the anchor reaches the add over a path of zero or one widening conversion, each edge satisfying clauses 2 to 7 |
+| `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | every call to `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` starting after the anchor, within the enclosing function | admitted when a `_mm_mulhi_epi16` exists whose argument list's normalized text equals the anchor's, and both reach that one unpack with every edge satisfying clauses 2 to 7; one unpack is one relation |
+| `M.scalar_insert_chain` | each **run-initial** insert: a call to an M insert that is the right-hand side of an assignment and is not the admitted successor of an earlier insert in a run | the run, constructed below | admitted when the run's length is at least **3** |
+| `P.cmp_immediate_use` | each call to a P compare | exactly one: the recognized call with the next start position after the anchor's, within the enclosing function | admitted when that call satisfies clauses 2 to 7 with respect to the anchor |
+
+**M's run construction.** From a run-initial insert, the run extends to the
+next statement that is a sibling per clause 3, is an assignment whose
+left-hand side is lvalue-equal to the run's, and whose right-hand side is an M
+insert whose first argument is identifier-identical to that lvalue. Extension
+stops at the first statement that is not that. The threshold is 3, the rule's
+documented default, taken as a constant rather than read from the tool's
+configuration. A run of 1 or 2 is a negative.
+
+**P's ordering.** Recognized calls are ordered by the start position of their
+call expressions, nested calls included. Measured against the parser this
+enumerator uses: in `outer(inner())` the enclosing call expression starts at
+`outer` and the argument call starts later, at `inner`, so start-position
+order is the enclosing call and then the nested one, and an enclosing call is
+never "next" after a compare nested in its own arguments. Two call
+expressions with **equal** start positions are ineligible and recorded as
+`ambiguous_order` -- a tie-breaker fixed in advance rather than an ordering
+invented when one is met.
+
+**F's strata.** Zero-conversion and one-conversion paths are reported
+separately. A path of more than one conversion is outside rule F's own
+contract and is a **negative** with respect to F, not an exclusion.
 
 ## Exclusions
 
@@ -166,36 +239,50 @@ is a macro-spelled participant the text shows.
 
 | Reason | Clause | Positively observed as |
 |---|---|---|
-| `macro_spelled` | 1 | a callee identifier that a same-file `#define` defines, whose body contains a registered intrinsic |
-| `indirect_callee` | 1 | a call expression whose callee is not an identifier |
+| `macro_spelled` | 1 | the callee identifier of a prospective participant has **exactly one** `#define` in the same file, that definition is outside every `#if`/`#ifdef`, the file has no `#undef` of the name, and the replacement text contains a name from a frozen table |
+| `macro_ambiguous` | 1 | that identifier has more than one `#define` in the file, or a definition inside a conditional, or an `#undef` -- the honest record for a spelling this grammar cannot pin |
+| `indirect_callee` | 1 | a prospective consumer slot is filled by a call expression whose callee is not an identifier. An indirect call filling no slot of any identified anchor is not counted at all |
 | `control_between` | 3 | a control, jump or `throw` statement between two sibling participants |
-| `not_siblings` | 3 | participants in different compound statements, one of them a descendant of the other's |
-| `rebound_between` | 4 | an assignment, compound assignment or increment to the binding between them |
-| `address_taken` | 4 | the binding's address taken, or the binding passed by pointer or non-const reference, between them |
-| `unevaluated_context` | 5 | a participant inside `sizeof`, `decltype`, `noexcept`, `alignof`, `requires` or `static_assert` |
-| `conditional_operand` | 5 | a participant as an operand of `?:`, `&&` or `||` that the other does not share |
-| `parse_error` | -- | an `ERROR` or `MISSING` node in the participant's enclosing function |
-| `no_ancestry` | -- | the enclosing function or compound statement could not be identified |
+| `not_siblings` | 3 | the two participants' nearest enclosing compound statements are different nodes |
+| `rebound_between` | 4 | an assignment, compound assignment, `++` or `--` whose target's normalized text equals the binding's, in a statement between them |
+| `passed_to_a_call_between` | 4 | the binding's identifier as the operand of a unary `&`, or anywhere inside any call expression's argument list, in a statement between them. Purely syntactic and deliberately conservative: whether such a call mutates it needs overload resolution, which this grammar does not do, so the relation is excluded rather than assumed intact |
+| `shadowed_between` | 4 | a declaration of the binding's identifier in a statement between them |
+| `unevaluated_context` | 5 | a participant descended from a `sizeof`, `decltype`, `noexcept`, `alignof`, `requires` or `static_assert` node |
+| `conditional_operand` | 5 | a participant descended from a conditional expression's consequence or alternative, or from the right operand of `&&` or `||`, that the other participant is not also descended from |
+| `ambiguous_order` | P only | two recognized call expressions share a start position |
+| `parse_error` | -- | an `ERROR` or `MISSING` node anywhere in the anchor's enclosing function |
 
 ### The unit of exclusion
 
 One record per **(rule, anchor, prospective consumer)** triple, with exactly
 one primary reason. An anchor with several prospective consumers produces
-several records. Where more than one reason applies, the primary reason is the
-first that matches in the order the table above lists, and the record carries
-the full set alongside it so that a precedence change does not silently
-rewrite history. The anchor is identified by file and line, the prospective
-consumer by file and line or by `none`.
+several records, and `parse_error` in its enclosing function produces one per
+triple rather than one per function. Where more than one reason applies the
+primary reason is the first that matches in the order the table lists, and the
+record carries the full set alongside it, so that changing the precedence does
+not silently rewrite history. The anchor is identified by file and line, the
+prospective consumer by file and line.
+
+**An anchor whose search yields no prospective consumer is a negative** and
+gets no record. **A call with no enclosing function is not an anchor** -- not
+counted as a candidate, no record, and so `no_ancestry` is not an exclusion
+reason: a construct that cannot be attributed to a body is outside the
+population this grammar describes, and saying so is more honest than counting
+it.
 
 A conforming enumerator reports, per rule and per corpus: candidate anchors
-seen, relations admitted, relations adjudicated as instances, negatives, and
-exclusions by reason.
+seen, prospective relations, relations admitted, relations adjudicated as
+instances, negatives, and exclusions by primary reason.
 
 ## What may be published, by coverage
 
-Coverage is adjudicated candidates over candidate anchors, per rule and per
-corpus. These thresholds are fixed here, before any coverage figure has been
-measured, so that the form of the claim is not chosen to suit the number.
+Coverage is **adjudicated anchors over candidate anchors**, per rule and per
+corpus. Both count anchors, never relations: F and W can admit several
+relations per anchor, so a relation numerator over an anchor denominator could
+exceed 100%. An anchor counts as adjudicated when every prospective relation
+it generates has been either admitted and judged or excluded. These thresholds
+are fixed here, before any coverage figure has been measured, so that the form
+of the claim is not chosen to suit the number.
 
 - **At least 50%**: a slice-recall percentage may be a headline result, always
   with the coverage and the exclusions printed beside it.
