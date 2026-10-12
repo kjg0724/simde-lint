@@ -41,7 +41,10 @@ publishes the agreement.
 ## What an enumerator over this grammar may claim
 
 **Complete enumeration of the eligible syntactic candidates as the frozen
-tables and the per-rule searches below define them**, and nothing stronger. Not ground truth, and not exact recall: which eligible relations are
+tables, the per-rule searches, F's path policy and M's run semantics below
+define them**, and nothing stronger -- and complete only over participants
+spelled with their own names, since a participant reached through a `#define`
+is invisible to the F, W and M searches rather than counted by them. Not ground truth, and not exact recall: which eligible relations are
 instances of a mechanism is adjudicated by hand (see "The adjudication is a
 judgement"). The automatic half enumerates; the judgement half decides.
 
@@ -197,7 +200,7 @@ primary reason. An anchor for which the search yields nothing is a
 | `F.mul_add_no_fuse` | each call to an F multiply | every call to an F add in the anchor's enclosing function that either **starts after** the anchor's call expression or **contains** it; and every F add in the same relation to each F widening conversion the anchor is nested in or binds into | admitted when the anchor reaches the add over a path of zero or one widening conversion, each edge satisfying clauses 2 to 7 |
 | `W.mul16_widen_roundtrip` | each call to `_mm_mullo_epi16` | every call to `_mm_unpacklo_epi16` or `_mm_unpackhi_epi16` in the enclosing function that starts after the anchor or contains it | admitted when a `_mm_mulhi_epi16` exists whose argument list's normalized text equals the anchor's, and both reach that one unpack with every edge satisfying clauses 2 to 7; one unpack is one relation |
 | `M.scalar_insert_chain` | each **run-initial** insert: a call to an M insert that is the right-hand side of an assignment and is not the admitted successor of an earlier insert in a run | one slot per would-be extension, identified by that insert's file and line, taken in order | the run is admitted when its length is at least **3** |
-| `P.cmp_immediate_use` | each call to a P compare | exactly one slot: the call with the next start position after the anchor's within the enclosing function, **whatever it is** -- a recognized call, a macro-spelled call, or an indirect call | admitted when that call is recognized and satisfies clauses 2 to 7 with respect to the anchor |
+| `P.cmp_immediate_use` | each call to a P compare | exactly one slot: the call with the next start position after the anchor's within the enclosing function, **whatever it is** -- a recognized call, a detectably macro-spelled call, an unrecognized call, or an indirect call | admitted when that call is recognized and satisfies clauses 2 to 7 with respect to the anchor |
 
 **A consumer containing the anchor is in the search.** A start-position test
 alone would have excluded the nesting relation clause 2 admits:
@@ -211,27 +214,60 @@ after the anchor. The pair is the unit, so the overlap collapses to one
 record, and the path -- direct or through which conversion -- is recorded
 beside it rather than multiplying the pairs.
 
-**One add belongs to one multiply.** `docs/mechanisms.md` makes the add the
-counting unit: "two products reaching one add is one finding". So where more
-than one F multiply reaches the same add, the relation whose anchor starts
-first is the instance and the others are **admitted non-instances**, recorded
-as `superseded_by_earlier_anchor`. That is a syntactic test the enumerator
-applies -- which anchor starts first -- not a judgement, and it is taken from
-the rule's published unit rather than from its code.
+**One add belongs to one multiply, and the order of operations matters.**
+`docs/mechanisms.md` makes the add the counting unit: "two products reaching
+one add is one finding". So the add is adjudicated **once**, and only then is
+the instance attributed:
 
-**M's run construction.** From a run-initial insert, the run extends to the
-next statement that is a sibling per clause 3, is an assignment whose
-left-hand side is lvalue-equal to the run's, and whose right-hand side is an M
-insert whose first argument is identifier-identical to that lvalue. The
-threshold is 3, the rule's documented default, taken as a constant rather than
-read from the tool's configuration. A run of 1 or 2 is a negative.
+1. collect every admitted relation reaching that add;
+2. adjudicate the add once -- is this a fusion opportunity the mechanism
+   describes?
+3. if it is, attribute the instance to the admitted relation whose anchor
+   comes first by the position key below, and record every other admitted
+   relation reaching it as `superseded_by_earlier_anchor`;
+4. if it is not, every admitted relation reaching it is a non-instance and
+   nothing is superseded -- there is no finding to own.
 
-Two ways an extension can fail, and they are not the same record. A next
-statement that is simply not an insert on the same lvalue **terminates the
-run** and produces no exclusion: there was nothing there to exclude. A next
-statement that *is* such an insert but is blocked by clauses 3 to 7 produces
-**one exclusion record**, with that insert as the prospective consumer, and
-terminates the run. The run's own identity, where it is admitted, is its last
+Attributing before adjudicating would have left the case where the earliest
+anchor is judged a non-instance and a later one an instance with no defined
+answer. The attribution is syntactic, the adjudication is a judgement, and
+this is the order they run in.
+
+**The position key** is a total order: start byte, then end byte, then the
+index of the node in a pre-order walk of its file's tree. Two anchors with
+equal start bytes are therefore ranked, not excluded -- which of two
+equally-positioned anchors owns an add does not change the instance count,
+so a tie needs an answer rather than an abstention. P's `ambiguous_order` is
+different and stays: there a tie means the source order its premise rests on
+is undetermined, and the honest record is to exclude it.
+
+**M's run construction.** A run is over one lvalue `T`. It is the sequence, in
+source order, of every statement in the run-initial insert's compound
+statement that is an assignment whose left-hand side is lvalue-equal to `T`
+and whose right-hand side is an M insert whose first argument is
+identifier-identical to `T`.
+
+What does **not** end a run: a statement that assigns some other target,
+including an insert on another target. `docs/mechanisms.md` is explicit --
+"an insert on another target does not end the chain" -- and an earlier draft
+of this file said any next statement that was not an insert on `T` terminated
+the run, which contradicted the contract and would have split chains the rule
+reports whole.
+
+What ends a run: the compound statement closing, a control, jump or `throw`
+statement (clause 3 applied to the pair of inserts spanning it), or `T` being
+assigned by something that is not an M insert.
+
+The threshold is 3, the rule's documented default, taken as a constant rather
+than read from the tool's configuration. A run of 1 or 2 is a negative.
+
+Two ways an extension can fail, and they are not the same record. A run that
+ends because nothing further assigns `T` with an insert produces **no
+exclusion**: there was nothing there to exclude. A further insert on `T` that
+exists but is blocked -- by a control statement or jump between, by a
+non-insert assignment to `T` between, or by any of clauses 4 to 7 -- produces
+**one exclusion record** with that insert as the prospective consumer, and
+ends the run. The run's own identity, where it is admitted, is its last
 insert's file and line.
 
 **The binding identifier.** For a declaration it is the declared name. For an
@@ -241,9 +277,24 @@ that is a plain identifier. An assignment to any other lvalue (`dd[0]`, `*p`,
 F, W or P; M does not use binding identity for its chain but lvalue equality,
 which is a different test and does accept those forms.
 
-**F's strata.** Zero-conversion and one-conversion paths are reported
-separately. A path of more than one conversion is outside rule F's own
-contract and is a **negative** with respect to F, not an exclusion.
+**F's paths, and which one decides the record.** One (anchor, add) pair can
+have several paths: the direct one, and one per F widening conversion `C` for
+which `anchor -> C` and `C -> add` are both admitted edges. The policy is
+fixed here because it changes the admitted, exclusion and stratum counts.
+
+- The pair is **admitted** if at least one of its paths is admitted. One
+  rejected path does not exclude a pair another path reaches.
+- The pair's **stratum** is zero-conversion if the direct path is admitted,
+  and one-conversion otherwise. Where several one-conversion paths are
+  admitted it is still one record in that stratum, with every conversion
+  listed.
+- The pair is **excluded** only when no path is admitted. Its primary reason
+  is then the first in the exclusion table's order among the reasons the
+  rejected paths produced, and the record carries the full set, so a pair
+  blocked two different ways on two different paths says both.
+- A path of more than one conversion is outside rule F's own contract. It is a
+  **negative** with respect to F, never an exclusion, and never a path this
+  policy ranks.
 
 ## Exclusions
 
@@ -276,7 +327,7 @@ is a macro-spelled participant the text shows.
 | `unevaluated_context` | 5 | a participant descended from a `sizeof`, `decltype`, `noexcept`, `alignof`, `requires` or `static_assert` node |
 | `conditional_operand` | 5 | a participant descended from a conditional expression's consequence or alternative, or from the right operand of `&&` or `||`, that the other participant is not also descended from |
 | `ambiguous_order` | P only | two recognized call expressions share a start position |
-| `parse_error` | -- | an `ERROR` or `MISSING` node anywhere in the anchor's enclosing function |
+| `parse_error` | -- | an `ERROR` or `MISSING` node anywhere in the anchor's enclosing function. The anchor is additionally **not adjudicated** -- see below -- whether or not it generates a prospective relation |
 
 ### The unit of exclusion
 
@@ -314,7 +365,14 @@ generates **no** prospective relation is adjudicated vacuously and counts,
 which would let a corpus of trivial negatives report high coverage -- so the
 figure is published twice: over all candidate anchors, and over the anchors
 that generate at least one prospective relation. Neither number hides the
-other. These thresholds
+other.
+
+**An anchor in a function containing an `ERROR` or `MISSING` node is not
+adjudicated at all**, with or without a prospective relation, and is counted
+separately as a parse-failure anchor. Without that, a known parse failure
+would raise the all-anchor coverage numerator: the anchor would generate no
+relation, be adjudicated vacuously, and count as covered, which is the
+opposite of what the failure means. These thresholds
 are fixed here, before any coverage figure has been measured, so that the form
 of the claim is not chosen to suit the number.
 
@@ -333,6 +391,11 @@ recall." It cannot support a general recall claim.
 
 Stated here rather than discovered later:
 
+- **A negative is a syntactic verdict and must be reported as one.** An
+  enumerator says "no admitted relation within the observable search" or "no
+  prospective relation at all", and never "no mechanism here". The two are
+  reported as separate counts for the same reason: one is a search that looked
+  and found nothing, the other is a search with nothing to look at.
 - **A macro-spelled participant is invisible to F, W and M.** Their searches
   select calls by frozen name, so a participant spelled through a `#define`
   never fills a slot and never becomes an exclusion -- it is simply not seen,
