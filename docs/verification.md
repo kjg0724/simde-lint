@@ -1495,6 +1495,22 @@ $ (cd /tmp/v235 && uv run simde-lint \
       "$SIMDE_LINT_VVDEC/source/Lib/CommonLib/x86" --format json) > /tmp/v235.json
 $ uv run python3 docs/precision/recall/enumerate.py \
       "$SIMDE_LINT_VVDEC/source/Lib/CommonLib/x86" --records > /tmp/records.json
+$ uv run python3 - <<'EOF'
+import collections, json
+rules = ("F.mul_add_no_fuse", "W.mul16_widen_roundtrip", "P.cmp_immediate_use")
+tagged = collections.Counter(
+    (f["type"], f["file"], f["line"])
+    for f in json.load(open("/tmp/v235.json"))["findings"] if f["rule"] in rules)
+wanted = collections.Counter()
+for r in json.load(open("/tmp/records.json")):
+    if r["verdict"] == "admitted" and r["adjudicable"] and r["owns_the_consumer"]:
+        path, line, _column = r["anchor"].rsplit(":", 2)
+        wanted[(r["rule"], path, int(line))] += 1
+short = sum(max(0, n - tagged[k]) for k, n in wanted.items())
+print(f"instances {sum(wanted.values())}, reported {sum(wanted.values()) - short}, "
+      f"not reported {short}")
+EOF
+instances 66, reported 41, not reported 25
 ```
 
 `v2.3.5` reports 516 findings on this corpus against `2.9.0`'s 603 --
