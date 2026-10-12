@@ -14,7 +14,9 @@ on them.
 """
 
 import importlib.util
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,6 +25,52 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[1]
 _RECALL = _ROOT / "docs" / "precision" / "recall"
 _GRAMMAR = _ROOT / "docs" / "precision" / "grammar.md"
+
+# The same contract the other corpus tests have: a contributor without a
+# clone gets a clean skip, and a CI job whose purpose is to supply one gets a
+# failure instead of a quietly empty run. The first version of these two
+# tests skipped on the variable alone, which is how eleven aggregate tests
+# once skipped on every CI run and said nothing about the figures.
+_HOLDOUT = os.environ.get("SIMDE_LINT_VVDEC")
+_REQUIRE_CORPUS = os.environ.get("SIMDE_LINT_REQUIRE_CORPUS") == "1"
+_requires_holdout = pytest.mark.skipif(
+    not _HOLDOUT and not _REQUIRE_CORPUS,
+    reason="VVdeC holdout checkout not present",
+)
+
+
+#: The revision the figures below were measured at. The holdout is a
+#: different repository from `vvdec`, which is a separate checkout of the
+#: same project at another revision.
+_PINNED_HOLDOUT = "e493ce51f13a2dea72cd58354652ed4e0f509a0e"
+
+
+def _head(path: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:
+        return None
+    return result.stdout.strip() or None
+
+
+def _holdout_scope() -> Path:
+    if not _HOLDOUT:
+        pytest.fail("SIMDE_LINT_REQUIRE_CORPUS=1 but SIMDE_LINT_VVDEC is unset")
+    root = Path(_HOLDOUT)
+    head = _head(root)
+    if head and head != _PINNED_HOLDOUT:
+        # A drifted checkout fails rather than printing a confusing diff of
+        # figures measured somewhere else, which is the contract the other
+        # corpus tests have.
+        message = (
+            f"holdout checkout is {head[:12]}, "
+            f"figures were measured at {_PINNED_HOLDOUT[:12]}"
+        )
+        pytest.fail(message) if _REQUIRE_CORPUS else pytest.skip(message)
+    return root / "source" / "Lib" / "CommonLib" / "x86"
 
 
 def _load(name):
@@ -350,3 +398,103 @@ def test_the_by_value_list_is_separate_from_the_family_tables(tables):
     assert tables.F_MULTIPLIES <= tables.BY_VALUE
     assert tables.W_CONSUMERS <= tables.BY_VALUE
     assert "scramble" not in tables.BY_VALUE
+
+
+@_requires_holdout
+def test_the_holdout_enumeration_matches_the_published_figures():
+    """The figures `docs/verification.md` prints for the holdout.
+
+    Pinned so that a change to any clause of the grammar, or to any
+    enumerator, shows up as a failure rather than as a document that has
+    quietly stopped describing the code. Every number here was measured, and
+    the ones that moved during development moved for reasons the grammar
+    records.
+    """
+    module = _load("enumerate")
+    summary = module.summarize(module.over([_holdout_scope()], ["F", "W", "P", "M"]))
+    assert summary["F"] == {
+        "candidate_anchors": 315,
+        "parse_failure_anchors": 167,
+        "anchors_with_a_prospective_relation": 205,
+        "prospective_relations": 280,
+        "admitted": 186,
+        "superseded": 12,
+        "excluded": 82,
+        "adjudicable_anchors": 148,
+        "adjudicable_anchors_with_a_relation": 80,
+        "admitted_on_adjudicable_anchors": 68,
+        # The one-conversion stratum's population is zero on this corpus, so
+        # recall for it is not estimable rather than zero.
+        "strata": {"direct": 186},
+        "exclusions_by_reason": {"rebound_between": 73, "control_between": 9},
+    }
+    assert summary["W"] == {
+        "candidate_anchors": 29,
+        "parse_failure_anchors": 21,
+        "anchors_with_a_prospective_relation": 9,
+        "prospective_relations": 30,
+        # 18, not 9: without the by-value allowlist the high half of every
+        # eight-lane rebuild was excluded, because the `unpacklo` between the
+        # anchor and the `unpackhi` passes the binding to a call.
+        "admitted": 18,
+        "superseded": 0,
+        "excluded": 12,
+        "adjudicable_anchors": 8,
+        "adjudicable_anchors_with_a_relation": 2,
+        "admitted_on_adjudicable_anchors": 4,
+        "strata": {},
+        "exclusions_by_reason": {"rebound_between": 12},
+    }
+    assert summary["P"] == {
+        "candidate_anchors": 14,
+        "parse_failure_anchors": 3,
+        "anchors_with_a_prospective_relation": 2,
+        "prospective_relations": 2,
+        "admitted": 2,
+        "superseded": 0,
+        "excluded": 0,
+        "adjudicable_anchors": 11,
+        "adjudicable_anchors_with_a_relation": 2,
+        "admitted_on_adjudicable_anchors": 2,
+        "strata": {},
+        "exclusions_by_reason": {},
+    }
+    # Not measurable rather than zero recall: the frozen M insert family has
+    # no candidate anchor in this corpus at all.
+    assert summary["M"]["candidate_anchors"] == 0
+
+
+@_requires_holdout
+def test_the_tool_reports_every_adjudicated_instance():
+    """The recall claim itself: 68 of 68, 4 of 4, 2 of 2.
+
+    The adjudication is recorded in `docs/verification.md` -- all 74 admitted
+    relations on adjudicable anchors were judged instances by reading the
+    source. This checks the other half of the comparison, that the tool
+    reports each of them, keyed on rule, file and the anchor's line.
+    """
+    from simde_lint.analyze import analyze
+
+    scope = _holdout_scope()
+    module = _load("enumerate")
+    anchors = module.over([scope], ["F", "W", "P"])
+
+    findings, _, _ = analyze([scope])
+    reported = {
+        (f.type, str(Path(f.file)), f.line)
+        for f in findings
+        if f.rule in ("F.mul_add_no_fuse", "W.mul16_widen_roundtrip", "P.cmp_immediate_use")
+    }
+
+    missed = []
+    for rule, found in anchors.items():
+        for anchor in found:
+            if anchor.parse_failed:
+                continue
+            for record in anchor.records:
+                if record.verdict != "admitted":
+                    continue
+                path, line = record.anchor.rsplit(":", 1)
+                if (rule, str(Path(path)), int(line)) not in reported:
+                    missed.append(record.anchor)
+    assert missed == []

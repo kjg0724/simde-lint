@@ -1362,6 +1362,105 @@ work SIMDe is doing.
 That is an adjudicated slice of one file, 8/8 and 4/4 within it. It is not
 rule F's recall on a corpus and must not be read as one.
 
+### Recall over a declared grammar, on the holdout
+
+The slice above is one file chosen by hand. This is the same question asked
+over the whole holdout, against a grammar fixed before any enumerator existed
+and before any figure from one had been seen: `docs/precision/grammar.md`.
+It says which relations an enumerator may claim to have enumerated
+completely, counts everything else as excluded with a reason rather than
+scoring it as a negative, and fixes in advance what may be published at each
+level of coverage -- so that the form of a claim cannot be chosen to suit its
+number.
+
+`docs/precision/recall/` implements it in four enumerators that import no
+`simde_lint`, which a test checks by matching import statements rather than
+by promising it. They share `tree_sitter_cpp` with the tool, which the
+grammar records as a disclosed dependency and not as independence.
+
+```
+$ uv run python3 docs/precision/recall/enumerate.py \
+      "$SIMDE_LINT_VVDEC/source/Lib/CommonLib/x86"
+```
+
+| | F | W | P | M |
+|---|---:|---:|---:|---:|
+| candidate anchors | 315 | 29 | 14 | 0 |
+| in a function that does not parse | 167 | 21 | 3 | 0 |
+| anchors generating a relation | 205 | 9 | 2 | 0 |
+| prospective relations | 280 | 30 | 2 | 0 |
+| admitted | 186 | 18 | 2 | 0 |
+| superseded by an earlier anchor | 12 | 0 | 0 | 0 |
+| excluded | 82 | 12 | 0 | 0 |
+
+F's exclusions are `rebound_between` 73 and `control_between` 9; W's are
+`rebound_between` 12. F's admitted relations are all direct: the
+one-conversion stratum's **population is zero** on this corpus, so recall for
+it is not estimable rather than zero.
+
+**Coverage, and what it permits.** An anchor in a function containing an
+`ERROR` or `MISSING` node is not adjudicated, by the grammar's own rule, so
+those anchors cap what any amount of hand work can reach:
+
+| rule | adjudicable / all anchors | adjudicable / generating a relation | what may be published |
+|---|---:|---:|---|
+| F | 148 / 315 = 47.0% | 80 / 205 = 39.0% | eligible slice only |
+| W | 8 / 29 = 27.6% | 2 / 9 = 22.2% | eligible slice only |
+| P | 11 / 14 = 78.6% | 2 / 2 = 100% | slice-recall percentage |
+
+**The adjudication.** Every admitted relation on an adjudicable anchor was
+judged by reading the source, before comparing with what the tool reports:
+68 for F, 4 for W, 2 for P. All 74 are instances of the mechanism their rule
+names. F's are the accumulate idiom almost throughout -- 61 of the 68 are a
+`madd_epi16` product consumed by an `add_epi32` -- with four
+`mullo_epi16` pairs feeding a nested `add_epi16` in `IntraPredX86.h`, two
+`mullo_epi32` into `add_epi32` in `TrafoX86.h`, and one in `InterPredX86.h`.
+W's four are two full eight-lane rebuilds, each counted twice because the
+unit is one consuming unpack. P's two are a `cmpgt_epi32` consumed by the
+`blendv_epi8` on the next line.
+
+**The tool reports all 74.** F 68 of 68, W 4 of 4, P 2 of 2, matched on rule,
+file and the anchor's line.
+
+So:
+
+- **P: recall 2 of 2 on the eligible slice**, covering 78.6% of candidate
+  anchors and 100% of those generating a relation, with no exclusions.
+- **F: 68 of 68 on the eligible syntactic slice**, covering 47.0% of
+  candidate anchors. This is not rule F's recall on the corpus and does not
+  estimate it.
+- **W: 4 of 4 on the eligible syntactic slice**, covering 27.6% of candidate
+  anchors. The same caveat.
+- **M: not measurable on the VVdeC holdout.** The frozen M insert family has
+  zero candidate anchors in the corpus; the two rule M findings there are
+  `M.scalar_set_build`, which is outside the relation grammar. No holdout
+  recall percentage is reported. SVT-AV1 has 37 `M.scalar_insert_chain`
+  findings and could be measured, but that is a tuning corpus and would not
+  be holdout recall.
+
+**What a figure of 74 of 74 is worth.** It says that where the grammar can
+see a relation at all, the tool sees the same ones -- and the grammar can see
+between a quarter and four fifths of the candidate anchors, depending on the
+rule. The two large reasons it cannot see more are both measured above: a
+function the parser cannot read (167 of F's 315 anchors) and a binding
+reassigned between the producer and the consumer (73 of F's 82 exclusions).
+Neither is evidence about the rules. The first is the shared-parser overlap
+Section 5 records, and the second is a relation whose truth needs the
+reaching-definition analysis the grammar declines to do -- the same question
+the rules answer with `reaches_on_every_path`, which is why an enumerator
+that answered it would not be independent.
+
+Two corrections the first dry run forced, both before any figure was
+published. The prospective search looked through the whole enclosing function
+and let the sibling clause exclude what did not match, which is quadratic in
+function size: 1117 of F's then-1397 prospective relations came back
+`not_siblings`, pairs of calls in different blocks with nothing blocking
+them. And clause 4 excluded a relation whenever the binding appeared inside
+any intervening call, which removed the high half of every eight-lane rebuild
+-- nine of W's thirty -- because the `unpacklo` between them passes the
+binding to a call. The grammar records both, and the second is why a by-value
+allowlist exists.
+
 ### Every miss has one cause, and it is not the rules
 
 All eleven sit in `InterpolationFilterX86.h`, between lines 3145 and 3296.

@@ -64,6 +64,10 @@ class Record:
     anchor: str
     consumer: str
     verdict: str  # "admitted", "excluded", or "superseded_by_earlier_anchor"
+    # Whether the anchor's enclosing function parses. The grammar does not
+    # adjudicate an anchor in a function containing an ERROR or MISSING node,
+    # so adjudication reads this to know what is in its slice.
+    adjudicable: bool = True
     reason: str | None = None
     reasons: list = field(default_factory=list)
     stratum: str | None = None
@@ -514,6 +518,16 @@ def summarize(anchors):
             "admitted": sum(1 for r in real if r.verdict == "admitted"),
             "superseded": sum(1 for r in real if r.verdict == "superseded_by_earlier_anchor"),
             "excluded": sum(1 for r in real if r.verdict == "excluded"),
+            "adjudicable_anchors": sum(1 for a in found if not a.parse_failed),
+            "adjudicable_anchors_with_a_relation": sum(
+                1 for a in found
+                if not a.parse_failed
+                and any(r.verdict != "negative" for r in a.records)
+            ),
+            "admitted_on_adjudicable_anchors": sum(
+                1 for a in found if not a.parse_failed
+                for r in a.records if r.verdict == "admitted"
+            ),
             "strata": dict(Counter(r.stratum for r in real if r.verdict == "admitted" and r.stratum)),
             "exclusions_by_reason": dict(
                 Counter(r.reason for r in real if r.verdict == "excluded")
@@ -536,8 +550,14 @@ def main() -> int:
     summary = summarize(anchors)
 
     if args.records:
-        rows = [asdict(r) for rule in rules for a in anchors[rule] for r in a.records
-                if r.verdict != "negative"]
+        rows = []
+        for rule in rules:
+            for anchor in anchors[rule]:
+                for record in anchor.records:
+                    if record.verdict == "negative":
+                        continue
+                    record.adjudicable = not anchor.parse_failed
+                    rows.append(asdict(record))
         print(json.dumps(rows, indent=2))
         return 0
     if args.json:
