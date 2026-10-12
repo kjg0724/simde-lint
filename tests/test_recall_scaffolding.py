@@ -74,20 +74,33 @@ def test_the_w_table_matches_the_grammar(tables):
     assert declared == {tables.W_PRODUCER, tables.W_PARTNER} | set(tables.W_CONSUMERS)
 
 
-def test_recognized_is_the_union_the_grammar_describes(tables):
-    assert tables.RECOGNIZED == frozenset(
-        tables.F_MULTIPLIES
-        | tables.F_ADDS
-        | tables.F_WIDENING
-        | {tables.W_PRODUCER, tables.W_PARTNER}
-        | tables.W_CONSUMERS
-        | tables.M_INSERTS
-        | tables.P_COMPARES
-        | tables.S_SHUFFLES
-        | tables.R_PARTIAL_LOADS
+def test_recognized_is_the_prefix_test_the_grammar_describes(tables):
+    # Rule P orders over every recognized call, and the rule's own notion of
+    # one is every intrinsic call. A union of the registered families was the
+    # first definition and made the enumeration diverge by construction:
+    # `_mm_blendv_epi8` consumes a compare in VVenC and belongs to no family,
+    # so calling it unrecognized excluded a relation the rule reports.
+    for name in (
+        "_mm_blendv_epi8", "_mm_add_epi32", "_mm256_shuffle_epi8",
+        "_mm512_add_ps", "_mm_undocumented_thing",
+    ):
+        assert tables.recognized(name), name
+    for name in ("memcpy", "vaddq_s32", "mm_add_epi32", "_mmx_add", ""):
+        assert not tables.recognized(name), name
+
+
+def test_every_frozen_family_is_recognized(tables):
+    # The families are a subset of what P orders over, which is what makes
+    # the prefix test a widening of the union rather than a different thing.
+    families = (
+        tables.F_MULTIPLIES | tables.F_ADDS | tables.F_WIDENING
+        | {tables.W_PRODUCER, tables.W_PARTNER} | tables.W_CONSUMERS
+        | tables.M_INSERTS | tables.P_COMPARES
+        | tables.S_SHUFFLES | tables.R_PARTIAL_LOADS
     )
-    # Rule R's and rule S's families are in the union and in no other table:
-    # they exist here only because P orders over every recognized call.
+    assert all(tables.recognized(name) for name in families)
+    # Rule R's and rule S's families are transcribed for completeness and
+    # belong to no relation grammar: nothing anchors or consumes through them.
     assert not (tables.S_SHUFFLES | tables.R_PARTIAL_LOADS) & (
         tables.F_MULTIPLIES | tables.M_INSERTS | tables.P_COMPARES
     )
