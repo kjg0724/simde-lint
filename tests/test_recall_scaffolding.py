@@ -1,0 +1,637 @@
+"""The recall enumerators' frozen tables and syntax helpers.
+
+`docs/precision/recall/` is the implementation side of
+`docs/precision/grammar.md`, and like the other precision checkers it is
+loaded by path rather than imported: it must not become a package the tool
+can reach, and it must not reach the tool.
+
+Two things are checked here that nothing else can check. The frozen tables
+have to agree with the markdown that declares them -- not with
+`simde_lint`, which they are forbidden to read -- so a name added to one and
+not the other is a failure. And the syntax helpers have to behave as the
+grammar's definitions say, since every count the enumerators report is built
+on them.
+"""
+
+import importlib.util
+import os
+import re
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+import pytest
+
+_ROOT = Path(__file__).resolve().parents[1]
+_RECALL = _ROOT / "docs" / "precision" / "recall"
+_GRAMMAR = _ROOT / "docs" / "precision" / "grammar.md"
+
+# The same contract the other corpus tests have: a contributor without a
+# clone gets a clean skip, and a CI job whose purpose is to supply one gets a
+# failure instead of a quietly empty run. The first version of these two
+# tests skipped on the variable alone, which is how eleven aggregate tests
+# once skipped on every CI run and said nothing about the figures.
+_HOLDOUT = os.environ.get("SIMDE_LINT_VVDEC")
+_REQUIRE_CORPUS = os.environ.get("SIMDE_LINT_REQUIRE_CORPUS") == "1"
+_requires_holdout = pytest.mark.skipif(
+    not _HOLDOUT and not _REQUIRE_CORPUS,
+    reason="VVdeC holdout checkout not present",
+)
+
+
+#: The revision the figures below were measured at. The holdout is a
+#: different repository from `vvdec`, which is a separate checkout of the
+#: same project at another revision.
+_PINNED_HOLDOUT = "e493ce51f13a2dea72cd58354652ed4e0f509a0e"
+
+
+def _head(path: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:
+        return None
+    return result.stdout.strip() or None
+
+
+def _holdout_scope() -> Path:
+    if not _HOLDOUT:
+        pytest.fail("SIMDE_LINT_REQUIRE_CORPUS=1 but SIMDE_LINT_VVDEC is unset")
+    root = Path(_HOLDOUT)
+    head = _head(root)
+    if head and head != _PINNED_HOLDOUT:
+        # A drifted checkout fails rather than printing a confusing diff of
+        # figures measured somewhere else, which is the contract the other
+        # corpus tests have.
+        message = (
+            f"holdout checkout is {head[:12]}, "
+            f"figures were measured at {_PINNED_HOLDOUT[:12]}"
+        )
+        pytest.fail(message) if _REQUIRE_CORPUS else pytest.skip(message)
+    return root / "source" / "Lib" / "CommonLib" / "x86"
+
+
+def _load(name):
+    # The modules import each other by bare name, the way the enumerator's
+    # entry point runs them, so the directory goes on the path rather than
+    # the package becoming importable as part of the tool.
+    if str(_RECALL) not in sys.path:
+        sys.path.insert(0, str(_RECALL))
+    spec = importlib.util.spec_from_file_location(name, _RECALL / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def tables():
+    return _load("tables")
+
+
+@pytest.fixture(scope="module")
+def syntax():
+    return _load("syntax")
+
+
+def _declared(bullet):
+    """The intrinsic names the grammar's bullet for `bullet` lists."""
+    text = _GRAMMAR.read_text()
+    start = text.index(f"- **{bullet}**")
+    end = text.index("\n- **", start + 1) if "\n- **" in text[start + 1:] else len(text)
+    return set(re.findall(r"`(_mm\w+)`", text[start:end]))
+
+
+@pytest.mark.parametrize(
+    "bullet, attribute",
+    [
+        ("F multiplies", "F_MULTIPLIES"),
+        ("F adds", "F_ADDS"),
+        ("F widening conversions", "F_WIDENING"),
+        ("M inserts", "M_INSERTS"),
+        ("P compares", "P_COMPARES"),
+    ],
+)
+def test_each_frozen_table_matches_the_grammar_that_declares_it(tables, bullet, attribute):
+    # The markdown is the declaration and this module is the implementation.
+    # A name in one and not the other is the failure this catches; neither is
+    # allowed to be checked against the tool, which would make them agree by
+    # construction on the population the figures are over.
+    assert getattr(tables, attribute) == frozenset(_declared(bullet)), bullet
+
+
+def test_the_w_table_matches_the_grammar(tables):
+    declared = _declared("W")
+    assert declared == {tables.W_PRODUCER, tables.W_PARTNER} | set(tables.W_CONSUMERS)
+
+
+def test_recognized_is_the_prefix_test_the_grammar_describes(tables):
+    # Rule P orders over every recognized call, and the rule's own notion of
+    # one is every intrinsic call. A union of the registered families was the
+    # first definition and made the enumeration diverge by construction:
+    # `_mm_blendv_epi8` consumes a compare in VVenC and belongs to no family,
+    # so calling it unrecognized excluded a relation the rule reports.
+    for name in (
+        "_mm_blendv_epi8", "_mm_add_epi32", "_mm256_shuffle_epi8",
+        "_mm512_add_ps", "_mm_undocumented_thing",
+    ):
+        assert tables.recognized(name), name
+    for name in ("memcpy", "vaddq_s32", "mm_add_epi32", "_mmx_add", ""):
+        assert not tables.recognized(name), name
+
+
+def test_every_frozen_family_is_recognized(tables):
+    # The families are a subset of what P orders over, which is what makes
+    # the prefix test a widening of the union rather than a different thing.
+    families = (
+        tables.F_MULTIPLIES | tables.F_ADDS | tables.F_WIDENING
+        | {tables.W_PRODUCER, tables.W_PARTNER} | tables.W_CONSUMERS
+        | tables.M_INSERTS | tables.P_COMPARES
+        | tables.S_SHUFFLES | tables.R_PARTIAL_LOADS
+    )
+    assert all(tables.recognized(name) for name in families)
+    # Rule R's and rule S's families are transcribed for completeness and
+    # belong to no relation grammar: nothing anchors or consumes through them.
+    assert not (tables.S_SHUFFLES | tables.R_PARTIAL_LOADS) & (
+        tables.F_MULTIPLIES | tables.M_INSERTS | tables.P_COMPARES
+    )
+
+
+_IMPORTS_THE_TOOL = re.compile(
+    r"^\s*(?:import\s+simde_lint|from\s+simde_lint)", re.MULTILINE
+)
+
+
+def test_nothing_in_the_recall_directory_imports_the_tool():
+    # The independence clause, checked rather than promised. A figure produced
+    # by code that reads the tool's tables agrees with the tool by
+    # construction on the population it is a figure over.
+    #
+    # Matched against import statements, not the string: the first version
+    # searched for `simde_lint` anywhere and failed on the docstring that
+    # promises not to import it.
+    for path in sorted(_RECALL.glob("*.py")):
+        assert not _IMPORTS_THE_TOOL.search(path.read_text()), path.name
+
+
+def test_the_threshold_is_a_constant_here(tables):
+    # Reading the tool's configuration for it would make the enumerator agree
+    # on the one number that decides whether a run is a finding.
+    assert tables.M_THRESHOLD == 3
+
+
+def test_normalized_removes_comments_and_collapses_whitespace(syntax):
+    source = b"int  x   =  /* why */ 1 ;"
+    assert syntax.normalized(syntax.parse(source).root_node, source) == "int x = 1 ;"
+
+
+def test_normalized_keeps_every_token(syntax):
+    # No case folding, no parenthesis removal, no reordering, nothing elided.
+    # Tokens are joined by one space, so the result is not the source text.
+    source = b"int X = (1) + f(A, b);"
+    assert syntax.normalized(syntax.parse(source).root_node, source) == (
+        "int X = ( 1 ) + f ( A , b ) ;"
+    )
+
+
+def test_normalized_makes_two_spellings_of_one_argument_list_equal(syntax):
+    # What the definition is for. Rule W's pair test is over argument lists
+    # "equal as written", and a definition that distinguished `(a, b)` from
+    # `(a,b)` would fail it on formatting.
+    first = b"__m128i p = _mm_mullo_epi16(a, b);"
+    second = b"__m128i q = _mm_mulhi_epi16(a,b);"
+    lists = []
+    for source in (first, second):
+        root = syntax.parse(source).root_node
+        call = next(n for n in syntax.walk(root) if n.type == "call_expression")
+        lists.append(syntax.normalized(call.child_by_field_name("arguments"), source))
+    assert lists[0] == lists[1] == "( a , b )"
+
+
+def test_normalized_refuses_a_node_from_another_buffer(syntax):
+    source = b"void f(__m128i a, __m128i b) { __m128i r = _mm_add_epi32(a, b); (void)r; }"
+    root = syntax.parse(source).root_node
+    with pytest.raises(ValueError, match="different buffer"):
+        syntax.normalized(root, b"short")
+
+
+def test_the_position_key_orders_an_enclosing_call_before_a_nested_one(syntax):
+    # The grammar's measured claim about P's ordering: in `outer(inner())`
+    # the enclosing call starts first, so an enclosing call is never "next"
+    # after a compare nested in its own arguments.
+    source = b"void f(__m128i a, __m128i b, __m128i acc) {\n    acc = _mm_add_epi32(acc, _mm_madd_epi16(a, b));\n}\n"
+    root = syntax.parse(source).root_node
+    index = syntax.index_preorder(root)
+    calls = [n for n in syntax.walk(root) if n.type == "call_expression"]
+    ordered = sorted(calls, key=lambda c: syntax.Position(c.start_byte, c.end_byte, index[c.id]))
+    names = [syntax.normalized(c.child_by_field_name("function"), source) for c in ordered]
+    assert names == ["_mm_add_epi32", "_mm_madd_epi16"]
+
+
+def test_the_position_key_is_total_for_equal_starts(syntax):
+    # Equal start bytes are ranked, not abstained from: which of two
+    # equally-positioned anchors owns an add does not change the instance
+    # count, so the key has to answer rather than tie.
+    a = syntax.Position(10, 20, 3)
+    b = syntax.Position(10, 30, 4)
+    c = syntax.Position(10, 20, 5)
+    assert a < b and a < c and not (b < a)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        b"__m128i r = (_mm_add_epi32(a, b));",
+        b"__m128i r = ((_mm_add_epi32(a, b)));",
+        b"__m128i r = (__m128i)_mm_add_epi32(a, b);",
+        b"__m128i r = static_cast<__m128i>(_mm_add_epi32(a, b));",
+        b"__m128i r = reinterpret_cast<__m128i>(_mm_add_epi32(a, b));",
+        b"__m128i r = const_cast<__m128i&>(_mm_add_epi32(a, b));",
+        b"__m128i r = static_cast<__m128i>((_mm_add_epi32(a, b)));",
+    ],
+)
+def test_strip_wrappers_reduces_parentheses_and_every_promised_cast(syntax, text):
+    # The three C++ casts parse as a call expression whose function is a
+    # `template_function`, so an earlier version looking for a node type named
+    # after the cast could never reach them and returned the outer call.
+    source = b"void f(__m128i a, __m128i b) { " + text + b" (void)r; }"
+    root = syntax.parse(source).root_node
+    declarator = next(n for n in syntax.walk(root) if n.type == "init_declarator")
+    value = declarator.child_by_field_name("value")
+    reduced = syntax.strip_wrappers(value)
+    assert reduced.type == "call_expression"
+    name = reduced.child_by_field_name("function")
+    assert syntax.normalized(name, source) == "_mm_add_epi32"
+
+
+def test_strip_wrappers_does_not_mistake_a_similarly_named_function(syntax):
+    # The identifier is compared exactly, so a codebase helper whose name
+    # begins like a cast is not unwrapped.
+    source = (
+        b"void f(__m128i a, __m128i b) { "
+        b"__m128i r = static_cast_helper<__m128i>(_mm_add_epi32(a, b)); (void)r; }"
+    )
+    root = syntax.parse(source).root_node
+    declarator = next(n for n in syntax.walk(root) if n.type == "init_declarator")
+    value = declarator.child_by_field_name("value")
+    assert syntax.strip_wrappers(value).id == value.id
+
+
+def test_strip_wrappers_leaves_a_proper_subexpression_alone(syntax):
+    # A call that survives as a sub-expression is not a binding: the grammar
+    # admits it only as a nesting relation with respect to the enclosing call.
+    source = b"void f(__m128i a, __m128i b) { __m128i r = _mm_add_epi32(a, b) ; (void)r; }"
+    root = syntax.parse(source).root_node
+    declarator = next(n for n in syntax.walk(root) if n.type == "init_declarator")
+    value = declarator.child_by_field_name("value")
+    assert syntax.strip_wrappers(value).id == value.id
+
+
+def test_a_lambda_body_is_its_own_compound_statement(syntax):
+    # Clause 6: a call inside a lambda is never a sibling of a call outside.
+    source = (
+        b"void f(__m128i a, __m128i b) {\n"
+        b"    __m128i p = _mm_mullo_epi16(a, b);\n"
+        b"    auto g = [&]{ __m128i q = _mm_add_epi16(p, p); (void)q; };\n"
+        b"    g();\n"
+        b"}\n"
+    )
+    root = syntax.parse(source).root_node
+    calls = {
+        syntax.normalized(c.child_by_field_name("function"), source): c
+        for c in syntax.walk(root)
+        if c.type == "call_expression"
+    }
+    outer = syntax.enclosing_body(calls["_mm_mullo_epi16"])
+    inner = syntax.enclosing_body(calls["_mm_add_epi16"])
+    assert outer is not None and inner is not None
+    assert outer.id != inner.id
+
+
+def test_a_call_outside_any_function_has_no_enclosing_function(syntax):
+    # Such a call is not an anchor at all -- outside the population rather
+    # than counted as an exclusion.
+    source = b"__m128i g = _mm_add_epi32(a, b);\n"
+    root = syntax.parse(source).root_node
+    call = next(n for n in syntax.walk(root) if n.type == "call_expression")
+    assert syntax.enclosing_function(call) is None
+
+
+def test_has_parse_error_sees_an_error_node(syntax):
+    broken = b"void f( { __m128i r = _mm_add_epi32(a, b); }\n"
+    assert syntax.has_parse_error(syntax.parse(broken).root_node)
+    clean = b"void f(__m128i a, __m128i b) { __m128i r = _mm_add_epi32(a, b); (void)r; }\n"
+    assert not syntax.has_parse_error(syntax.parse(clean).root_node)
+
+
+@pytest.fixture(scope="module")
+def relations():
+    _load("tables")
+    return _load("relations")
+
+
+_REBUILD = b"""
+void f(__m128i x8top, __m128i wt8) {
+    __m128i tmplo8 = _mm_mullo_epi16(x8top, wt8);
+    __m128i tmphi8 = _mm_mulhi_epi16(x8top, wt8);
+    __m128i toplo8 = _mm_unpacklo_epi16(tmplo8, tmphi8);
+    __m128i tophi8 = _mm_unpackhi_epi16(tmplo8, tmphi8);
+    (void)toplo8; (void)tophi8;
+}
+"""
+
+_UNKNOWN_CALL_BETWEEN = b"""
+void f(__m128i x8top, __m128i wt8) {
+    __m128i tmplo8 = _mm_mullo_epi16(x8top, wt8);
+    __m128i tmphi8 = _mm_mulhi_epi16(x8top, wt8);
+    scramble(tmplo8);
+    __m128i tophi8 = _mm_unpackhi_epi16(tmplo8, tmphi8);
+    (void)tophi8;
+}
+"""
+
+
+def _edge_between(syntax, relations, source, producer_name, consumer_name):
+    root = syntax.parse(source).root_node
+    calls = {}
+    for node in syntax.walk(root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        if function is None or function.type != "identifier":
+            continue
+        calls.setdefault(syntax.normalized(function, source), node)
+    return relations.edge(calls[producer_name], calls[consumer_name], source)
+
+
+def test_an_intervening_intrinsic_call_does_not_block_the_relation(syntax, relations):
+    # The canonical eight-lane rebuild: `unpacklo` sits between the `mullo`
+    # and the `unpackhi` and passes the binding to a call. The rule's unit is
+    # one consuming unpack, so this shape is two findings, and without the
+    # by-value allowlist the second was excluded every time -- nine of W's
+    # thirty prospective relations on the holdout, all the high half.
+    edge = _edge_between(
+        syntax, relations, _REBUILD, "_mm_mullo_epi16", "_mm_unpackhi_epi16"
+    )
+    assert edge.admitted, sorted(edge.reasons)
+    assert edge.kind == "binding"
+
+
+def test_an_intervening_unknown_call_still_blocks_the_relation(syntax, relations):
+    # Anything not on the allowlist still excludes: whether it mutates its
+    # argument needs overload resolution, which the grammar does not do.
+    edge = _edge_between(
+        syntax, relations, _UNKNOWN_CALL_BETWEEN, "_mm_mullo_epi16", "_mm_unpackhi_epi16"
+    )
+    assert not edge.admitted
+    assert "passed_to_a_call_between" in edge.reasons
+
+
+def test_the_by_value_list_is_separate_from_the_family_tables(tables):
+    # It holds the same names today and answers a different question: the
+    # families say what anchors and consumes, this says what cannot mutate an
+    # argument. Relying on one for the other would give a table maintained
+    # for one purpose a second meaning nobody checks when it changes.
+    assert tables.BY_VALUE is not tables.F_MULTIPLIES
+    assert tables.F_MULTIPLIES <= tables.BY_VALUE
+    assert tables.W_CONSUMERS <= tables.BY_VALUE
+    assert "scramble" not in tables.BY_VALUE
+
+
+@_requires_holdout
+def test_the_holdout_enumeration_matches_the_published_figures():
+    """The figures `docs/verification.md` prints for the holdout.
+
+    Pinned so that a change to any clause of the grammar, or to any
+    enumerator, shows up as a failure rather than as a document that has
+    quietly stopped describing the code. Every number here was measured, and
+    the ones that moved during development moved for reasons the grammar or
+    the code records.
+    """
+    module = _load("enumerate")
+    summary = module.summarize(module.over([_holdout_scope()], ["F", "W", "P", "M"]))
+    assert summary["F"] == {
+        "candidate_anchors": 315,
+        "parse_failure_anchors": 167,
+        "anchors_with_a_prospective_relation": 264,
+        # Every searched pair, negatives included: the grammar's denominator.
+        "prospective_relations": 912,
+        "admitted": 73,
+        # One add belongs to one multiply, so 13 of the 73 are attributed to
+        # an earlier anchor and 60 are the unit's own count.
+        "not_attributed_to_this_anchor": 13,
+        # 466 of these are `parse_error`, which was not applied as an
+        # exclusion at all until review caught it: the relations were being
+        # published as admitted from functions the parser could not read.
+        "excluded": 549,
+        "negatives": 290,
+        "adjudicable_anchors": 148,
+        "adjudicable_anchors_with_a_relation": 112,
+        "admitted_on_adjudicable_anchors": 73,
+        # The one-conversion stratum's population is zero on this corpus, so
+        # recall for it is not estimable rather than zero.
+        "strata": {"direct": 73},
+        "exclusions_by_reason": {
+            "parse_error": 466,
+            # 74, not 73: the last of them is a pair whose conversion path
+            # had both edges separately blocked, which the first version of
+            # the reason merge discarded.
+            "rebound_between": 74,
+            "control_between": 9,
+        },
+    }
+    assert summary["W"] == {
+        "candidate_anchors": 29,
+        "parse_failure_anchors": 21,
+        "anchors_with_a_prospective_relation": 9,
+        "prospective_relations": 32,
+        # 4, not 9 and not 18: the by-value allowlist admits the high half of
+        # every eight-lane rebuild, and `parse_error` then excludes the ones
+        # in functions the parser could not read.
+        "admitted": 4,
+        "not_attributed_to_this_anchor": 0,
+        "excluded": 26,
+        "negatives": 2,
+        "adjudicable_anchors": 8,
+        "adjudicable_anchors_with_a_relation": 2,
+        "admitted_on_adjudicable_anchors": 4,
+        "strata": {},
+        "exclusions_by_reason": {"parse_error": 14, "rebound_between": 12},
+    }
+    assert summary["P"] == {
+        "candidate_anchors": 14,
+        "parse_failure_anchors": 3,
+        "anchors_with_a_prospective_relation": 14,
+        "prospective_relations": 14,
+        "admitted": 2,
+        "not_attributed_to_this_anchor": 0,
+        "excluded": 3,
+        "negatives": 9,
+        "adjudicable_anchors": 11,
+        "adjudicable_anchors_with_a_relation": 11,
+        "admitted_on_adjudicable_anchors": 2,
+        "strata": {},
+        "exclusions_by_reason": {"parse_error": 3},
+    }
+    # Not measurable rather than zero recall: the frozen M insert family has
+    # no candidate anchor in this corpus at all.
+    assert summary["M"]["candidate_anchors"] == 0
+
+
+#: The nested-add shape the adjudication rejected and the grammar then
+#: stopped admitting: clause 2's nesting means a direct argument, so a
+#: product no longer reaches an add whose own operand is another add's sum.
+#: `docs/verification.md` records the judgement and the correction.
+_NESTED_OUTER_ADD = "InterpolationFilterX86.h:724:18"
+
+
+@_requires_holdout
+def test_the_nested_outer_add_is_no_longer_a_relation():
+    module = _load("enumerate")
+    anchors = module.over([_holdout_scope()], ["F"])
+    consumers = {
+        record.consumer
+        for anchor in anchors["F"]
+        for record in anchor.records
+        if record.verdict == "admitted"
+    }
+    assert not any(c.endswith(_NESTED_OUTER_ADD) for c in consumers)
+
+
+@_requires_holdout
+def test_the_tool_reports_every_adjudicated_instance():
+    """The recall claim itself: 60 of 60, 4 of 4, 2 of 2.
+
+    The adjudication is recorded in `docs/verification.md`. This checks the
+    other half of the comparison, that the tool reports each instance, keyed
+    on rule, file and the anchor's line **with multiplicity** -- one line can
+    hold several anchors, and matching as a set hid the nested-add divergence
+    until the counts were compared.
+    """
+    from simde_lint.analyze import analyze
+
+    scope = _holdout_scope()
+    module = _load("enumerate")
+    anchors = module.over([scope], ["F", "W", "P"])
+
+    findings, _, _ = analyze([scope])
+    reported = Counter(
+        (f.type, str(Path(f.file)), f.line)
+        for f in findings
+        if f.rule in ("F.mul_add_no_fuse", "W.mul16_widen_roundtrip", "P.cmp_immediate_use")
+    )
+
+    needed = Counter()
+    for rule, found in anchors.items():
+        for anchor in found:
+            if anchor.parse_failed:
+                continue
+            for record in anchor.records:
+                if record.verdict != "admitted" or not record.owns_the_consumer:
+                    continue
+                path, line, _column = record.anchor.rsplit(":", 2)
+                needed[(rule, str(Path(path)), int(line))] += 1
+
+    assert sum(needed.values()) == 66
+    short = {key: (count, reported[key]) for key, count in needed.items()
+             if reported[key] < count}
+    assert short == {}
+
+
+def test_p_classifies_an_indirect_callee_and_a_macro_spelled_one(syntax, tables):
+    """P's slot takes any call, and its three non-recognized outcomes.
+
+    Each was unreachable at review: `_calls` discarded non-identifier callees
+    so `indirect_callee` could not fire, `recognized(None)` raised on one, and
+    `enumerate_p` never consulted the macro classifier it was handed.
+    """
+    module = _load("enumerate")
+    cases = {
+        b"""
+#define MUL16(a, b) _mm_mullo_epi16((a), (b))
+void f(__m128i a, __m128i b, void (*fp)(__m128i)) {
+    __m128i m = _mm_cmpgt_epi32(a, b);
+    MUL16(m, b);
+}
+""": "macro_spelled",
+        b"""
+void f(__m128i a, __m128i b) {
+    __m128i m = _mm_cmpgt_epi32(a, b);
+    scramble(m);
+}
+""": "unrecognized_consumer",
+        b"""
+void f(__m128i a, __m128i b, __m128i (*fp)(__m128i)) {
+    __m128i m = _mm_cmpgt_epi32(a, b);
+    (*fp)(m);
+}
+""": "indirect_callee",
+    }
+    for source, expected in cases.items():
+        root = syntax.parse(source).root_node
+        index = syntax.index_preorder(root)
+        calls = []
+        for node in syntax.walk(root):
+            if node.type != "call_expression":
+                continue
+            function = node.child_by_field_name("function")
+            name = (
+                syntax.normalized(function, source)
+                if function is not None and function.type == "identifier"
+                else None
+            )
+            calls.append(
+                module.Call(
+                    node=node,
+                    name=name,
+                    position=syntax.Position(node.start_byte, node.end_byte, index[node.id]),
+                    where=f"x.c:{node.start_point[0] + 1}:{node.start_point[1] + 1}",
+                )
+            )
+        calls.sort(key=lambda c: c.position)
+        calls = [c for c in calls if syntax.enclosing_function(c.node) is not None]
+        definitions = module._macro_definitions(source, root)
+        found = module.enumerate_p(source, calls, definitions)
+        reasons = [r.reason for a in found for r in a.records]
+        assert reasons == [expected], (expected, reasons)
+
+
+def test_m_requires_its_first_insert_to_consume_the_run_lvalue(syntax):
+    """`v = _mm_insert_epi16(w, ...)` starts no run over `v`.
+
+    Admitting it made a length-three run out of one insert into another
+    vector followed by two into this one.
+    """
+    module = _load("enumerate")
+    source = b"""
+void f(__m128i v, __m128i w, int x, int y, int z) {
+    v = _mm_insert_epi16(w, x, 0);
+    v = _mm_insert_epi16(v, y, 1);
+    v = _mm_insert_epi16(v, z, 2);
+    (void)v;
+}
+"""
+    root = syntax.parse(source).root_node
+    index = syntax.index_preorder(root)
+    calls = []
+    for node in syntax.walk(root):
+        if node.type != "call_expression":
+            continue
+        function = node.child_by_field_name("function")
+        calls.append(
+            module.Call(
+                node=node,
+                name=syntax.normalized(function, source) if function is not None else None,
+                position=syntax.Position(node.start_byte, node.end_byte, index[node.id]),
+                where=f"x.c:{node.start_point[0] + 1}:{node.start_point[1] + 1}",
+            )
+        )
+    calls.sort(key=lambda c: c.position)
+    found = module.enumerate_m(source, calls)
+    admitted = [r for a in found for r in a.records if r.verdict == "admitted"]
+    # The run over `v` is the two inserts that consume it, below the
+    # threshold of three, so nothing is admitted.
+    assert admitted == []

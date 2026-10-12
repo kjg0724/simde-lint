@@ -1362,6 +1362,174 @@ work SIMDe is doing.
 That is an adjudicated slice of one file, 8/8 and 4/4 within it. It is not
 rule F's recall on a corpus and must not be read as one.
 
+### Recall over a declared grammar, on the holdout
+
+The slice above is one file chosen by hand. This is the same question asked
+over the whole holdout, against a grammar fixed before any enumerator existed
+and before any figure from one had been seen: `docs/precision/grammar.md`.
+It says which relations an enumerator may claim to have enumerated
+completely, counts a blocked relation as excluded with a reason rather than
+scoring it as a negative, and fixes in advance what may be published at each
+level of coverage -- so that the form of a claim cannot be chosen to suit its
+number. It also says what it cannot see: a participant spelled through a
+`#define` is invisible to the F, W and M searches rather than counted by
+them, and a parse failure severe enough to stop an anchor being identified
+leaves no record anywhere.
+
+`docs/precision/recall/` implements it in four enumerators that import no
+`simde_lint`, which a test checks by matching import statements rather than
+by promising it. They share `tree_sitter_cpp` with the tool, which the
+grammar records as a disclosed dependency and not as independence.
+
+```
+$ uv run python3 docs/precision/recall/enumerate.py \
+      "$SIMDE_LINT_VVDEC/source/Lib/CommonLib/x86"
+```
+
+| | F | W | P | M |
+|---|---:|---:|---:|---:|
+| candidate anchors | 315 | 29 | 14 | 0 |
+| in a function that does not parse | 167 | 21 | 3 | 0 |
+| anchors generating a relation | 264 | 9 | 14 | 0 |
+| prospective relations | 912 | 32 | 14 | 0 |
+| admitted | 73 | 4 | 2 | 0 |
+| not attributed to this anchor | 13 | 0 | 0 | 0 |
+| excluded | 549 | 26 | 3 | 0 |
+| negatives | 290 | 2 | 9 | 0 |
+
+A **negative** is a searched pair with no relation and nothing observably
+blocking one -- two calls that simply have nothing to do with each other. It
+is in the prospective population because the search put it there, and it is
+not an exclusion. **Not attributed to this anchor** is the rule's own unit at
+work: one add belongs to one multiply, so where several products reach one
+add the relation whose anchor comes first by the grammar's position key is
+the one the finding is attributed to.
+
+F's exclusions are `parse_error` 466, `rebound_between` 74 and
+`control_between` 9; W's are `parse_error` 14 and `rebound_between` 12; P's
+are `parse_error` 3. F's admitted relations are all direct: the
+one-conversion stratum's **population is zero** on this corpus, so recall for
+it is not estimable rather than zero.
+
+**Coverage, and what it permits.** An anchor in a function containing an
+`ERROR` or `MISSING` node is not adjudicated, by the grammar's own rule, so
+those anchors cap what any amount of hand work can reach:
+
+| rule | adjudicable / all anchors | adjudicable / generating a relation | what may be published |
+|---|---:|---:|---|
+| F | 148 / 315 = 47.0% | 112 / 264 = 42.4% | eligible slice only |
+| W | 8 / 29 = 27.6% | 2 / 9 = 22.2% | eligible slice only |
+| P | 11 / 14 = 78.6% | 11 / 14 = 78.6% | slice-recall percentage |
+
+**The adjudication.** Every admitted relation on an adjudicable anchor was
+judged by reading the source, before comparing with what the tool reports.
+After the unit is applied -- one add, one finding -- that is 60 for F, 4 for
+W and 2 for P: 66 judgements, and all 66 are instances.
+
+**The adjudication did reject one, and the grammar then stopped admitting
+it.** `InterpolationFilterX86.h:724` is
+
+```cpp
+vsum = _mm256_add_epi32( vsum, _mm256_add_epi32(
+    _mm256_madd_epi16( vsrca0, vcoeff[2] ), _mm256_madd_epi16( vsrca1, vcoeff[3] ) ) );
+```
+
+Clause 2's nesting read any descendant of the argument list as reaching the
+consumer, so the first product reached both adds and the grammar admitted
+both relations. Only the inner one is a fusion opportunity: the outer add's
+operands are `vsum` and the inner add's *sum*, and there is no
+multiply-accumulate to apply to a sum. That was adjudicated a non-instance,
+and the reading it came from was then corrected: nesting means a **direct
+argument** of the consumer, which puts the shape outside the relation
+altogether rather than admitting it and relying on a reader to reject it. A
+path through any other call -- `add(acc, helper(mul(a, b)))` as much as a
+second add -- is a negative now, not an exclusion. So this paragraph records
+a judgement that no longer has to be made, which is where it belongs.
+
+The 66: 59 of F's 60 are the accumulate idiom, a `madd_epi16` product
+consumed by an `add_epi32`, with two `mullo_epi32` into `add_epi32` in
+`TrafoX86.h` and one in `InterPredX86.h` among them, and four
+`mullo_epi16` pairs feeding an `add_epi16` in `IntraPredX86.h` where one
+product is the accumulator and the other the multiply. W's four are two full
+eight-lane rebuilds, each counted twice because the unit is one consuming
+unpack. P's two are a `cmpgt_epi32` consumed by the `blendv_epi8` on the next
+line.
+
+**The tool reports all 66.** F 60 of 60, W 4 of 4, P 2 of 2, matched on rule,
+file and the anchor's line with multiplicity, since one line can hold several
+anchors -- matching as a set hid the nested-add divergence until the counts
+were compared.
+
+So:
+
+- **P: recall 2 of 2 on the eligible slice**, covering 78.6% of candidate
+  anchors, with three parse-failure exclusions and nine negatives.
+- **F: 60 of 60 on the eligible syntactic slice**, covering 47.0% of
+  candidate anchors. This is not rule F's recall on the corpus and does not
+  estimate it.
+- **W: 4 of 4 on the eligible syntactic slice**, covering 27.6% of candidate
+  anchors. The same caveat.
+- **M: not measurable on the VVdeC holdout.** The frozen M insert family has
+  zero candidate anchors in the corpus; the two rule M findings there are
+  `M.scalar_set_build`, which is outside the relation grammar. No holdout
+  recall percentage is reported. SVT-AV1 has 37 `M.scalar_insert_chain`
+  findings and could be measured, but that is a tuning corpus and would not
+  be holdout recall.
+
+**What a figure of 66 of 66 is worth.** It says that where the grammar can
+see a relation at all, the tool sees the same ones -- and the grammar can see
+between a quarter and four fifths of the candidate anchors, depending on the
+rule. These are relations spelled plainly enough for two independent readings
+to agree, which is a selection toward the easy cases and not a random sample
+of the mechanism. The three reasons the grammar cannot see more are measured
+rather than asserted: a function the parser cannot read (167 of F's 315
+anchors, 466 of its 549 exclusions), a binding reassigned between the
+producer and the consumer (74), and a control statement between them (9).
+None is evidence about the rules. The first is the shared-parser overlap
+Section 5 records, and the second and third are the reaching-definition
+question the grammar declines to answer -- the same question the rules answer
+with `reaches_on_every_path`, which is why an enumerator that answered it
+would not be independent.
+
+Ten defects the dry runs and review forced, all before any figure here was
+published, and all recorded in the grammar or in the code that had them:
+
+- The prospective search looked through the whole enclosing function and let
+  the sibling clause exclude the rest, which is quadratic in function size:
+  1117 of F's then-1397 prospective relations came back `not_siblings`,
+  pairs of calls in different blocks with nothing blocking them.
+- Clause 4 excluded a relation whenever the binding appeared inside any
+  intervening call, which removed the high half of every eight-lane rebuild
+  because the `unpacklo` between them passes the binding to a call. A
+  by-value allowlist fixes it.
+- `parse_error` was not applied as an exclusion at all: the anchor was
+  flagged and its relations went on being counted as admitted, so 466 of F's
+  exclusions were missing and relations were published as admitted from
+  functions the parser could not read.
+- P never consulted its own macro classifier, and `recognized(None)` raised on
+  an indirect callee, so three of its four declared outcomes could not fire.
+- M's first insert was not required to consume the run's lvalue, so one insert
+  into another vector followed by two into this one counted as a run of three.
+- F collected the reasons of its direct path only, so a pair the conversion
+  search had put in the population could come back a negative when a
+  conversion edge was in fact blocked; and the first fix merged them only
+  when one edge was admitted, which still discarded a path whose two edges
+  were separately blocked. One holdout relation is an exclusion rather than
+  a negative because of it.
+- Clause 2's nesting was transitive, which admitted a product as reaching an
+  add whose own operand was another add's sum.
+- Ownership of an add was keyed by `file:line`, which two calls on one line
+  share, so 68 relations claimed 60 adds. Records carry a column now, and the
+  grammar says why.
+- `edge()` accepted a relation backwards in time, because the sibling and
+  binding tests alone do not imply order and `_statements_between` normalizes
+  it. The "lies between" test built on it then reported an earlier accumulate
+  as lying between a later multiply and its own add, on twelve holdout
+  relations.
+- Node identity is `.id`, never `is`: tree-sitter hands out a fresh wrapper
+  on every access, so no M run ever extended past its first insert -- 45
+  anchors and no relations, on fixtures containing four-insert chains.
+
 ### Every miss has one cause, and it is not the rules
 
 All eleven sit in `InterpolationFilterX86.h`, between lines 3145 and 3296.
