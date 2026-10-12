@@ -166,10 +166,14 @@ first-claim rule below encodes.
 ### Normalized text, and what equality means
 
 Wherever this file says two pieces of source are equal, it means their
-**normalized text** is equal byte for byte: the parse-tree text of the node
-with comment nodes removed and every run of whitespace replaced by one space,
-trimmed. Nothing else is normalized -- no case folding, no parenthesis
-removal, no reordering.
+**normalized text** is equal: the node's non-comment leaf tokens, in source
+order, joined by one space. So `f(a,b)` and `f(a, b)` are equal and
+`_mm_mullo_epi16(a, b)` and `_mm_mulhi_epi16(a,b)` have equal argument lists,
+which is what "equal as written" has to mean to be usable -- a definition
+under which two spellings of one argument list differ by a space would make
+rule W's pair test fail on formatting. Nothing else is normalized: no case
+folding, no parenthesis removal, no reordering, and no token elided. `(1)` and
+`1` are not equal; `( 1 )` and `(1)` are.
 
 **Stripping.** Where a clause asks whether a call expression "is" an
 expression, the expression is first reduced by removing enclosing parentheses
